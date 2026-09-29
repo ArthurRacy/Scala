@@ -1,0 +1,107 @@
+﻿INDICADOR;MÊS;EVENTOS;COM INFORMAÇÃO;ELEGÍVEIS;TAXA (%)
+Óbito em até 24 horas;2026-07;0;4;5;0
+Óbito em até 24 horas;2026-08;0;6;7;0
+Óbito em até 24 horas;2026-09;0;5;6;0
+Óbito em até 48 horas;2026-07;0;4;5;0
+Óbito em até 48 horas;2026-08;0;6;7;0
+Óbito em até 48 horas;2026-09;0;5;6;0
+Óbito em até 30 dias;2026-07;0;3;5;0
+Óbito em até 30 dias;2026-08;0;4;7;0
+Óbito em até 30 dias;2026-09;0;0;6;
+Parada cardiorrespiratória na sala cirúrgica;2026-07;0;4;5;0
+Parada cardiorrespiratória na sala cirúrgica;2026-08;0;6;7;0
+Parada cardiorrespiratória na sala cirúrgica;2026-09;0;5;6;0
+Despertar intraoperatório com recordação explícita;2026-07;0;3;4;0
+Despertar intraoperatório com recordação explícita;2026-08;0;5;6;0
+Despertar intraoperatório com recordação explícita;2026-09;0;5;5;0
+Disfunção neurológica perioperatória;2026-07;0;4;5;0
+Disfunção neurológica perioperatória;2026-08;0;6;7;0
+Disfunção neurológica perioperatória;2026-09;0;5;6;0
+Intubação ou ventilação difícil;2026-07;0;3;4;0
+Intubação ou ventilação difícil;2026-08;0;5;6;0
+Intubação ou ventilação difícil;2026-09;1;5;5;20
+Intubação esofágica;2026-07;0;3;3;0
+Intubação esofágica;2026-08;0;5;5;0
+Intubação esofágica;2026-09;0;5;5;0
+Broncoaspiração pulmonar perioperatória;2026-07;0;4;5;0
+Broncoaspiração pulmonar perioperatória;2026-08;0;6;7;0
+Broncoaspiração pulmonar perioperatória;2026-09;0;5;6;0
+Reintubação não planejada em até 24 horas;2026-07;0;3;3;0
+Reintubação não planejada em até 24 horas;2026-08;0;5;5;0
+Reintubação não planejada em até 24 horas;2026-09;0;5;5;0
+Hipoxemia intraoperatória;2026-07;1;4;5;25
+Hipoxemia intraoperatória;2026-08;0;6;7;0
+Hipoxemia intraoperatória;2026-09;1;5;6;20
+Hipotensão intraoperatória;2026-07;2;4;5;50
+Hipotensão intraoperatória;2026-08;0;6;7;0
+Hipotensão intraoperatória;2026-09;2;5;6;40
+Hipertensão grave no intraoperatório;2026-07;0;4;5;0
+Hipertensão grave no intraoperatório;2026-08;0;6;7;0
+Hipertensão grave no intraoperatório;2026-09;0;5;6;0
+Isquemia ou infarto do miocárdio perioperatório;2026-07;0;4;5;0
+Isquemia ou infarto do miocárdio perioperatório;2026-08;0;6;7;0
+Isquemia ou infarto do miocárdio perioperatório;2026-09;0;5;6;0
+Vasopressor não planejado;2026-07;1;4;5;25
+Vasopressor não planejado;2026-08;0;6;7;0
+Vasopressor não planejado;2026-09;1;5;6;20
+Náusea pós-operatória;2026-07;1;4;5;25
+Náusea pós-operatória;2026-08;2;6;7;33,3
+Náusea pós-operatória;2026-09;1;5;6;20
+Vômito pós-operatório;2026-07;0;4;5;0
+Vômito pós-operatório;2026-08;1;6;7;16,7
+Vômito pós-operatório;2026-09;1;5;6;20
+Dor forte na SRPA;2026-07;1;4;5;25
+Dor forte na SRPA;2026-08;1;6;7;16,7
+Dor forte na SRPA;2026-09;0;5;6;0
+Hipotermia na chegada à SRPA;2026-07;1;4;5;25
+Hipotermia na chegada à SRPA;2026-08;1;6;7;16,7
+Hipotermia na chegada à SRPA;2026-09;1;5;6;20
+Bloqueio neuromuscular residual;2026-07;0;3;3;0
+Bloqueio neuromuscular residual;2026-08;0;5;5;0
+Bloqueio neuromuscular residual;2026-09;1;5;5;20
+Lesão de córnea;2026-07;0;4;5;0
+Lesão de córnea;2026-08;0;6;7;0
+Lesão de córnea;2026-09;0;5;6;0
+Lesão relacionada ao posicionamento;2026-07;0;4;5;0
+Lesão relacionada ao posicionamento;2026-08;0;6;7;0
+Lesão relacionada ao posicionamento;2026-09;0;5;6;0
+Checklist de segurança cirúrgica completo;2026-07;3;4;5;75
+Checklist de segurança cirúrgica completo;2026-08;5;6;7;83,3
+Checklist de segurança cirúrgica completo;2026-09;5;5;6;100
+Capnografia contínua quando indicada;2026-07;3;3;3;100
+Capnografia contínua quando indicada;2026-08;5;5;5;100
+Capnografia contínua quando indicada;2026-09;5;5;5;100
+Profilaxia antibiótica no tempo;2026-07;3;4;4;75
+Profilaxia antibiótica no tempo;2026-08;5;6;6;83,3
+Profilaxia antibiótica no tempo;2026-09;5;5;5;100
+Monitorização de profundidade quando indicada;2026-07;3;3;3;100
+Monitorização de profundidade quando indicada;2026-08;3;5;5;60
+Monitorização de profundidade quando indicada;2026-09;4;5;5;80
+Adesão ao protocolo de via aérea difícil;2026-08;1;1;1;100
+Carrinho de via aérea difícil checado;2026-07;4;4;5;100
+Carrinho de via aérea difícil checado;2026-08;6;6;7;100
+Carrinho de via aérea difícil checado;2026-09;5;5;6;100
+Avaliação pré-anestésica documentada e completa;2026-07;3;4;5;75
+Avaliação pré-anestésica documentada e completa;2026-08;5;6;7;83,3
+Avaliação pré-anestésica documentada e completa;2026-09;5;5;6;100
+Medidas de prevenção de hipotermia;2026-07;3;4;5;75
+Medidas de prevenção de hipotermia;2026-08;4;6;7;66,7
+Medidas de prevenção de hipotermia;2026-09;4;5;6;80
+Jejum pré-operatório adequado;2026-07;4;4;5;100
+Jejum pré-operatório adequado;2026-08;6;6;7;100
+Jejum pré-operatório adequado;2026-09;5;5;6;100
+Monitorização neuromuscular quando há bloqueador;2026-07;2;3;3;66,7
+Monitorização neuromuscular quando há bloqueador;2026-08;4;5;5;80
+Monitorização neuromuscular quando há bloqueador;2026-09;4;5;5;80
+Relação TOF adequada antes da saída;2026-07;2;2;2;100
+Relação TOF adequada antes da saída;2026-08;4;4;4;100
+Relação TOF adequada antes da saída;2026-09;3;4;4;75
+Profilaxia de náusea e vômito quando indicada;2026-07;4;4;4;100
+Profilaxia de náusea e vômito quando indicada;2026-08;5;6;6;83,3
+Profilaxia de náusea e vômito quando indicada;2026-09;4;5;5;80
+Passagem de cuidado registrada;2026-07;4;4;5;100
+Passagem de cuidado registrada;2026-08;6;6;7;100
+Passagem de cuidado registrada;2026-09;5;5;6;100
+Pesquisa de satisfação aplicada;2026-07;2;4;5;50
+Pesquisa de satisfação aplicada;2026-08;4;6;7;66,7
+Pesquisa de satisfação aplicada;2026-09;3;5;6;60

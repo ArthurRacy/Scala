@@ -1,0 +1,15 @@
+# Dados reais e locais: nunca vão para o repositório
+dados_servidor/
+saida/*.xlsx
+*.xlsx
+*.pem
+
+# Ferramentas e cache locais
+.claude/
+.impeccable/
+__pycache__/
+*.pyc
+node_modules/
+
+# Gerado por tools/gerar_versao_online.py (a página do GitHub Pages é o index.html da raiz)
+publicacao/

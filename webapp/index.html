@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Sistema de gestão operacional e financeira para o serviço de anestesiologia: escala, cirurgias, avaliações pré-anestésicas, horas e faturamento.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#15563f">
+<!-- Política de conteúdo: só scripts do próprio sistema (nenhum CDN, nenhum
+     script inline), nada de plugin, e nenhum dado sai para outro endereço.
+     Estilos inline são permitidos porque os gráficos e o quadro posicionam
+     elementos por atributo style. tools/servir.py manda a mesma política
+     como cabeçalho HTTP, com frame-ancestors (que não vale em <meta>). -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>Sistema de Gestão e Escala de Anestesia</title>
+
+<link rel="icon" type="image/png" href="public/logo.png">
+
+<link rel="preload" href="public/fonts/inter-latin-wght.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<noscript>
+  <div style="max-width:620px;margin:56px auto;padding:24px;font:14px/1.6 system-ui,sans-serif;
+              border:1px solid #e3e7ec;border-radius:14px;background:#fff">
+    <h1 style="font-size:19px;margin:0 0 10px">JavaScript desativado</h1>
+    <p style="margin:0">Este sistema faz todos os cálculos no próprio navegador, sem enviar dado nenhum
+    para fora. Para isso o JavaScript precisa estar ativado.</p>
+  </div>
+</noscript>
+
+<!-- ==========================================================================
+     CORE — lógica de negócio, na ordem de dependência.
+     A MESMA ordem é usada por core/index.js (Node) e pelo Apps Script, que
+     concatena os arquivos por nome. Manter os prefixos numéricos é o que
+     garante que os três ambientes se comportem igual.
+     ========================================================================== -->
+<script src="../core/00_config.js"></script>
+<script src="../core/01_schema.js"></script>
+<script src="../core/02_util.js"></script>
+<script src="../core/02b_calendario.js"></script>
+<script src="../core/03_dominios.js"></script>
+<script src="../core/04_rodizio.js"></script>
+<script src="../core/05_cirurgias.js"></script>
+<script src="../core/05b_procedimentos.js"></script>
+<script src="../core/06_avaliacoes.js"></script>
+<script src="../core/06b_boletim.js"></script>
+<script src="../core/06c_qualidade.js"></script>
+<script src="../core/06d_estrutura.js"></script>
+<script src="../core/07_horas.js"></script>
+<script src="../core/08_financeiro.js"></script>
+<script src="../core/09_indicadores.js"></script>
+<script src="../core/09b_repasse.js"></script>
+<script src="../core/09c_qualidade_painel.js"></script>
+<script src="../core/10_dashboard.js"></script>
+<script src="../core/10b_retencao.js"></script>
+<script src="../core/11_log.js"></script>
+<script src="../core/12_store.js"></script>
+
+<!-- Dados mestres extraídos da planilha (15 anestesistas + escala-base).
+     Gerado por: python tools/gerar_seed_js.py -->
+<script src="js/seed.js"></script>
+
+<!-- APLICAÇÃO -->
+<!-- base: ponte com o core, DOM, componentes, gráficos -->
+<script src="js/00_modo.js"></script>
+<script src="js/00_bootstrap.js"></script>
+<script src="js/01_ui.js"></script>
+<script src="js/01b_componentes.js"></script>
+<script src="js/02_graficos.js"></script>
+
+<!-- serviços: persistência, anexos, PDF -->
+<script src="js/03_dados.js"></script>
+<script src="js/03a_anexos.js"></script>
+<script src="js/03b_pdf.js"></script>
+<script src="js/03c_tcle.js"></script>
+<script src="js/03d_guarda.js"></script>
+<script src="js/03e_boletim_pdf.js"></script>
+<script src="js/03f_qualidade_pdf.js"></script>
+<script src="js/03h_pptx.js"></script>
+<script src="js/03g_servidor.js"></script>
+
+<!-- telas: cada uma se registra em TELAS; a ordem entre elas não importa -->
+<script src="js/telas/painel.js"></script>
+<script src="js/telas/escala.js"></script>
+<script src="js/telas/quadro.js"></script>
+<script src="js/telas/cirurgias.js"></script>
+<script src="js/telas/avaliacoes.js"></script>
+<script src="js/telas/boletim.js"></script>
+<script src="js/telas/qualidade.js"></script>
+<script src="js/telas/painel_qualidade.js"></script>
+<script src="js/telas/estrutura.js"></script>
+<script src="js/telas/horas.js"></script>
+<script src="js/telas/financeiro.js"></script>
+<script src="js/telas/repasse.js"></script>
+<script src="js/telas/indicadores.js"></script>
+<script src="js/telas/anestesistas.js"></script>
+<script src="js/telas/clinica.js"></script>
+<script src="js/telas/integridade.js"></script>
+<script src="js/telas/log.js"></script>
+<script src="js/telas/usuarios.js"></script>
+<script src="js/telas/dados.js"></script>
+
+<!-- casca: navegação e ciclo de vida (por último: dá a partida) -->
+<script src="js/06_app.js"></script>
+
+</body>
+</html>

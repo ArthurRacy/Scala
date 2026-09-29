@@ -1,0 +1,327 @@
+/**
+ * ============================================================================
+ * seed.js — Dados mestres da planilha (ARQUIVO GERADO, NAO EDITE A MAO)
+ * ============================================================================
+ * Origem : Cópia de Escala_Total_Anestesia.xlsx
+ * Gerado : 2026-09-14 13:43:46
+ * Conteudo: 15 anestesistas e 30 postos na escala-base.
+ *
+ * Para atualizar depois de mexer na planilha:
+ *     python tools/extrair_dados.py "<planilha.xlsx>"
+ *     python tools/gerar_seed_js.py
+ *
+ * Este arquivo so e usado quando o navegador ainda nao tem nada salvo. A
+ * partir da primeira gravacao, a verdade passa a ser o localStorage, e o
+ * seed serve apenas de ponto de partida para uma instalacao nova.
+ * ============================================================================
+ */
+'use strict';
+
+var SEED_INICIAL = {
+ "origem": "Cópia de Escala_Total_Anestesia.xlsx",
+ "extraidoEm": "2026-09-14 13:43:46",
+ "ANESTESISTAS": [
+  {
+   "id": "A01",
+   "nome": "Roberta Almeida",
+   "ativo": "Sim",
+   "telefone": "",
+   "email": "",
+   "obs": ""
+  },
+  {
+   "id": "A02",
+   "nome": "Priscilla De Carli",
+   "ativo": "Sim",
+   "telefone": "",
+   "email": "",
+   "obs": ""
+  },
+  {
+   "id": "A03",
+   "nome": "Felipe Sampaio",
+   "ativo": "Sim",
+   "telefone": "",
+   "email": "",
+   "obs": ""
+  },
+  {
+   "id": "A04",
+   "nome": "Maria Catarina",
+   "ativo": "Sim",
+   "telefone": "",
+   "email": "",
+   "obs": ""
+  },
+  {
+   "id": "A05",
+   "nome": "Heloísa Roncolato",
+   "ativo": "Sim",
+   "telefone": "",
+   "email": "",
+   "obs": ""
+  },
+  {
+   "id": "A06",
+   "nome": "Fabrício Tavares",
+   "ativo": "Sim",
+   "telefone": "",
+   "email": "",
+   "obs": ""
+  },
+  {
+   "id": "A07",
+   "nome": "Tiago Tolentino",
+   "ativo": "Sim",
+   "telefone": "",
+   "email": "",
+   "obs": ""
+  },
+  {
+   "id": "A08",
+   "nome": "Marcus Vinícius",
+   "ativo": "Sim",
+   "telefone": "",
+   "email": "",
+   "obs": ""
+  },
+  {
+   "id": "A09",
+   "nome": "Alene Cunha",
+   "ativo": "Sim",
+   "telefone": "",
+   "email": "",
+   "obs": ""
+  },
+  {
+   "id": "A10",
+   "nome": "Brunna Cintra",
+   "ativo": "Sim",
+   "telefone": "",
+   "email": "",
+   "obs": ""
+  },
+  {
+   "id": "A11",
+   "nome": "João Américo",
+   "ativo": "Sim",
+   "telefone": "",
+   "email": "",
+   "obs": ""
+  },
+  {
+   "id": "A12",
+   "nome": "Carlos Eduardo Lopes",
+   "ativo": "Sim",
+   "telefone": "",
+   "email": "",
+   "obs": ""
+  },
+  {
+   "id": "A13",
+   "nome": "Rayanne Baggio",
+   "ativo": "Sim",
+   "telefone": "",
+   "email": "",
+   "obs": ""
+  },
+  {
+   "id": "A14",
+   "nome": "Amanda de Souza",
+   "ativo": "Sim",
+   "telefone": "",
+   "email": "",
+   "obs": ""
+  },
+  {
+   "id": "A15",
+   "nome": "Maria Fernanda",
+   "ativo": "Sim",
+   "telefone": "",
+   "email": "",
+   "obs": ""
+  }
+ ],
+ "ESCALA_BASE": [
+  {
+   "dia": "SEGUNDA-FEIRA",
+   "posicao": 1,
+   "nome": "Brunna Cintra",
+   "id": "A10"
+  },
+  {
+   "dia": "",
+   "posicao": 2,
+   "nome": "Felipe Sampaio",
+   "id": "A03"
+  },
+  {
+   "dia": "",
+   "posicao": 3,
+   "nome": "Heloísa Roncolato",
+   "id": "A05"
+  },
+  {
+   "dia": "",
+   "posicao": 4,
+   "nome": "Maria Catarina",
+   "id": "A04"
+  },
+  {
+   "dia": "",
+   "posicao": 5,
+   "nome": "Tiago Tolentino",
+   "id": "A07"
+  },
+  {
+   "dia": "TERÇA-FEIRA",
+   "posicao": 1,
+   "nome": "Alene Cunha",
+   "id": "A09"
+  },
+  {
+   "dia": "",
+   "posicao": 2,
+   "nome": "Fabrício Tavares",
+   "id": "A06"
+  },
+  {
+   "dia": "",
+   "posicao": 3,
+   "nome": "Marcus Vinícius",
+   "id": "A08"
+  },
+  {
+   "dia": "",
+   "posicao": 4,
+   "nome": "Priscilla De Carli",
+   "id": "A02"
+  },
+  {
+   "dia": "",
+   "posicao": 5,
+   "nome": "Roberta Almeida",
+   "id": "A01"
+  },
+  {
+   "dia": "QUARTA-FEIRA",
+   "posicao": 1,
+   "nome": "Alene Cunha",
+   "id": "A09"
+  },
+  {
+   "dia": "",
+   "posicao": 2,
+   "nome": "Brunna Cintra",
+   "id": "A10"
+  },
+  {
+   "dia": "",
+   "posicao": 3,
+   "nome": "Maria Catarina",
+   "id": "A04"
+  },
+  {
+   "dia": "",
+   "posicao": 4,
+   "nome": "Roberta Almeida",
+   "id": "A01"
+  },
+  {
+   "dia": "",
+   "posicao": 5,
+   "nome": "Tiago Tolentino",
+   "id": "A07"
+  },
+  {
+   "dia": "QUINTA-FEIRA",
+   "posicao": 1,
+   "nome": "Fabrício Tavares",
+   "id": "A06"
+  },
+  {
+   "dia": "",
+   "posicao": 2,
+   "nome": "Heloísa Roncolato",
+   "id": "A05"
+  },
+  {
+   "dia": "",
+   "posicao": 3,
+   "nome": "Marcus Vinícius",
+   "id": "A08"
+  },
+  {
+   "dia": "",
+   "posicao": 4,
+   "nome": "Maria Fernanda",
+   "id": "A15"
+  },
+  {
+   "dia": "",
+   "posicao": 5,
+   "nome": "Priscilla De Carli",
+   "id": "A02"
+  },
+  {
+   "dia": "SEXTA-FEIRA",
+   "posicao": 1,
+   "nome": "Amanda de Souza",
+   "id": "A14"
+  },
+  {
+   "dia": "",
+   "posicao": 2,
+   "nome": "Carlos Eduardo Lopes",
+   "id": "A12"
+  },
+  {
+   "dia": "",
+   "posicao": 3,
+   "nome": "João Américo",
+   "id": "A11"
+  },
+  {
+   "dia": "",
+   "posicao": 4,
+   "nome": "Maria Fernanda",
+   "id": "A15"
+  },
+  {
+   "dia": "",
+   "posicao": 5,
+   "nome": "Rayanne Baggio",
+   "id": "A13"
+  },
+  {
+   "dia": "SÁBADO",
+   "posicao": 1,
+   "nome": "Amanda de Souza",
+   "id": "A14"
+  },
+  {
+   "dia": "",
+   "posicao": 2,
+   "nome": "Carlos Eduardo Lopes",
+   "id": "A12"
+  },
+  {
+   "dia": "",
+   "posicao": 3,
+   "nome": "Felipe Sampaio",
+   "id": "A03"
+  },
+  {
+   "dia": "",
+   "posicao": 4,
+   "nome": "João Américo",
+   "id": "A11"
+  },
+  {
+   "dia": "",
+   "posicao": 5,
+   "nome": "Rayanne Baggio",
+   "id": "A13"
+  }
+ ]
+};
