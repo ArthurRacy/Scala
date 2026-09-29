@@ -1129,6 +1129,11 @@ body.arrastando-quadro { user-select: none; -webkit-user-select: none; cursor: g
 .pilha { display: flex; flex-direction: column; gap: var(--e4); }
 .pilha-pq { display: flex; flex-direction: column; gap: var(--e2); }
 
+/* Título de seção numerada (painel de qualidade: 3. desfecho, 4. processo…) */
+.secao-numerada { margin-top: var(--e3); padding-bottom: var(--e2); border-bottom: 1px solid var(--borda); }
+.secao-numerada h3 { margin: 0; font-size: 17px; }
+.secao-numerada p { margin: 2px 0 0; color: var(--texto-suave); font-size: 13px; }
+
 .t-suave { color: var(--texto-suave); }
 .t-medio { color: var(--texto-medio); }
 .t-pq { font-size: var(--t-2); }

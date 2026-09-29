@@ -16,6 +16,10 @@ coluna ou valor de domínio.
 As regras de negócio moram em `core/` e são **as mesmas nos três caminhos** —
 não existe "a conta do site", "a conta do servidor" e "a conta da planilha".
 
+**Demonstração online:** <https://arthurracy.github.io/Scala/> — abre com dados
+fictícios de exemplo; o que cada pessoa lança fica só no navegador dela. **Não use
+dado real de paciente nela.**
+
 ---
 
 ## Começar em 30 segundos
@@ -378,6 +382,22 @@ registra no log — e desfaz tudo se algo falhar.
 **Minutos, não horas fracionárias.** Toda duração é acumulada em minutos
 inteiros e convertida uma única vez no fim. Somar `10/60` vinte vezes acumula
 erro; somar `10` vinte vezes não.
+
+---
+
+## Publicação no GitHub Pages
+
+A página de demonstração é o `index.html` da raiz (tudo embutido), servido pelo
+GitHub Pages a partir da branch `main`. Depois de mudar qualquer arquivo do
+sistema, gere de novo e envie:
+
+```bash
+python tools/gerar_versao_online.py index.html --completo
+git add -A && git commit -m "Atualiza a página online" && git push
+```
+
+`saida/*.xlsx`, `dados_servidor/` e chaves `.pem` ficam fora do repositório
+(`.gitignore`): planilha real, dados de pacientes e certificados nunca sobem.
 
 ---
 

@@ -197,6 +197,21 @@ TELAS.painel_qualidade = (function () {
     });
   }
 
+  /** Seções numeradas do pedido: cada grupo do catálogo cai na seção do seu `tipo`. */
+  var SECOES_INDICADORES = {
+    desfecho: { numero: 3, titulo: 'Indicadores de desfecho por paciente',
+      nota: 'Menor é melhor · eventos registrados na ficha de cada atendimento' },
+    processo: { numero: 4, titulo: 'Indicadores de processo',
+      nota: 'Maior é melhor · adesão às práticas seguras, com intervalos calculados' }
+  };
+
+  function cabecalhoSecao(numero, titulo, nota) {
+    return el('div', { class: 'secao-numerada' }, [
+      el('h3', null, numero + '. ' + titulo),
+      el('p', null, nota)
+    ]);
+  }
+
   function abaIndicadores(app, painel) {
     var raiz = el('div', { class: 'pilha' });
     var c = painel.completude;
@@ -221,9 +236,15 @@ TELAS.painel_qualidade = (function () {
         ])]));
     }
 
+    var secaoAtual = null;
     gruposQualidade().forEach(function (grupo) {
       var linhas = painel.indicadores.filter(function (i) { return i.grupo === grupo; });
       if (!linhas.length) return;
+      var secao = SECOES_INDICADORES[linhas[0].tipo];
+      if (secao && secao !== secaoAtual) {
+        secaoAtual = secao;
+        raiz.appendChild(cabecalhoSecao(secao.numero, secao.titulo, secao.nota));
+      }
       raiz.appendChild(el('div', { class: 'cartao' }, [
         cab(grupo, linhas.length + ' indicador(es)'),
         el('div', { class: 'cartao-corpo' }, [
@@ -253,6 +274,8 @@ TELAS.painel_qualidade = (function () {
 
     var s = painel.satisfacao;
     var e = painel.estrutura;
+    raiz.appendChild(cabecalhoSecao('5 e 6', 'Estrutura, satisfação e transição de cuidado',
+      'Registros da coordenação por unidade, sala e turno, e a experiência do paciente'));
     raiz.appendChild(el('div', { class: 'grade grade-2' }, [
       el('div', { class: 'cartao' }, [
         cab('Satisfação do paciente', 'Experiência com a anestesia'),
