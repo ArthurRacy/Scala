@@ -81,7 +81,7 @@ function lerConfigQualidade(bruto) {
     base.referencias[i.chave] = {
       fonte: fonte,
       versao: txt(r.versao).slice(0, 60),
-      revisadaEm: paraData(r.revisadaEm) || ''
+      revisadaEm: dataValida(paraData(r.revisadaEm)) ? paraData(r.revisadaEm) : ''
     };
   });
 
@@ -94,11 +94,75 @@ function lerConfigQualidade(bruto) {
   base.aprovacao = {
     responsavel: txt(ap.responsavel).slice(0, 120),
     crm: txt(ap.crm).slice(0, 30),
-    em: paraData(ap.em) || '',
+    em: dataValida(paraData(ap.em)) ? paraData(ap.em) : '',
     versao: txt(ap.versao).slice(0, 40),
     obs: txt(ap.obs).slice(0, 1000)
   };
   return base;
+}
+
+/**
+ * Faixa que cada limiar aceita na TELA: sanidade fisiológica, não norma. A
+ * leitura de backup continua tolerante (valor fora da faixa vira o padrão);
+ * quem digita, ao contrário, precisa saber que o valor foi recusado.
+ */
+var FAIXAS_LIMIARES_QUALIDADE = {
+  spo2:              { rotulo: 'SpO₂ mínima aceitável', min: 50, max: 100, unidade: '%' },
+  pam:               { rotulo: 'PAM mínima aceitável', min: 20, max: 150, unidade: 'mmHg' },
+  pasGrave:          { rotulo: 'PA sistólica de hipertensão grave', min: 120, max: 300, unidade: 'mmHg' },
+  temperatura:       { rotulo: 'Temperatura mínima na chegada à SRPA', min: 30, max: 40, unidade: '°C' },
+  dor:               { rotulo: 'Pontuação de dor considerada forte', min: 0, max: 10 },
+  tof:               { rotulo: 'Relação TOF adequada', min: 0.5, max: 1.5 },
+  jejumSolidos:      { rotulo: 'Jejum mínimo para sólidos', min: 0, max: 48, unidade: 'h' },
+  jejumLiquidos:     { rotulo: 'Jejum mínimo para líquidos', min: 0, max: 24, unidade: 'h' },
+  antibioticoJanela: { rotulo: 'Janela do antibiótico antes da incisão', min: 1, max: 480, unidade: 'min' }
+};
+
+/**
+ * Confere a configuração digitada ANTES de guardar. Limiar ou meta em branco
+ * volta ao padrão; o que foi digitado e não vale (texto, fora da faixa, data
+ * que não existe) vira erro — em vez de ser trocado em silêncio pelo padrão,
+ * como a leitura tolerante faz. Devolve [{ campo, msg }].
+ */
+function validarConfigQualidade(bruto) {
+  var erros = [];
+  var c = bruto && typeof bruto === 'object' && !Array.isArray(bruto) ? bruto : {};
+  function br(n) { return String(n).replace('.', ','); }
+
+  var lim = c.limiares && typeof c.limiares === 'object' ? c.limiares : {};
+  Object.keys(FAIXAS_LIMIARES_QUALIDADE).forEach(function (k) {
+    if (vazio(lim[k])) return;
+    var f = FAIXAS_LIMIARES_QUALIDADE[k];
+    var n = paraNumero(lim[k]);
+    if (n === null) {
+      erros.push({ campo: 'limiar.' + k, msg: f.rotulo + ': "' + txt(lim[k]) + '" não é um número.' });
+    } else if (n < f.min || n > f.max) {
+      erros.push({ campo: 'limiar.' + k, msg: f.rotulo + ' ' + br(n) + ' fora da faixa aceita (' + br(f.min) + ' a ' +
+        br(f.max) + (f.unidade ? ' ' + f.unidade : '') + ').' });
+    }
+  });
+
+  var metas = c.metas && typeof c.metas === 'object' ? c.metas : {};
+  INDICADORES_QUALIDADE.forEach(function (i) {
+    if (vazio(metas[i.chave])) return;
+    var n = paraNumero(metas[i.chave]);
+    if (n === null || n < 0 || n > 100) {
+      erros.push({ campo: 'meta.' + i.chave, msg: 'Meta de "' + i.nome + '": informe um percentual de 0 a 100 (recebi "' + txt(metas[i.chave]) + '").' });
+    }
+  });
+
+  var ap = c.aprovacao && typeof c.aprovacao === 'object' ? c.aprovacao : {};
+  if (!vazio(ap.em) && !dataValida(paraData(ap.em))) {
+    erros.push({ campo: 'aprovacao.em', msg: 'Data da aprovação inválida: "' + txt(ap.em) + '".' });
+  }
+  var refs = c.referencias && typeof c.referencias === 'object' ? c.referencias : {};
+  INDICADORES_QUALIDADE.forEach(function (i) {
+    var r = refs[i.chave];
+    if (r && typeof r === 'object' && !vazio(r.revisadaEm) && !dataValida(paraData(r.revisadaEm))) {
+      erros.push({ campo: 'referencia.' + i.chave, msg: 'Data de revisão da fonte de "' + i.nome + '" inválida: "' + txt(r.revisadaEm) + '".' });
+    }
+  });
+  return erros;
 }
 
 /** A configuração está aprovada pelo responsável técnico? */
@@ -734,8 +798,10 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     LIMIARES_QUALIDADE_PADRAO: LIMIARES_QUALIDADE_PADRAO,
     INDICADORES_QUALIDADE: INDICADORES_QUALIDADE,
+    FAIXAS_LIMIARES_QUALIDADE: FAIXAS_LIMIARES_QUALIDADE,
     configQualidadePadrao: configQualidadePadrao,
     lerConfigQualidade: lerConfigQualidade,
+    validarConfigQualidade: validarConfigQualidade,
     configQualidadeAprovada: configQualidadeAprovada,
     indicadorQualidade: indicadorQualidade,
     gruposQualidade: gruposQualidade,

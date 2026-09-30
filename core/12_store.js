@@ -1425,6 +1425,11 @@ function criarStore(estadoInicial, opcoes) {
    */
   function salvarConfigQualidade(cfg) {
     return transacao(function (st, api) {
+      // Valor digitado que não vale é recusado com o motivo; a leitura abaixo
+      // (tolerante, feita para backup) trocaria por padrão sem avisar ninguém.
+      var invalidos = validarConfigQualidade(cfg);
+      if (invalidos.length) return { ok: false, erros: invalidos };
+
       var antes = lerConfigQualidade(st.config && st.config.qualidade);
       var nova = lerConfigQualidade(cfg);
       if (!st.config) st.config = {};

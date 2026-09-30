@@ -62,4 +62,64 @@ module.exports = function (t, core, dados) {
       verdadeiro(/maior que zero/.test(msgs), msgs);
     });
   });
+
+  /* ------------------------------------------------------------------ */
+
+  describe('ISSUE-009 — configuração clínica da qualidade', function () {
+    // Regression: ISSUE-009 — SpO₂ mínima 150 e TOF 2 eram aceitos; "abc" e -5
+    // voltavam ao padrão com o aviso "Configuração clínica salva".
+    // Found by /qa on 2026-09-29
+    // Report: .gstack/qa-reports/qa-report-localhost-2026-09-29.md
+
+    function msgs(r) { return (r.erros || []).map(function (e) { return e.msg; }).join(' | '); }
+
+    it('limiar impossível ou que não é número é recusado, com o motivo, e nada muda', function () {
+      var st = novoStore();
+      var antes = core.jsonCanonico(st.configQualidade());
+      [
+        [{ spo2: '150' }, /SpO₂ mínima aceitável 150 fora da faixa/],
+        [{ spo2: '-5' }, /fora da faixa/],
+        [{ spo2: 'abc' }, /"abc" não é um número/],
+        [{ tof: '2' }, /Relação TOF adequada 2 fora da faixa aceita \(0,5 a 1,5\)/],
+        [{ tof: '90' }, /fora da faixa/],
+        [{ jejumSolidos: '-3' }, /Jejum mínimo para sólidos/],
+        [{ dor: '11' }, /Pontuação de dor/],
+        [{ temperatura: '10' }, /Temperatura mínima/]
+      ].forEach(function (c) {
+        var r = st.salvarConfigQualidade({ limiares: c[0] });
+        falso(r.ok, JSON.stringify(c[0]));
+        verdadeiro(c[1].test(msgs(r)), JSON.stringify(c[0]) + ' -> ' + msgs(r));
+      });
+      igual(core.jsonCanonico(st.configQualidade()), antes, 'a configuração guardada não mudou');
+    });
+
+    it('limiares plausíveis e campo em branco (volta ao padrão) continuam valendo', function () {
+      var st = novoStore();
+      var r = st.salvarConfigQualidade({ limiares: { spo2: '92', pam: '', tof: '0,9', jejumSolidos: 6 } });
+      verdadeiro(r.ok, msgs(r));
+      igual(st.configQualidade().limiares.spo2, 92);
+      igual(st.configQualidade().limiares.pam, 65, 'em branco = padrão');
+      igual(st.configQualidade().limiares.tof, 0.9);
+      igual(st.configQualidade().limiares.jejumSolidos, 6);
+    });
+
+    it('meta fora de 0 a 100, texto e datas que não existem também são recusados', function () {
+      var st = novoStore();
+      var chave = core.INDICADORES_QUALIDADE[0].chave;
+      falso(st.salvarConfigQualidade({ metas: (function () { var m = {}; m[chave] = '150'; return m; })() }).ok);
+      falso(st.salvarConfigQualidade({ metas: (function () { var m = {}; m[chave] = 'x'; return m; })() }).ok);
+      var r = st.salvarConfigQualidade({ aprovacao: { responsavel: 'Dr. R', em: '2026-13-45' } });
+      falso(r.ok);
+      verdadeiro(/Data da aprovação inválida/.test(msgs(r)), msgs(r));
+      var ok = st.salvarConfigQualidade({ aprovacao: { responsavel: 'Dr. R', em: '2026-09-01' } });
+      verdadeiro(ok.ok, msgs(ok));
+    });
+
+    it('a leitura de backup segue tolerante: valor ruim vira o padrão, sem erro', function () {
+      var cfg = core.lerConfigQualidade({ limiares: { spo2: 'abc', pam: '-5', tof: '0,8' } });
+      igual(cfg.limiares.spo2, 90);
+      igual(cfg.limiares.pam, 65);
+      igual(cfg.limiares.tof, 0.8);
+    });
+  });
 };
