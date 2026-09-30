@@ -180,6 +180,7 @@ var LISTAS_BOLETIM = { sinais: 500, farmacos: 300, fluidos: 60, intercorrencias:
 var CAMPOS_IDENTIFICACAO = ['idCirurgia', 'paciente', 'data', 'procedimento', 'cirurgiao', 'anestesista', 'crm',
   'convenio', 'sala'];
 
+var DOSE_MAXIMA_BOLETIM = 100000;   // teto de sanidade para a dose digitada (a unidade é outro campo)
 var JANELA_MAX_BOLETIM = 18 * 60;   // minutos entre o primeiro e o último horário
 var ANTES_DA_REFERENCIA = 180;      // minutos antes da referência que ainda contam como "antes"
 
@@ -515,6 +516,14 @@ function validarBoletim(b) {
     if (!f.nome) erro('farmacos', 'Fármaco sem nome' + (f.hora ? ' às ' + f.hora : '') + '.');
     if (!f.hora) erro('farmacos', nome + ': falta o horário.');
     if (!f.dose) erro('farmacos', nome + ': falta a dose.');
+    else {
+      // A unidade tem campo próprio: aqui só cabe o valor. Dose negativa, zero ou
+      // texto ("abc", "5 mg") entrava no prontuário e ia para o PDF assinado.
+      var dose = paraNumero(f.dose);
+      if (dose === null) erro('farmacos', nome + ': a dose "' + f.dose + '" não é um número — digite só o valor e escolha a unidade ao lado.');
+      else if (dose <= 0) erro('farmacos', nome + ': a dose precisa ser maior que zero.');
+      else if (dose > DOSE_MAXIMA_BOLETIM) erro('farmacos', nome + ': a dose ' + numeroBR(dose) + ' passa de ' + DOSE_MAXIMA_BOLETIM + ' — confira o valor.');
+    }
     if (!f.via) erro('farmacos', nome + ': falta a via de administração.');
   });
 
