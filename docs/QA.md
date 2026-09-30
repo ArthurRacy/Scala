@@ -1,7 +1,7 @@
 # QA — o que a bateria cobre
 
 ```bash
-node qa              # tudo (596 testes)
+node qa              # tudo (622 testes)
 node qa 05           # só o arquivo que começa com "05"
 node qa rodizio      # só os arquivos cujo nome contém "rodizio"
 ```
@@ -9,7 +9,7 @@ node qa rodizio      # só os arquivos cujo nome contém "rodizio"
 Sai com código 1 se qualquer teste falhar, então serve de porta de CI.
 Zero dependências: o arnês está em `qa/_runner.js`.
 
-**Resultado atual: 596 testes, 596 aprovados.**
+**Resultado atual: 622 testes, 622 aprovados.**
 
 ---
 
@@ -78,6 +78,7 @@ cada arquivo; somados aos 15, dão 514.
 | `19_servidor.test.js` | 12 | Modo servidor: só webapp/ e core/ servidos (sem travessia), primeiro acesso com código, cookie HttpOnly/SameSite, CSRF, trava após 5 senhas erradas, comando reexecutado chega ao MESMO estado da tela (uid, LOG, assinatura), concorrência (criar recusado, editar aceito), papéis, PDFs com cascata, reinício e diário reaplicado, SSE, backup e importação; **ficha de qualidade idêntica no servidor e na tela, sobrevivendo ao reinício, e recusa (403) de estrutura e configuração clínica para a equipe** |
 | `20_qualidade.test.js` | 66 | Ficha de qualidade: nenhuma resposta nasce marcada, leitura estrita x tolerante, idempotência, imutabilidade; intervalos (duração, SRPA, jejum, antibiótico, meia-noite); pendência que não bloqueia; janela realizada sem respostas vira pendência; ciclo de vida (concluir, reabrir com motivo, descartar, IDs que não renascem); vários eventos do mesmo tipo; relação com a anestesia nunca presumida; histórico com autor e horário; revisão clínica sem apagar o registro original; **dado ausente nunca vira "não"**, "não se aplica" sai da população, elegibilidade por indicador, limiares configuráveis, evolução mês a mês, filtros, completude; pertinência à técnica; comparação estratificada por ASA; estrutura (duplicidade, vínculo com o atendimento, item não verificado); configuração clínica e aprovação; integridade, backup e saneamento; PDF, planilha e PPTX |
 | `21_qualidade_prototipo.test.js` | 14 | Protótipo: a demonstração (18 atendimentos fictícios, estrutura, eventos, acompanhamentos, lacunas) monta sem erro e a integridade fecha; os números do painel batem com a recontagem independente das fichas; eventos + "não" + sem informação = elegíveis em todos os 36 indicadores; comparação por profissional soma o painel geral; exportação por atendimento sem nome, prontuário nem data exata; "Tirar exemplos" limpa tudo; cirurgia com ficha não se exclui |
+| `22_regressoes_qa.test.js` | 26 | Uma regressão por achado da rodada de QA de 29/09/2026: dose de fármaco, configuração clínica, conflito de horário, repasse, servidor (corpo `null`, sessões, trava da troca de senha), nomes acessíveis, partida com arquivo faltando e formato de telefone/PIX/CRM/CNPJ |
 
 ---
 
@@ -107,6 +108,22 @@ abaixo.
 ## Defeitos que a QA pegou
 
 Vale registrar, porque explica decisões de código:
+
+### Rodada de QA completa (29/09/2026)
+
+Web app percorrido tela por tela no navegador (desktop e celular), servidor sondado por HTTP, core com fuzz de 10 mil operações e ida e volta de backup.
+Corrigido, um commit por defeito, cada um com teste em `22_regressoes_qa.test.js`:
+
+- **Dose de fármaco negativa ou texto** ("-5 mg") entrava no boletim e no PDF assinado — agora só número maior que zero.
+- **Configuração clínica** aceitava SpO₂ mínima 150 e TOF 2 (distorcia os 36 indicadores) e trocava "abc" pelo padrão dizendo "salva" — agora recusa com a faixa.
+- **Conflito de horário** só aparecia na Integridade, depois de gravado — agora avisa no formulário e no lançamento.
+- **Repasse** aceitou R$ 999.999.999.999 para uma cota de R$ 123,34 — teto no core e segundo clique quando passa do que falta.
+- **Servidor**: corpo JSON `null` dava 500; trocar a senha não derrubava as outras sessões; `/api/minha-senha` sem trava de tentativas.
+- **Acessibilidade**: buscas e filtros sem nome para leitor de tela.
+- **Partida**: arquivo do core que não carrega deixava a tela vazia; a verificação de carga só conferia 20 símbolos.
+- Menores: hora cortada na linha de fármacos, "Boletim: em breve" já implementado, telefone/PIX/CRM/CNPJ sem conferência de formato, intervalo de datas invertido sem explicação.
+
+Não corrigido (registrado): a trava de login vale para o login de qualquer endereço (5 erros travam o administrador por 15 min); `qa/19_servidor.test.js` falha uma vez em ~6 rodadas completas com "fetch failed" (conexão reaproveitada de servidor anterior — usar `agent: false` no auxiliar); os PDFs não desenham caracteres fora do Windows-1252 (nome com ideograma sai "??").
 
 ### Revisão de arquitetura e segurança (set/2026)
 

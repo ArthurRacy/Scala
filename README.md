@@ -327,11 +327,11 @@ apps-script/          Camada Google Sheets
   92_gatilhos.gs        Menu, onEdit (criação automática), ações manuais
   appsscript.json
 
-qa/                   596 testes, sem dependência externa
+qa/                   622 testes, sem dependência externa
   index.js              Executor  —  node qa  |  node qa 05
   _runner.js            Arnês de testes
   _mock_sheets.js       Google Sheets de mentira, para testar a ponte
-  01..21_*.test.js
+  01..22_*.test.js
 
 server/               Modo servidor (Node puro, sem npm install)
   servidor.js           HTTP, login, comandos, SSE, anexos, backup

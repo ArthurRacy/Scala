@@ -3,7 +3,7 @@
 Todas as 12 tarefas estão concluídas. Cada linha aponta onde a implementação
 mora e quais testes a cobrem.
 
-Rodar `node qa` executa os 596 testes.
+Rodar `node qa` executa os 622 testes.
 
 ---
 
