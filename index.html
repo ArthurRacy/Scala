@@ -1365,14 +1365,6 @@ body.arrastando-quadro { user-select: none; -webkit-user-select: none; cursor: g
 /* ---- Selo com ícone (clipe de exames) ---- */
 .selo-icone { width: 12px; height: 12px; margin-right: 3px; vertical-align: -2px; }
 
-/* ---- "Em breve" (boletim anestésico) ---- */
-.em-breve {
-  display: flex; gap: var(--e3); align-items: flex-start;
-  padding: var(--e3) var(--e4);
-  border: 1px dashed var(--borda-forte); border-radius: var(--r2);
-  background: var(--superficie-2); font-size: var(--t-4);
-}
-.em-breve svg { width: 17px; height: 17px; flex: 0 0 17px; margin-top: 1px; color: var(--texto-suave); }
 .nav-conta.breve { font-weight: 500; font-size: 10px; letter-spacing: .02em; }
 .lista-prevista { margin: 0; padding-left: 18px; font-size: var(--t-4); color: var(--texto-medio); }
 .lista-prevista li { margin-bottom: 6px; }
@@ -1557,6 +1549,8 @@ body.arrastando-quadro { user-select: none; -webkit-user-select: none; cursor: g
   padding: var(--e3); border: 1px dashed var(--borda-forte); border-radius: var(--r2); background: var(--superficie-2);
 }
 .reg-campo { display: flex; flex-direction: column; gap: 4px; min-width: 64px; }
+/* "08:10" e o ícone do relógio precisam de ~100 px: na linha de fármacos o flex espremia a hora a 67 px e cortava o texto. */
+.reg-campo:has(> input[type="time"]) { min-width: 104px; }
 .reg-rotulo { font-size: var(--t-1); font-weight: 550; color: var(--texto-medio); }
 .reg-campo .entrada { font-variant-numeric: tabular-nums; }
 .reg-botoes { display: flex; gap: var(--e2); margin-left: auto; }
@@ -2717,6 +2711,72 @@ function bytesUtf8(s) {
   return out;
 }
 
+/* ------------------------------------------------- contatos e documentos -- */
+
+/** Só os dígitos de um texto. */
+function soDigitos(v) { return txt(v).replace(/\D/g, ''); }
+
+/** Telefone do Brasil: DDD + número (10 ou 11 dígitos), com ou sem o 55 na frente. */
+function telefoneValido(v) {
+  var n = soDigitos(v);
+  if (n.length === 10 || n.length === 11) return true;
+  return (n.length === 12 || n.length === 13) && n.indexOf('55') === 0;
+}
+
+function emailValido(v) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(txt(v)); }
+
+/** CNPJ com os dois dígitos verificadores conferidos (14 dígitos, não todos iguais). */
+function cnpjValido(v) {
+  var n = soDigitos(v);
+  if (n.length !== 14 || /^(\d)\1{13}$/.test(n)) return false;
+  function dv(base) {
+    var soma = 0, peso = base.length - 7;
+    for (var i = 0; i < base.length; i++) {
+      soma += Number(base.charAt(i)) * peso--;
+      if (peso < 2) peso = 9;
+    }
+    var r = soma % 11;
+    return r < 2 ? 0 : 11 - r;
+  }
+  var d1 = dv(n.slice(0, 12));
+  return d1 === Number(n.charAt(12)) && dv(n.slice(0, 13)) === Number(n.charAt(13));
+}
+
+/** CPF com os dois dígitos verificadores conferidos. */
+function cpfValido(v) {
+  var n = soDigitos(v);
+  if (n.length !== 11 || /^(\d)\1{10}$/.test(n)) return false;
+  function dv(base) {
+    var soma = 0;
+    for (var i = 0; i < base.length; i++) soma += Number(base.charAt(i)) * (base.length + 1 - i);
+    var r = (soma * 10) % 11;
+    return r === 10 ? 0 : r;
+  }
+  return dv(n.slice(0, 9)) === Number(n.charAt(9)) && dv(n.slice(0, 10)) === Number(n.charAt(10));
+}
+
+/**
+ * Chave PIX em algum dos formatos que existem: CPF, CNPJ, e-mail, celular
+ * (com +55 ou só DDD + número) ou chave aleatória (UUID).
+ */
+function chavePixValida(v) {
+  var s = txt(v);
+  if (s === '') return false;
+  if (emailValido(s)) return true;
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)) return true;
+  if (/^\+55\d{10,11}$/.test(s.replace(/[\s().-]/g, ''))) return true;
+  var n = soDigitos(s);
+  if (/[^\d\s().\/+-]/.test(s)) return false;      // letras no meio de um número
+  return cpfValido(n) || cnpjValido(n) || n.length === 10 || n.length === 11;
+}
+
+/** CRM: número de 3 a 7 dígitos, com ou sem a UF ("12345-DF", "CRM/DF 12345"). */
+function crmValido(v) {
+  var s = txt(v);
+  var n = soDigitos(s);
+  return n.length >= 3 && n.length <= 7 && !/[^A-Za-z0-9\s\/.\-]/.test(s);
+}
+
 /**
  * SHA-256 do texto (em UTF-8), em hexadecimal. Escrito à mão porque o código
  * de conferência tem de sair igual no navegador, no Node e no Apps Script —
@@ -2779,6 +2839,8 @@ if (typeof module !== 'undefined' && module.exports) {
     paraNumero: paraNumero, soma: soma, moedaBR: moedaBR,
     arredondar2: arredondar2, arredondar4: arredondar4,
     paraSimNao: paraSimNao, ehSim: ehSim,
+    soDigitos: soDigitos, telefoneValido: telefoneValido, emailValido: emailValido,
+    cnpjValido: cnpjValido, cpfValido: cpfValido, chavePixValida: chavePixValida, crmValido: crmValido,
     chaveDataPosicao: chaveDataPosicao, chaveDataAnestesista: chaveDataAnestesista,
     chaveCompetencia: chaveCompetencia,
     proximoId: proximoId, agoraTexto: agoraTexto
@@ -3079,6 +3141,9 @@ function validarCirurgia(c, ctx) {
   if (!noDominio('CONVENIO', c.convenio)) {
     r.aviso('convenio', 'CONVÊNIO fora da lista: ' + c.convenio + '.');
   }
+  if (!vazio(c.telefone) && !telefoneValido(c.telefone)) {
+    r.aviso('telefone', 'TELEFONE do paciente fora do padrão (DDD + número): ' + c.telefone + ' — o link de WhatsApp do termo não sai.');
+  }
 
   // TASK-201: anestesista restrito aos nomes do cadastro.
   if (!vazio(c.anestesista) && ctx.nomesAnestesistas) {
@@ -3088,6 +3153,15 @@ function validarCirurgia(c, ctx) {
   if (!vazio(c.anestesista) && ctx.nomesInativos &&
       ctx.nomesInativos.some(function (n) { return mesmoTexto(n, c.anestesista); })) {
     r.aviso('anestesista', txt(c.anestesista) + ' está marcado como INATIVO no cadastro.');
+  }
+
+  // Duas cirurgias do mesmo anestesista se cruzando: aviso na hora, não bloqueio
+  // (a Integridade só mostrava isso depois de gravado).
+  if (ctx.cirurgias) {
+    conflitosDaCirurgia(c, ctx.cirurgias).forEach(function (o) {
+      r.aviso('anestesista', txt(c.anestesista) + ' já tem a cirurgia ' + txt(o.id) + ' (' + paraHora(o.inicioPrev) + '–' +
+        paraHora(o.fimPrev) + ') que se sobrepõe a este horário.');
+    });
   }
 
   var realizada = mesmoTexto(c.status, CONFIG.STATUS_EXECUTADO);
@@ -3199,7 +3273,12 @@ function validarAnestesista(a, ctx) {
   if (vazio(a.nome)) r.erro('nome', 'NOME é obrigatório.');
   if (!noDominio('SIM_NAO', a.ativo)) r.erro('ativo', 'ATIVO deve ser Sim ou Não.');
 
-  if (!vazio(a.email) && txt(a.email).indexOf('@') < 0) r.aviso('email', 'E-MAIL sem "@": ' + a.email);
+  if (!vazio(a.email) && !emailValido(a.email)) r.aviso('email', 'E-MAIL não parece um endereço válido: ' + a.email);
+  // Contatos e chave PIX: só avisam (a planilha sempre aceitou texto livre), mas uma chave PIX errada
+  // vira repasse que não chega — melhor perguntar na hora do cadastro do que no dia do pagamento.
+  if (!vazio(a.telefone) && !telefoneValido(a.telefone)) r.aviso('telefone', 'TELEFONE fora do padrão (DDD + número): ' + a.telefone);
+  if (!vazio(a.pix) && !chavePixValida(a.pix)) r.aviso('pix', 'CHAVE PIX não parece CPF, CNPJ, e-mail, celular ou chave aleatória: ' + a.pix);
+  if (!vazio(a.crm) && !crmValido(a.crm)) r.aviso('crm', 'CRM fora do padrão (número com UF, ex.: 12345-DF): ' + a.crm);
 
   // Nome duplicado é grave: as chaves DATA+ANESTESISTA e os SUMIFS usam o nome.
   if (ctx.outrosNomes && ctx.outrosNomes.some(function (n) { return mesmoTexto(n, a.nome); })) {
@@ -3925,6 +4004,22 @@ function detectarConflitos(lista) {
   return conflitos;
 }
 
+/**
+ * As outras cirurgias que se sobrepõem a `c`: mesmo anestesista, mesma data,
+ * horários previstos que se cruzam. Serve para avisar NA HORA em que a
+ * cirurgia é marcada ou editada (detectarConflitos olha a lista inteira, depois
+ * do fato). Não conta a própria (`c.id`) nem cancelada. Não bloqueia nada.
+ */
+function conflitosDaCirurgia(c, lista) {
+  if (!c || !cirurgiaContabilizavel(c) || vazio(c.data) || vazio(c.anestesista)) return [];
+  var dia = paraData(c.data);
+  var quem = normalizar(c.anestesista);
+  return (lista || []).filter(function (o) {
+    return txt(o.id) !== txt(c.id) && cirurgiaContabilizavel(o) && paraData(o.data) === dia &&
+      normalizar(o.anestesista) === quem && horariosSobrepostos(o, c);
+  });
+}
+
 /* ==================================================================== */
 /*                     ATRIBUIÇÃO AUTOMÁTICA                            */
 /* ==================================================================== */
@@ -4092,6 +4187,7 @@ if (typeof module !== 'undefined' && module.exports) {
     cirurgiaExecutada: cirurgiaExecutada,
     filtrarPorCompetencia: filtrarPorCompetencia,
     detectarConflitos: detectarConflitos,
+    conflitosDaCirurgia: conflitosDaCirurgia,
     horariosSobrepostos: horariosSobrepostos,
     nomeDoCadastro: nomeDoCadastro,
     sugerirAnestesista: sugerirAnestesista,
@@ -4707,6 +4803,7 @@ var LISTAS_BOLETIM = { sinais: 500, farmacos: 300, fluidos: 60, intercorrencias:
 var CAMPOS_IDENTIFICACAO = ['idCirurgia', 'paciente', 'data', 'procedimento', 'cirurgiao', 'anestesista', 'crm',
   'convenio', 'sala'];
 
+var DOSE_MAXIMA_BOLETIM = 100000;   // teto de sanidade para a dose digitada (a unidade é outro campo)
 var JANELA_MAX_BOLETIM = 18 * 60;   // minutos entre o primeiro e o último horário
 var ANTES_DA_REFERENCIA = 180;      // minutos antes da referência que ainda contam como "antes"
 
@@ -5042,6 +5139,14 @@ function validarBoletim(b) {
     if (!f.nome) erro('farmacos', 'Fármaco sem nome' + (f.hora ? ' às ' + f.hora : '') + '.');
     if (!f.hora) erro('farmacos', nome + ': falta o horário.');
     if (!f.dose) erro('farmacos', nome + ': falta a dose.');
+    else {
+      // A unidade tem campo próprio: aqui só cabe o valor. Dose negativa, zero ou
+      // texto ("abc", "5 mg") entrava no prontuário e ia para o PDF assinado.
+      var dose = paraNumero(f.dose);
+      if (dose === null) erro('farmacos', nome + ': a dose "' + f.dose + '" não é um número — digite só o valor e escolha a unidade ao lado.');
+      else if (dose <= 0) erro('farmacos', nome + ': a dose precisa ser maior que zero.');
+      else if (dose > DOSE_MAXIMA_BOLETIM) erro('farmacos', nome + ': a dose ' + numeroBR(dose) + ' passa de ' + DOSE_MAXIMA_BOLETIM + ' — confira o valor.');
+    }
     if (!f.via) erro('farmacos', nome + ': falta a via de administração.');
   });
 
@@ -7642,7 +7747,7 @@ function lerConfigQualidade(bruto) {
     base.referencias[i.chave] = {
       fonte: fonte,
       versao: txt(r.versao).slice(0, 60),
-      revisadaEm: paraData(r.revisadaEm) || ''
+      revisadaEm: dataValida(paraData(r.revisadaEm)) ? paraData(r.revisadaEm) : ''
     };
   });
 
@@ -7655,11 +7760,75 @@ function lerConfigQualidade(bruto) {
   base.aprovacao = {
     responsavel: txt(ap.responsavel).slice(0, 120),
     crm: txt(ap.crm).slice(0, 30),
-    em: paraData(ap.em) || '',
+    em: dataValida(paraData(ap.em)) ? paraData(ap.em) : '',
     versao: txt(ap.versao).slice(0, 40),
     obs: txt(ap.obs).slice(0, 1000)
   };
   return base;
+}
+
+/**
+ * Faixa que cada limiar aceita na TELA: sanidade fisiológica, não norma. A
+ * leitura de backup continua tolerante (valor fora da faixa vira o padrão);
+ * quem digita, ao contrário, precisa saber que o valor foi recusado.
+ */
+var FAIXAS_LIMIARES_QUALIDADE = {
+  spo2:              { rotulo: 'SpO₂ mínima aceitável', min: 50, max: 100, unidade: '%' },
+  pam:               { rotulo: 'PAM mínima aceitável', min: 20, max: 150, unidade: 'mmHg' },
+  pasGrave:          { rotulo: 'PA sistólica de hipertensão grave', min: 120, max: 300, unidade: 'mmHg' },
+  temperatura:       { rotulo: 'Temperatura mínima na chegada à SRPA', min: 30, max: 40, unidade: '°C' },
+  dor:               { rotulo: 'Pontuação de dor considerada forte', min: 0, max: 10 },
+  tof:               { rotulo: 'Relação TOF adequada', min: 0.5, max: 1.5 },
+  jejumSolidos:      { rotulo: 'Jejum mínimo para sólidos', min: 0, max: 48, unidade: 'h' },
+  jejumLiquidos:     { rotulo: 'Jejum mínimo para líquidos', min: 0, max: 24, unidade: 'h' },
+  antibioticoJanela: { rotulo: 'Janela do antibiótico antes da incisão', min: 1, max: 480, unidade: 'min' }
+};
+
+/**
+ * Confere a configuração digitada ANTES de guardar. Limiar ou meta em branco
+ * volta ao padrão; o que foi digitado e não vale (texto, fora da faixa, data
+ * que não existe) vira erro — em vez de ser trocado em silêncio pelo padrão,
+ * como a leitura tolerante faz. Devolve [{ campo, msg }].
+ */
+function validarConfigQualidade(bruto) {
+  var erros = [];
+  var c = bruto && typeof bruto === 'object' && !Array.isArray(bruto) ? bruto : {};
+  function br(n) { return String(n).replace('.', ','); }
+
+  var lim = c.limiares && typeof c.limiares === 'object' ? c.limiares : {};
+  Object.keys(FAIXAS_LIMIARES_QUALIDADE).forEach(function (k) {
+    if (vazio(lim[k])) return;
+    var f = FAIXAS_LIMIARES_QUALIDADE[k];
+    var n = paraNumero(lim[k]);
+    if (n === null) {
+      erros.push({ campo: 'limiar.' + k, msg: f.rotulo + ': "' + txt(lim[k]) + '" não é um número.' });
+    } else if (n < f.min || n > f.max) {
+      erros.push({ campo: 'limiar.' + k, msg: f.rotulo + ' ' + br(n) + ' fora da faixa aceita (' + br(f.min) + ' a ' +
+        br(f.max) + (f.unidade ? ' ' + f.unidade : '') + ').' });
+    }
+  });
+
+  var metas = c.metas && typeof c.metas === 'object' ? c.metas : {};
+  INDICADORES_QUALIDADE.forEach(function (i) {
+    if (vazio(metas[i.chave])) return;
+    var n = paraNumero(metas[i.chave]);
+    if (n === null || n < 0 || n > 100) {
+      erros.push({ campo: 'meta.' + i.chave, msg: 'Meta de "' + i.nome + '": informe um percentual de 0 a 100 (recebi "' + txt(metas[i.chave]) + '").' });
+    }
+  });
+
+  var ap = c.aprovacao && typeof c.aprovacao === 'object' ? c.aprovacao : {};
+  if (!vazio(ap.em) && !dataValida(paraData(ap.em))) {
+    erros.push({ campo: 'aprovacao.em', msg: 'Data da aprovação inválida: "' + txt(ap.em) + '".' });
+  }
+  var refs = c.referencias && typeof c.referencias === 'object' ? c.referencias : {};
+  INDICADORES_QUALIDADE.forEach(function (i) {
+    var r = refs[i.chave];
+    if (r && typeof r === 'object' && !vazio(r.revisadaEm) && !dataValida(paraData(r.revisadaEm))) {
+      erros.push({ campo: 'referencia.' + i.chave, msg: 'Data de revisão da fonte de "' + i.nome + '" inválida: "' + txt(r.revisadaEm) + '".' });
+    }
+  });
+  return erros;
 }
 
 /** A configuração está aprovada pelo responsável técnico? */
@@ -8295,8 +8464,10 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     LIMIARES_QUALIDADE_PADRAO: LIMIARES_QUALIDADE_PADRAO,
     INDICADORES_QUALIDADE: INDICADORES_QUALIDADE,
+    FAIXAS_LIMIARES_QUALIDADE: FAIXAS_LIMIARES_QUALIDADE,
     configQualidadePadrao: configQualidadePadrao,
     lerConfigQualidade: lerConfigQualidade,
+    validarConfigQualidade: validarConfigQualidade,
     configQualidadeAprovada: configQualidadeAprovada,
     indicadorQualidade: indicadorQualidade,
     gruposQualidade: gruposQualidade,
@@ -9339,7 +9510,7 @@ function criarStore(estadoInicial, opcoes) {
       if (dados && !vazio(dados.id)) c.id = txt(dados.id);
       if (vazio(c.id)) c.id = api.proximoIdCirurgia();
 
-      var rel = validarCirurgia(c, { nomesAnestesistas: nomesAnestesistas(), nomesInativos: nomesInativos() });
+      var rel = validarCirurgia(c, { nomesAnestesistas: nomesAnestesistas(), nomesInativos: nomesInativos(), cirurgias: st.cirurgias });
       if (!rel.ok) return { ok: false, erros: rel.erros, avisos: rel.avisos };
 
       if (st.cirurgias.some(function (x) { return txt(x.id) === txt(c.id); })) {
@@ -9363,6 +9534,7 @@ function criarStore(estadoInicial, opcoes) {
       var candidato = Object.assign({}, alvo, mudancas);
 
       var rel = validarCirurgia(candidato, {
+        cirurgias: st.cirurgias,
         nomesAnestesistas: nomesAnestesistas(),
         // Só avisa de inativo quando o anestesista está sendo TROCADO — a
         // cirurgia antiga de quem saiu do grupo não precisa alertar a cada edição.
@@ -9666,6 +9838,18 @@ function criarStore(estadoInicial, opcoes) {
       if (!vazio(depois.cnpj) && depois.cnpj.replace(/\D/g, '').length !== 14) {
         return { ok: false, erros: [{ campo: 'cnpj', msg: 'CNPJ deve ter 14 dígitos.' }] };
       }
+      // Dígito verificador errado (11.111.111/1111-11 é o clássico) só avisa: o documento sai no
+      // termo, e quem digitou pode ter em mãos um CNPJ que o sistema não reconhece.
+      var avisosClinica = [];
+      if (!vazio(depois.cnpj) && !cnpjValido(depois.cnpj)) {
+        avisosClinica.push({ campo: 'cnpj', msg: 'O CNPJ ' + depois.cnpj + ' tem dígito verificador inválido — confira antes de imprimir o termo.' });
+      }
+      if (!vazio(depois.telefone) && !telefoneValido(depois.telefone)) {
+        avisosClinica.push({ campo: 'telefone', msg: 'TELEFONE da clínica fora do padrão (DDD + número): ' + depois.telefone });
+      }
+      if (!vazio(depois.crm) && !crmValido(depois.crm)) {
+        avisosClinica.push({ campo: 'crm', msg: 'CRM do responsável fora do padrão (número com UF, ex.: 12345-DF): ' + depois.crm });
+      }
       st.config.clinica = depois;
       Object.keys(CAMPOS_CLINICA).forEach(function (k) {
         if (txt(antes[k]) === depois[k]) return;
@@ -9676,7 +9860,7 @@ function criarStore(estadoInicial, opcoes) {
           para: k === 'textoTcle' ? (depois[k] ? depois[k].length + ' caracteres' : '(padrão)') : depois[k]
         })]);
       });
-      return { ok: true };
+      return { ok: true, avisos: avisosClinica };
     });
   }
 
@@ -9711,6 +9895,9 @@ function criarStore(estadoInicial, opcoes) {
     });
   }
 
+  /** Teto de sanidade por repasse: R$ 999.999.999.999 entrava e virava "falta" negativa. */
+  var LIMITE_REPASSE = 10000000;
+
   /** Registra um repasse feito (valor e data) para um anestesista. */
   function registrarPagamentoRepasse(ano, mes, idAnestesista, valor, data) {
     return transacao(function (st, api) {
@@ -9721,6 +9908,7 @@ function criarStore(estadoInicial, opcoes) {
       if (!info) erros.push({ campo: 'mes', msg: 'Mês inválido.' });
       if (!a) erros.push({ campo: 'anestesista', msg: 'Anestesista ' + idAnestesista + ' não existe.' });
       if (v === null || v <= 0) erros.push({ campo: 'valor', msg: 'Informe o valor repassado (maior que zero).' });
+      else if (v > LIMITE_REPASSE) erros.push({ campo: 'valor', msg: 'Valor do repasse acima de ' + moedaBR(LIMITE_REPASSE) + ' — confira a digitação.' });
       if (!dataValida(data)) erros.push({ campo: 'data', msg: 'Informe a data do repasse.' });
       if (erros.length) return { ok: false, erros: erros };
 
@@ -10270,6 +10458,11 @@ function criarStore(estadoInicial, opcoes) {
    */
   function salvarConfigQualidade(cfg) {
     return transacao(function (st, api) {
+      // Valor digitado que não vale é recusado com o motivo; a leitura abaixo
+      // (tolerante, feita para backup) trocaria por padrão sem avisar ninguém.
+      var invalidos = validarConfigQualidade(cfg);
+      if (invalidos.length) return { ok: false, erros: invalidos };
+
       var antes = lerConfigQualidade(st.config && st.config.qualidade);
       var nova = lerConfigQualidade(cfg);
       if (!st.config) st.config = {};
@@ -11266,11 +11459,16 @@ var core = window;
     'recalcularCirurgia', 'sincronizarAvaliacoes',
     'calcularHoras', 'montarLedger', 'calcularFinanceiro',
     'indicadoresDoAnestesista', 'montarDashboard',
-    'diffParaLog', 'criarStore', 'estadoVazio'
+    'diffParaLog', 'criarStore', 'estadoVazio',
+    // Um símbolo de cada arquivo restante do core: script que não carregou (rede,
+    // disco) derrubava a partida mais adiante, com tela vazia e sem mensagem.
+    'chaveMes', 'classificarTipoCirurgia', 'novoUid', 'lerBoletim', 'leitorQualidade',
+    'ITENS_ESTRUTURA', 'calcularRepasse', 'configQualidadePadrao', 'copiasParaApagar', 'calcularDashboard'
   ];
 
   var faltando = obrigatorios.filter(function (n) { return typeof window[n] === 'undefined'; });
   if (faltando.length === 0) return;
+  window.CORE_INCOMPLETO = true;   // a partida não tenta abrir o sistema por cima desta mensagem
 
   document.addEventListener('DOMContentLoaded', function () {
     document.body.innerHTML =
@@ -12178,14 +12376,22 @@ var COMP = (function () {
     return el('div', { class: 'secao-form' }, [el('h4', null, titulo)].concat(filhos));
   }
 
-  /** Select solto de filtro (fora de formulário). */
+  /**
+   * Select solto de filtro (fora de formulário). Sem `cfg.rotulo`, o nome
+   * acessível vem da primeira opção ("Todos os status"): um filtro sem nome
+   * é lido pelo leitor de tela só como "caixa de combinação".
+   */
   function seletor(cfg) {
+    var opcoes = cfg.opcoes || [];
+    var primeira = opcoes[0];
+    var nome = cfg.rotulo || (primeira && primeira.rotulo !== undefined ? primeira.rotulo : primeira);
     var s = el('select', {
       class: 'entrada',
       style: 'width:' + (cfg.largura || '160px'),
+      'aria-label': nome ? String(nome) : null,
       onchange: function (ev) { cfg.aoMudar(ev.target.value); }
     });
-    (cfg.opcoes || []).forEach(function (o) {
+    opcoes.forEach(function (o) {
       var valor = o && o.valor !== undefined ? o.valor : o;
       var rotulo = o && o.rotulo !== undefined ? o.rotulo : o;
       s.appendChild(el('option', { value: valor }, rotulo));
@@ -17622,6 +17828,7 @@ TELAS.escala = (function () {
             icone('busca'),
             el('input', {
               class: 'entrada', type: 'search', value: f.texto || '', placeholder: 'Filtrar…',
+              'aria-label': 'Filtrar a escala por anestesista, data ou posição',
               oninput: function (ev) { f.texto = ev.target.value; app.redesenhar(); }
             })
           ]),
@@ -18534,7 +18741,7 @@ TELAS.cirurgias = (function () {
             icone('busca'),
             el('input', {
               class: 'entrada', type: 'search', value: f.texto || '',
-              placeholder: 'Paciente, procedimento, cirurgião, ID…',
+              placeholder: 'Paciente, procedimento, cirurgião, ID…', 'aria-label': 'Buscar cirurgia',
               oninput: function (ev) { f.texto = ev.target.value; app.redesenhar(); }
             })
           ]),
@@ -18770,6 +18977,17 @@ TELAS.cirurgias = (function () {
     /* Área de informação viva: escalados do dia e avisos */
     var painelAuto = el('div', { class: 'painel-auto' });
 
+    /* O boletim já existe (Operação › Boletim anestésico): aqui só se diz como chegar nele. */
+    var boletimDela = novo ? null : store.boletimDaCirurgia(c.id);
+    var textoBoletim = novo
+      ? 'O registro intraoperatório (técnica, fármacos, sinais vitais, intercorrências) fica no boletim anestésico ' +
+        'desta cirurgia. Depois de lançá-la, abra-a de novo e use "Criar boletim".'
+      : boletimDela
+        ? 'Esta cirurgia já tem o boletim ' + boletimDela.id + ' (' + String(boletimDela.status).toLowerCase() +
+          '). Use o botão "Boletim" abaixo para abri-lo.'
+        : 'O registro intraoperatório (técnica, fármacos, sinais vitais, intercorrências) fica no boletim anestésico. ' +
+          'Use o botão "Criar boletim" abaixo.';
+
     var form = UI.formulario([
       fData, fStatus, fIniPrev, fFimPrev, fIniReal, fFimReal,
       fPaciente, fConvenio, fTelefone, fProc, fCirurgiao, fSala,
@@ -18860,6 +19078,24 @@ TELAS.cirurgias = (function () {
         ]));
       }
 
+      /* Mesmo anestesista com outra cirurgia cruzando este horário: avisa aqui,
+         antes de gravar. Vale para o escolhido à mão e para o editado. */
+      var cruzam = core.conflitosDaCirurgia({
+        id: parcial.id, data: parcial.data, status: parcial.status, anestesista: parcial.anestesista,
+        inicioPrev: parcial.inicioPrev, fimPrev: parcial.fimPrev
+      }, store.estado.cirurgias);
+      if (cruzam.length) {
+        painelAuto.appendChild(el('div', { class: 'aviso aviso-atencao' }, [
+          icone('alerta'),
+          el('div', { class: 'aviso-corpo' }, [
+            el('strong', null, 'Conflito de horário para ' + txt(parcial.anestesista)),
+            el('div', { class: 't-pq' }, 'Já tem cirurgia neste horário: ' + cruzam.map(function (o) {
+              return o.id + ' (' + UI.hora(o.inicioPrev) + '–' + UI.hora(o.fimPrev) + ', ' + UI.ou(o.paciente) + ')';
+            }).join(' · ') + '. Dá para gravar assim, mas confira a escala do dia.')
+          ])
+        ]));
+      }
+
       if (ehPendenciaHorario(parcial)) {
         painelAuto.appendChild(el('div', { class: 'aviso aviso-atencao' }, [
           icone('relogio'),
@@ -18922,14 +19158,9 @@ TELAS.cirurgias = (function () {
       ]),
 
       secao('Boletim anestésico', [
-        el('div', { class: 'em-breve' }, [
+        el('div', { class: 'aviso aviso-info' }, [
           icone('nota'),
-          el('div', null, [
-            el('strong', null, 'Em breve'),
-            el('div', { class: 't-pq t-medio' },
-              'O registro intraoperatório (técnica, drogas, sinais vitais, intercorrências) vai ficar aqui, ' +
-              'ligado a esta cirurgia. Veja o que está previsto em Operação › Boletim anestésico.')
-          ])
+          el('div', { class: 'aviso-corpo t-pq' }, textoBoletim)
         ])
       ]),
 
@@ -19111,7 +19342,7 @@ TELAS.avaliacoes = (function () {
             icone('busca'),
             el('input', {
               class: 'entrada', type: 'search', value: f.texto || '',
-              placeholder: 'Paciente, cirurgia, ID…',
+              placeholder: 'Paciente, cirurgia, ID…', 'aria-label': 'Buscar avaliação pré',
               oninput: function (ev) { f.texto = ev.target.value; app.redesenhar(); }
             })
           ]),
@@ -20743,6 +20974,7 @@ TELAS.qualidade = (function () {
 
     var busca = el('input', {
       class: 'entrada', type: 'search', placeholder: 'Paciente, procedimento, anestesista ou ID',
+      'aria-label': 'Buscar ficha de qualidade',
       value: filtro.texto, style: 'min-width:220px;flex:1',
       oninput: function (ev) { filtro.texto = ev.target.value; app.redesenhar(); }
     });
@@ -20769,7 +21001,7 @@ TELAS.qualidade = (function () {
             ])
             : null,
           COMP.seletor({
-            valor: filtro.situacao, largura: '180px',
+            rotulo: 'Situação da ficha', valor: filtro.situacao, largura: '180px',
             opcoes: [{ valor: '', rotulo: 'Todas as situações' }, { valor: 'sem', rotulo: 'Sem ficha' },
               { valor: 'rascunho', rotulo: 'Em preenchimento' }, { valor: 'concluida', rotulo: 'Concluída' }],
             aoMudar: function (v) { filtro.situacao = v; app.redesenhar(); }
@@ -21989,7 +22221,8 @@ TELAS.painel_qualidade = (function () {
       return el('label', { class: 'filtro' }, [
         el('span', { class: 'filtro-rotulo' }, rotulo),
         COMP.seletor({
-          valor: f[campo], largura: '170px',
+          // O <label> em volta já dá o nome; sem `rotulo` o aria-label viria da 1ª opção ("Todos") e o sobrescreveria.
+          rotulo: rotulo, valor: f[campo], largura: '170px',
           opcoes: [{ valor: '', rotulo: 'Todos' }].concat(opcoes.map(function (o) {
             return { valor: o, rotulo: o };
           })),
@@ -22282,7 +22515,7 @@ TELAS.painel_qualidade = (function () {
       el('div', { class: 'cartao' }, [
         cab('Comparação por profissional', ind.nome, [
           COMP.seletor({
-            valor: f.indicador, largura: '280px',
+            rotulo: 'Indicador comparado', valor: f.indicador, largura: '280px',
             opcoes: painel.indicadores.map(function (i) { return { valor: i.chave, rotulo: i.nome }; }),
             aoMudar: function (v) { f.indicador = v; app.redesenhar(); }
           }),
@@ -22372,11 +22605,11 @@ TELAS.painel_qualidade = (function () {
       var fonte = el('input', { class: 'entrada', 'aria-label': 'Fonte de ' + ind.nome,
         placeholder: 'Fonte normativa ou técnica',
         value: ind.referencia ? ind.referencia.fonte : '' });
-      var versao = el('input', { class: 'entrada', 'aria-label': 'Versão da fonte', placeholder: 'Versão',
+      var versao = el('input', { class: 'entrada', 'aria-label': 'Versão da fonte de ' + ind.nome, placeholder: 'Versão',
         value: ind.referencia ? ind.referencia.versao : '' });
-      var revisada = el('input', { class: 'entrada', type: 'date', 'aria-label': 'Data de revisão',
+      var revisada = el('input', { class: 'entrada', type: 'date', 'aria-label': 'Data de revisão da fonte de ' + ind.nome,
         value: ind.referencia ? ind.referencia.revisadaEm : '' });
-      var ativo = el('input', { type: 'checkbox' });
+      var ativo = el('input', { type: 'checkbox', 'aria-label': 'Indicador no painel: ' + ind.nome });
       ativo.checked = !cfg.desativados[ind.chave];
 
       camposMeta[ind.chave] = meta;
@@ -22711,7 +22944,15 @@ TELAS.painel_qualidade = (function () {
           el('button', { class: 'btn btn-pq', onclick: function () { baixarPPTX(app, painel); } },
             [icone('baixar'), 'PPTX'])
         ]),
-      barraFiltros(app, todos)
+      barraFiltros(app, todos),
+      // De depois de Até: o recorte fica vazio sem explicação ("0 atendimento(s) no recorte · 31/12/2026 a 01/01/2026").
+      f.de && f.ate && f.de > f.ate
+        ? el('div', { class: 'aviso aviso-atencao', role: 'status', style: 'margin:0 var(--e4) var(--e4)' }, [icone('alerta'),
+          el('div', { class: 'aviso-corpo' }, [
+            el('strong', null, 'A data inicial vem depois da final'),
+            'De ' + UI.data(f.de) + ' até ' + UI.data(f.ate) + ' não cabe nenhum atendimento. Inverta as datas ou limpe os filtros.'
+          ])])
+        : null
     ]));
 
     var abas = el('div', { class: 'abas', role: 'tablist' });
@@ -22840,6 +23081,7 @@ TELAS.estrutura = (function () {
         el('div', { class: 'linha' }, [
           el('input', {
             class: 'entrada', type: 'search', placeholder: 'Unidade, sala, turno ou observação',
+            'aria-label': 'Buscar registro de estrutura',
             value: filtro.texto, style: 'min-width:220px;flex:1',
             oninput: function (ev) { filtro.texto = ev.target.value; app.redesenhar(); }
           }),
@@ -23494,6 +23736,7 @@ TELAS.financeiro = (function () {
             icone('busca'),
             el('input', {
               class: 'entrada', type: 'search', value: f.texto || '', placeholder: 'Paciente, ID, nota…',
+              'aria-label': 'Buscar lançamento',
               oninput: function (ev) { f.texto = ev.target.value; app.redesenhar(); }
             })
           ]),
@@ -23646,7 +23889,8 @@ TELAS.repasse = (function () {
     var campoDespesa = el('input', { class: 'entrada', type: 'number', min: '0', step: '0.01', id: 'repasse-despesas',
       value: r.despesas ? String(r.despesas) : '', placeholder: '0,00', style: 'max-width:140px', inputmode: 'decimal' });
     var campoObs = el('input', { class: 'entrada', type: 'text', id: 'repasse-obs', value: r.obs,
-      placeholder: 'Do que são (aluguel, contador…)', style: 'flex:1;min-width:180px' });
+      placeholder: 'Do que são (aluguel, contador…)', 'aria-label': 'Do que são as despesas',
+      style: 'flex:1;min-width:180px' });
 
     raiz.appendChild(el('div', { class: 'cartao' }, [
       cab('Base e despesas de ' + nomeMes(app.mes) + ' de ' + app.ano, 'as despesas saem antes da divisão'),
@@ -23734,6 +23978,11 @@ TELAS.repasse = (function () {
     var fData = UI.campo({ rotulo: 'Data do repasse', nome: 'data', tipo: 'date', valor: hojeISO() });
     var form = UI.formulario([fValor, fData]);
 
+    /* Valor maior do que falta: um zero a mais vira R$ 12.334 em vez de R$ 123,34.
+       O primeiro clique só avisa; repetir o mesmo valor confirma. */
+    var avisoAcima = el('div', { class: 'mt-3' });
+    var confirmadoAcima = null;
+
     var historico = l.pagamentos.length ? el('div', { class: 'anexos mt-3' }, l.pagamentos.map(function (p) {
       var indice = registroDoMes(app, r).pagamentos.indexOf(p);
       return el('div', { class: 'anexo' }, [
@@ -23756,13 +24005,26 @@ TELAS.repasse = (function () {
       sub: nomeMes(app.mes) + ' de ' + app.ano + ' · cota ' + UI.moedaZero(l.cota) +
         (vazio(l.pix) ? ' · sem chave PIX cadastrada' : ' · PIX ' + l.pix),
       tamanho: 'estreito',
-      corpo: [el('div', { class: 'campo-grupo' }, [fValor.no, fData.no]), historico],
+      corpo: [el('div', { class: 'campo-grupo' }, [fValor.no, fData.no]), avisoAcima, historico],
       acoes: [
         el('div', { class: 'espaco' }),
         el('button', { class: 'btn', onclick: function () { UI.fecharModal(); } }, 'Fechar'),
         el('button', {
-          class: 'btn btn-primario', onclick: function () {
+          class: 'btn btn-primario', onclick: function (ev) {
             var d = form.dados();
+            var digitado = paraNumero(d.valor);
+            var falta = Math.max(0, l.diferenca);
+            if (digitado !== null && digitado > falta + 0.005 && confirmadoAcima !== digitado) {
+              confirmadoAcima = digitado;
+              UI.preencher(avisoAcima, el('div', { class: 'aviso aviso-atencao' }, [icone('alerta'),
+                el('div', { class: 'aviso-corpo' }, [
+                  el('strong', null, UI.moedaZero(digitado) + ' é mais do que falta (' + UI.moedaZero(falta) + ')'),
+                  el('div', { class: 't-pq' }, 'Confira se não sobrou um zero ou a vírgula está no lugar. Se o valor está certo, ' +
+                    'clique de novo em Registrar mesmo assim — dá para desfazer depois, e fica no LOG.')
+                ])]));
+              UI.preencher(ev.currentTarget, [icone('check'), 'Registrar mesmo assim']);
+              return;
+            }
             var res = app.store.registrarPagamentoRepasse(app.ano, app.mes, l.id, d.valor, d.data);
             if (!res.ok) { form.mostrarErros(res.erros); return; }
             UI.fecharModal(); app.salvarEredesenhar();
@@ -24114,6 +24376,7 @@ TELAS.clinica = (function () {
     var form = UI.formulario([f.nome, f.cnpj, f.telefone, f.endereco, f.responsavel, f.crm]);
 
     var texto = el('textarea', { class: 'entrada', id: 'clinica-texto-tcle', rows: 18,
+      'aria-label': 'Texto do termo de consentimento',
       style: 'font-size:13px;line-height:1.55' });
     texto.value = textoAtual;
 
@@ -24127,6 +24390,7 @@ TELAS.clinica = (function () {
         return false;
       }
       app.salvarEredesenhar();
+      (r.avisos || []).forEach(function (a) { UI.atencao('Atenção', a.msg); });
       return true;
     }
 
@@ -24403,6 +24667,7 @@ TELAS.log = (function () {
             icone('busca'),
             el('input', {
               class: 'entrada', type: 'search', value: f.texto || '', placeholder: 'ID, campo, valor…',
+              'aria-label': 'Buscar no LOG',
               oninput: function (ev) { f.texto = ev.target.value; app.redesenhar(); }
             })
           ]),
@@ -25692,7 +25957,29 @@ var APP = (function () {
       if (m.modo === 'entrada') SERVIDOR.telaDeEntrada(m);
       else if (m.modo === 'fora') SERVIDOR.telaForaDoAr();
       else partirServidor(m);
-    });
+    }).catch(falhaNaPartida);
+  }
+
+  /**
+   * Erro na partida (arquivo que não carregou, dado que não se lê…): sem isto a
+   * promessa rejeitava calada e a pessoa ficava olhando para uma tela vazia.
+   */
+  function falhaNaPartida(e) {
+    if (window.console && console.error) console.error('Falha na partida', e);
+    if (window.CORE_INCOMPLETO) return;   // o bootstrap já explicou, com a lista do que falta
+    var carregando = document.querySelector('.carregando');
+    if (carregando && carregando.parentNode) carregando.parentNode.removeChild(carregando);
+    document.body.appendChild(el('div', { class: 'aviso aviso-erro', role: 'alert', style: 'max-width:640px;margin:56px auto' }, [
+      icone('alerta'),
+      el('div', { class: 'aviso-corpo' }, [
+        el('strong', null, 'Não foi possível abrir o sistema'),
+        el('div', { class: 't-pq' }, String(e && e.message ? e.message : e)),
+        el('div', { class: 't-mpq t-suave mt-2' },
+          'Os dados continuam guardados neste navegador. Recarregue a página (Ctrl+F5). Se o erro voltar, ' +
+          'avise quem cuida do sistema e não apague os dados do navegador.'),
+        el('button', { class: 'btn mt-3', onclick: function () { location.reload(); } }, 'Recarregar')
+      ])
+    ]));
   }
 
   /** Partida no servidor da clínica: estado de lá, sem nada guardado neste navegador. */
