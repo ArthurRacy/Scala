@@ -58,11 +58,16 @@ var core = window;
     'recalcularCirurgia', 'sincronizarAvaliacoes',
     'calcularHoras', 'montarLedger', 'calcularFinanceiro',
     'indicadoresDoAnestesista', 'montarDashboard',
-    'diffParaLog', 'criarStore', 'estadoVazio'
+    'diffParaLog', 'criarStore', 'estadoVazio',
+    // Um símbolo de cada arquivo restante do core: script que não carregou (rede,
+    // disco) derrubava a partida mais adiante, com tela vazia e sem mensagem.
+    'chaveMes', 'classificarTipoCirurgia', 'novoUid', 'lerBoletim', 'leitorQualidade',
+    'ITENS_ESTRUTURA', 'calcularRepasse', 'configQualidadePadrao', 'copiasParaApagar', 'calcularDashboard'
   ];
 
   var faltando = obrigatorios.filter(function (n) { return typeof window[n] === 'undefined'; });
   if (faltando.length === 0) return;
+  window.CORE_INCOMPLETO = true;   // a partida não tenta abrir o sistema por cima desta mensagem
 
   document.addEventListener('DOMContentLoaded', function () {
     document.body.innerHTML =

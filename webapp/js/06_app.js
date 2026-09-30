@@ -122,7 +122,29 @@ var APP = (function () {
       if (m.modo === 'entrada') SERVIDOR.telaDeEntrada(m);
       else if (m.modo === 'fora') SERVIDOR.telaForaDoAr();
       else partirServidor(m);
-    });
+    }).catch(falhaNaPartida);
+  }
+
+  /**
+   * Erro na partida (arquivo que não carregou, dado que não se lê…): sem isto a
+   * promessa rejeitava calada e a pessoa ficava olhando para uma tela vazia.
+   */
+  function falhaNaPartida(e) {
+    if (window.console && console.error) console.error('Falha na partida', e);
+    if (window.CORE_INCOMPLETO) return;   // o bootstrap já explicou, com a lista do que falta
+    var carregando = document.querySelector('.carregando');
+    if (carregando && carregando.parentNode) carregando.parentNode.removeChild(carregando);
+    document.body.appendChild(el('div', { class: 'aviso aviso-erro', role: 'alert', style: 'max-width:640px;margin:56px auto' }, [
+      icone('alerta'),
+      el('div', { class: 'aviso-corpo' }, [
+        el('strong', null, 'Não foi possível abrir o sistema'),
+        el('div', { class: 't-pq' }, String(e && e.message ? e.message : e)),
+        el('div', { class: 't-mpq t-suave mt-2' },
+          'Os dados continuam guardados neste navegador. Recarregue a página (Ctrl+F5). Se o erro voltar, ' +
+          'avise quem cuida do sistema e não apague os dados do navegador.'),
+        el('button', { class: 'btn mt-3', onclick: function () { location.reload(); } }, 'Recarregar')
+      ])
+    ]));
   }
 
   /** Partida no servidor da clínica: estado de lá, sem nada guardado neste navegador. */

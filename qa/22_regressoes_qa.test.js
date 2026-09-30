@@ -280,6 +280,35 @@ module.exports = function (t, core, dados) {
 
   /* ------------------------------------------------------------------ */
 
+  describe('ISSUE-004 — partida do web app quando um arquivo do core não carrega', function () {
+    // Regression: ISSUE-004 — com 09c_qualidade_painel.js fora do ar a tela ficava
+    // vazia e o único sinal era "configQualidadePadrao is not defined" no console:
+    // a verificação de carga só conferia 20 símbolos, de parte dos arquivos.
+    // Found by /qa on 2026-09-29
+    // Report: .gstack/qa-reports/qa-report-localhost-2026-09-29.md
+    var JS = path.join(__dirname, '..', 'webapp', 'js');
+
+    it('a verificação de carga cita ao menos um símbolo de CADA arquivo do core', function () {
+      var fonte = fs.readFileSync(path.join(JS, '00_bootstrap.js'), 'utf8');
+      var bloco = (fonte.match(/var obrigatorios = \[([\s\S]*?)\];/) || [])[1];
+      verdadeiro(!!bloco, 'lista obrigatorios não encontrada');
+      var lista = (bloco.match(/'([A-Za-z0-9_]+)'/g) || []).map(function (s) { return s.slice(1, -1); });
+      var semCobertura = core.ARQUIVOS_CORE.filter(function (arq) {
+        var exportado = require(path.join(__dirname, '..', 'core', arq));
+        return !Object.keys(exportado).some(function (k) { return lista.indexOf(k) >= 0; });
+      });
+      igual(semCobertura.join(', '), '', 'arquivo do core sem símbolo na verificação de carga');
+    });
+
+    it('erro na partida vira mensagem na tela (não promessa rejeitada calada)', function () {
+      var fonte = fs.readFileSync(path.join(JS, '06_app.js'), 'utf8');
+      verdadeiro(/\.catch\(falhaNaPartida\)/.test(fonte), 'iniciar() precisa terminar em .catch(falhaNaPartida)');
+      verdadeiro(/function falhaNaPartida\(e\)[\s\S]{0,900}Não foi possível abrir o sistema/.test(fonte));
+    });
+  });
+
+  /* ------------------------------------------------------------------ */
+
   describe('ISSUE-009 — configuração clínica da qualidade', function () {
     // Regression: ISSUE-009 — SpO₂ mínima 150 e TOF 2 eram aceitos; "abc" e -5
     // voltavam ao padrão com o aviso "Configuração clínica salva".
