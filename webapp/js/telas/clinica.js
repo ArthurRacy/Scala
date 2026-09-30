@@ -45,6 +45,7 @@ TELAS.clinica = (function () {
         return false;
       }
       app.salvarEredesenhar();
+      (r.avisos || []).forEach(function (a) { UI.atencao('Atenção', a.msg); });
       return true;
     }
 

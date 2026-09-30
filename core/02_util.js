@@ -513,6 +513,72 @@ function bytesUtf8(s) {
   return out;
 }
 
+/* ------------------------------------------------- contatos e documentos -- */
+
+/** Só os dígitos de um texto. */
+function soDigitos(v) { return txt(v).replace(/\D/g, ''); }
+
+/** Telefone do Brasil: DDD + número (10 ou 11 dígitos), com ou sem o 55 na frente. */
+function telefoneValido(v) {
+  var n = soDigitos(v);
+  if (n.length === 10 || n.length === 11) return true;
+  return (n.length === 12 || n.length === 13) && n.indexOf('55') === 0;
+}
+
+function emailValido(v) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(txt(v)); }
+
+/** CNPJ com os dois dígitos verificadores conferidos (14 dígitos, não todos iguais). */
+function cnpjValido(v) {
+  var n = soDigitos(v);
+  if (n.length !== 14 || /^(\d)\1{13}$/.test(n)) return false;
+  function dv(base) {
+    var soma = 0, peso = base.length - 7;
+    for (var i = 0; i < base.length; i++) {
+      soma += Number(base.charAt(i)) * peso--;
+      if (peso < 2) peso = 9;
+    }
+    var r = soma % 11;
+    return r < 2 ? 0 : 11 - r;
+  }
+  var d1 = dv(n.slice(0, 12));
+  return d1 === Number(n.charAt(12)) && dv(n.slice(0, 13)) === Number(n.charAt(13));
+}
+
+/** CPF com os dois dígitos verificadores conferidos. */
+function cpfValido(v) {
+  var n = soDigitos(v);
+  if (n.length !== 11 || /^(\d)\1{10}$/.test(n)) return false;
+  function dv(base) {
+    var soma = 0;
+    for (var i = 0; i < base.length; i++) soma += Number(base.charAt(i)) * (base.length + 1 - i);
+    var r = (soma * 10) % 11;
+    return r === 10 ? 0 : r;
+  }
+  return dv(n.slice(0, 9)) === Number(n.charAt(9)) && dv(n.slice(0, 10)) === Number(n.charAt(10));
+}
+
+/**
+ * Chave PIX em algum dos formatos que existem: CPF, CNPJ, e-mail, celular
+ * (com +55 ou só DDD + número) ou chave aleatória (UUID).
+ */
+function chavePixValida(v) {
+  var s = txt(v);
+  if (s === '') return false;
+  if (emailValido(s)) return true;
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)) return true;
+  if (/^\+55\d{10,11}$/.test(s.replace(/[\s().-]/g, ''))) return true;
+  var n = soDigitos(s);
+  if (/[^\d\s().\/+-]/.test(s)) return false;      // letras no meio de um número
+  return cpfValido(n) || cnpjValido(n) || n.length === 10 || n.length === 11;
+}
+
+/** CRM: número de 3 a 7 dígitos, com ou sem a UF ("12345-DF", "CRM/DF 12345"). */
+function crmValido(v) {
+  var s = txt(v);
+  var n = soDigitos(s);
+  return n.length >= 3 && n.length <= 7 && !/[^A-Za-z0-9\s\/.\-]/.test(s);
+}
+
 /**
  * SHA-256 do texto (em UTF-8), em hexadecimal. Escrito à mão porque o código
  * de conferência tem de sair igual no navegador, no Node e no Apps Script —
@@ -575,6 +641,8 @@ if (typeof module !== 'undefined' && module.exports) {
     paraNumero: paraNumero, soma: soma, moedaBR: moedaBR,
     arredondar2: arredondar2, arredondar4: arredondar4,
     paraSimNao: paraSimNao, ehSim: ehSim,
+    soDigitos: soDigitos, telefoneValido: telefoneValido, emailValido: emailValido,
+    cnpjValido: cnpjValido, cpfValido: cpfValido, chavePixValida: chavePixValida, crmValido: crmValido,
     chaveDataPosicao: chaveDataPosicao, chaveDataAnestesista: chaveDataAnestesista,
     chaveCompetencia: chaveCompetencia,
     proximoId: proximoId, agoraTexto: agoraTexto

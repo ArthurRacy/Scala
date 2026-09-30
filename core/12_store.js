@@ -822,6 +822,18 @@ function criarStore(estadoInicial, opcoes) {
       if (!vazio(depois.cnpj) && depois.cnpj.replace(/\D/g, '').length !== 14) {
         return { ok: false, erros: [{ campo: 'cnpj', msg: 'CNPJ deve ter 14 dígitos.' }] };
       }
+      // Dígito verificador errado (11.111.111/1111-11 é o clássico) só avisa: o documento sai no
+      // termo, e quem digitou pode ter em mãos um CNPJ que o sistema não reconhece.
+      var avisosClinica = [];
+      if (!vazio(depois.cnpj) && !cnpjValido(depois.cnpj)) {
+        avisosClinica.push({ campo: 'cnpj', msg: 'O CNPJ ' + depois.cnpj + ' tem dígito verificador inválido — confira antes de imprimir o termo.' });
+      }
+      if (!vazio(depois.telefone) && !telefoneValido(depois.telefone)) {
+        avisosClinica.push({ campo: 'telefone', msg: 'TELEFONE da clínica fora do padrão (DDD + número): ' + depois.telefone });
+      }
+      if (!vazio(depois.crm) && !crmValido(depois.crm)) {
+        avisosClinica.push({ campo: 'crm', msg: 'CRM do responsável fora do padrão (número com UF, ex.: 12345-DF): ' + depois.crm });
+      }
       st.config.clinica = depois;
       Object.keys(CAMPOS_CLINICA).forEach(function (k) {
         if (txt(antes[k]) === depois[k]) return;
@@ -832,7 +844,7 @@ function criarStore(estadoInicial, opcoes) {
           para: k === 'textoTcle' ? (depois[k] ? depois[k].length + ' caracteres' : '(padrão)') : depois[k]
         })]);
       });
-      return { ok: true };
+      return { ok: true, avisos: avisosClinica };
     });
   }
 

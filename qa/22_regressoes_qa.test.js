@@ -309,6 +309,70 @@ module.exports = function (t, core, dados) {
 
   /* ------------------------------------------------------------------ */
 
+  describe('ISSUE-003/010 — telefone, PIX, CRM e CNPJ com formato conferido (aviso, não bloqueio)', function () {
+    // Regression: ISSUE-003 — "abc" de telefone, "<script>x</script>" de chave PIX e "xx" de CRM
+    // eram gravados sem uma palavra; ISSUE-010 — CNPJ 11.111.111/1111-11 passava (só se contava dígitos).
+    // Found by /qa on 2026-09-29
+    // Report: .gstack/qa-reports/qa-report-localhost-2026-09-29.md
+
+    function msgs(r) { return (r.avisos || []).map(function (a) { return a.msg; }).join(' | '); }
+
+    it('validadores: casos certos e errados', function () {
+      [['11.222.333/0001-81', true], ['11222333000181', true], ['11.111.111/1111-11', false], ['00.000.000/0000-00', false],
+        ['12.345.678/0001-90', false], ['123', false]].forEach(function (c) {
+        igual(core.cnpjValido(c[0]), c[1], 'CNPJ ' + c[0]);
+      });
+      [['529.982.247-25', true], ['111.111.111-11', false], ['123.456.789-00', false]].forEach(function (c) {
+        igual(core.cpfValido(c[0]), c[1], 'CPF ' + c[0]);
+      });
+      [['(61) 99999-0000', true], ['61999990000', true], ['+55 61 3333-4444', true], ['abc', false], ['123', false]].forEach(function (c) {
+        igual(core.telefoneValido(c[0]), c[1], 'telefone ' + c[0]);
+      });
+      ['fabricio@exemplo.com', '529.982.247-25', '+5561999990000', '61999990000', '123e4567-e89b-12d3-a456-426614174000'].forEach(function (p) {
+        verdadeiro(core.chavePixValida(p), 'PIX ' + p);
+      });
+      ['<script>x</script>', 'abc', '12345', ''].forEach(function (p) { falso(core.chavePixValida(p), 'PIX ' + p); });
+      ['12345-DF', 'CRM/DF 12345', '1234-SP'].forEach(function (c) { verdadeiro(core.crmValido(c), 'CRM ' + c); });
+      ['xx', '12', '12345678'].forEach(function (c) { falso(core.crmValido(c), 'CRM ' + c); });
+    });
+
+    it('cadastro de anestesista com contato fora do padrão grava e avisa cada campo', function () {
+      var st = novoStore();
+      var r = st.salvarAnestesista({ id: 'A01', telefone: 'abc', pix: '<script>x</script>', crm: 'xx', email: 'nao-e-email' });
+      verdadeiro(r.ok, 'não bloqueia');
+      var m = msgs(r);
+      verdadeiro(/TELEFONE/.test(m) && /CHAVE PIX/.test(m) && /CRM/.test(m) && /E-MAIL/.test(m), m);
+    });
+
+    it('cadastro com dados certos não gera aviso', function () {
+      var st = novoStore();
+      var r = st.salvarAnestesista({ id: 'A01', telefone: '(61) 99999-0000', pix: 'roberta@exemplo.com', crm: '12345-DF', email: 'r@x.com' });
+      verdadeiro(r.ok);
+      igual(msgs(r), '');
+    });
+
+    it('telefone do paciente fora do padrão avisa na cirurgia', function () {
+      var st = novoStore();
+      var r = st.adicionarCirurgia(cirurgia({ telefone: 'abc' }));
+      verdadeiro(r.ok);
+      verdadeiro(/TELEFONE do paciente/.test(msgs(r)), msgs(r));
+      igual(msgs(st.adicionarCirurgia(cirurgia({ paciente: 'B', telefone: '(61) 99999-0000', inicioPrev: '13:00', fimPrev: '14:00' }))), '');
+    });
+
+    it('CNPJ da clínica com dígito verificador errado grava e avisa; o certo passa limpo; 14 dígitos segue obrigatório', function () {
+      var st = novoStore();
+      var r = st.salvarConfigClinica({ nome: 'Clínica X', cnpj: '11.111.111/1111-11' });
+      verdadeiro(r.ok);
+      verdadeiro(/dígito verificador inválido/.test(msgs(r)), msgs(r));
+      var r2 = st.salvarConfigClinica({ cnpj: '11.222.333/0001-81', telefone: '(61) 3333-4444', crm: '1234-SP' });
+      verdadeiro(r2.ok);
+      igual(msgs(r2), '');
+      falso(st.salvarConfigClinica({ cnpj: '11.222.333/0001' }).ok);
+    });
+  });
+
+  /* ------------------------------------------------------------------ */
+
   describe('ISSUE-009 — configuração clínica da qualidade', function () {
     // Regression: ISSUE-009 — SpO₂ mínima 150 e TOF 2 eram aceitos; "abc" e -5
     // voltavam ao padrão com o aviso "Configuração clínica salva".

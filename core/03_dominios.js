@@ -115,6 +115,9 @@ function validarCirurgia(c, ctx) {
   if (!noDominio('CONVENIO', c.convenio)) {
     r.aviso('convenio', 'CONVÊNIO fora da lista: ' + c.convenio + '.');
   }
+  if (!vazio(c.telefone) && !telefoneValido(c.telefone)) {
+    r.aviso('telefone', 'TELEFONE do paciente fora do padrão (DDD + número): ' + c.telefone + ' — o link de WhatsApp do termo não sai.');
+  }
 
   // TASK-201: anestesista restrito aos nomes do cadastro.
   if (!vazio(c.anestesista) && ctx.nomesAnestesistas) {
@@ -244,7 +247,12 @@ function validarAnestesista(a, ctx) {
   if (vazio(a.nome)) r.erro('nome', 'NOME é obrigatório.');
   if (!noDominio('SIM_NAO', a.ativo)) r.erro('ativo', 'ATIVO deve ser Sim ou Não.');
 
-  if (!vazio(a.email) && txt(a.email).indexOf('@') < 0) r.aviso('email', 'E-MAIL sem "@": ' + a.email);
+  if (!vazio(a.email) && !emailValido(a.email)) r.aviso('email', 'E-MAIL não parece um endereço válido: ' + a.email);
+  // Contatos e chave PIX: só avisam (a planilha sempre aceitou texto livre), mas uma chave PIX errada
+  // vira repasse que não chega — melhor perguntar na hora do cadastro do que no dia do pagamento.
+  if (!vazio(a.telefone) && !telefoneValido(a.telefone)) r.aviso('telefone', 'TELEFONE fora do padrão (DDD + número): ' + a.telefone);
+  if (!vazio(a.pix) && !chavePixValida(a.pix)) r.aviso('pix', 'CHAVE PIX não parece CPF, CNPJ, e-mail, celular ou chave aleatória: ' + a.pix);
+  if (!vazio(a.crm) && !crmValido(a.crm)) r.aviso('crm', 'CRM fora do padrão (número com UF, ex.: 12345-DF): ' + a.crm);
 
   // Nome duplicado é grave: as chaves DATA+ANESTESISTA e os SUMIFS usam o nome.
   if (ctx.outrosNomes && ctx.outrosNomes.some(function (n) { return mesmoTexto(n, a.nome); })) {
