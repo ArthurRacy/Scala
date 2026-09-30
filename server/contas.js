@@ -146,7 +146,17 @@ function criarContas(pasta) {
   /** A própria pessoa troca a senha, confirmando a atual. */
   function trocarSenha(login, atual, nova) {
     var u = porLogin(login);
-    if (!u || !confere(u, atual)) return { ok: false, erros: [{ campo: 'atual', msg: 'A senha atual não confere.' }] };
+    // Quem tem uma sessão aberta (esquecida, roubada) não pode descobrir a senha
+    // atual por tentativa e erro: mesma trava do login, por usuário.
+    var chave = 's:' + (u ? u.login : String(login || '').trim().toLowerCase());
+    if (travado(chave)) {
+      return { ok: false, travado: true, erros: [{ campo: 'atual', msg: 'Muitas tentativas erradas. Espere 15 minutos e tente de novo.' }] };
+    }
+    if (!u || !confere(u, atual)) {
+      falhou(chave);
+      return { ok: false, erros: [{ campo: 'atual', msg: 'A senha atual não confere.' }] };
+    }
+    delete tentativas[chave];
     var erros = validar({ senha: nova }, false);
     if (erros.length) return { ok: false, erros: erros };
     u.sal = crypto.randomBytes(16).toString('hex');
@@ -228,8 +238,10 @@ function criarContas(pasta) {
     salvarSessoes(true);
   }
 
-  function encerrarSessoesDe(login) {
-    Object.keys(sessoes).forEach(function (k) { if (sessoes[k].login === login) delete sessoes[k]; });
+  /** Derruba as sessões de um usuário. `manter` (token) poupa a sessão de quem acabou de trocar a senha. */
+  function encerrarSessoesDe(login, manter) {
+    var poupar = manter ? sha(manter) : null;
+    Object.keys(sessoes).forEach(function (k) { if (sessoes[k].login === login && k !== poupar) delete sessoes[k]; });
     salvarSessoes(true);
   }
 

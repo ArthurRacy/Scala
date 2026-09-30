@@ -118,7 +118,11 @@ function lerCorpo(req, limite) {
 
 function lerJson(req, limite) {
   return lerCorpo(req, limite).then(function (buf) {
-    try { return JSON.parse(buf.toString('utf8') || '{}'); } catch (e) { throw falha(400, 'Pedido ilegível.'); }
+    var v;
+    try { v = JSON.parse(buf.toString('utf8') || '{}'); } catch (e) { throw falha(400, 'Pedido ilegível.'); }
+    // Toda rota espera um objeto: "null" chegava aos tratadores e virava erro 500 (null.login).
+    if (!v || typeof v !== 'object' || Array.isArray(v)) throw falha(400, 'Pedido ilegível.');
+    return v;
   });
 }
 
@@ -465,8 +469,14 @@ function criarServidor(opcoes) {
     if (caminho === '/api/minha-senha' && metodo === 'POST') {
       return lerJson(req, 16384).then(function (c) {
         var r = contas.trocarSenha(eu.login, c.atual, c.nova);
-        if (r.ok) anotarAcesso('trocou a própria senha: ' + eu.login, req);
-        json(res, r.ok ? 200 : 400, r);
+        if (r.ok) {
+          anotarAcesso('trocou a própria senha: ' + eu.login, req);
+          // Senha nova: as outras sessões abertas (outro computador, sessão esquecida ou roubada) caem.
+          contas.encerrarSessoesDe(eu.login, token);
+        } else if (r.travado) {
+          anotarAcesso('troca de senha travada: ' + eu.login, req);
+        }
+        json(res, r.ok ? 200 : (r.travado ? 429 : 400), r);
       });
     }
 

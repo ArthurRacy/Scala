@@ -6,6 +6,11 @@
  */
 'use strict';
 
+var fs = require('fs');
+var os = require('os');
+var path = require('path');
+var http = require('http');
+
 module.exports = function (t, core, dados) {
   var describe = t.describe, it = t.it, igual = t.igual, verdadeiro = t.verdadeiro, falso = t.falso;
 
@@ -137,6 +142,111 @@ module.exports = function (t, core, dados) {
       verdadeiro(st.registrarPagamentoRepasse(2026, 10, 'A01', '123,34', '2026-10-05').ok);
       verdadeiro(st.registrarPagamentoRepasse(2026, 10, 'A01', 5000, '2026-10-06').ok);
       igual(core.registroDeRepasse(st.estado.repasses, '2026-10').pagamentos.length, 2);
+    });
+  });
+
+  /* ------------------------------------------------------------------ */
+
+  describe('Servidor da clínica — achados da QA de 29/09/2026', function () {
+    // Regression: SRV-1 (corpo "null" dava 500), SRV-2 (trocar a senha não derrubava
+    // as outras sessões) e SRV-3 (troca de senha sem trava de tentativas).
+    // Found by /qa on 2026-09-29
+    // Report: .gstack/qa-reports/qa-report-localhost-2026-09-29.md
+    var criarServidor = require('../server/servidor.js').criarServidor;
+    var SENHA = 'senha-forte-qa-1', NOVA = 'senha-nova-qa-22';
+
+    /** Uma chamada HTTP sem reaproveitar conexão (evita soquete velho de outro teste). */
+    function chamar(porta, metodo, url, corpo, cookie) {
+      return new Promise(function (resolver, rejeitar) {
+        var dadosCorpo = corpo === undefined ? null : (typeof corpo === 'string' ? corpo : JSON.stringify(corpo));
+        var req = http.request({ host: '127.0.0.1', port: porta, method: metodo, path: url, agent: false, headers: Object.assign(
+          { 'X-Anestesia': '1', 'Content-Type': 'application/json', Connection: 'close' },
+          dadosCorpo === null ? {} : { 'Content-Length': Buffer.byteLength(dadosCorpo) },
+          cookie ? { Cookie: cookie } : {}) }, function (res) {
+          var partes = [];
+          res.on('data', function (c) { partes.push(c); });
+          res.on('end', function () {
+            var texto = Buffer.concat(partes).toString('utf8'), json = null;
+            try { json = JSON.parse(texto); } catch (e) { /* não é JSON */ }
+            var set = res.headers['set-cookie'];
+            resolver({ status: res.statusCode, corpo: json, cookie: set ? String(set[0]).split(';')[0] : null });
+          });
+        });
+        req.on('error', rejeitar);
+        if (dadosCorpo !== null) req.write(dadosCorpo);
+        req.end();
+      });
+    }
+
+    /** Sobe um servidor de mentira com o administrador criado e devolve o que os testes precisam. */
+    function comAdmin(fn) {
+      var pasta = fs.mkdtempSync(path.join(os.tmpdir(), 'anest-qa22-'));
+      var srv = criarServidor({ dados: pasta, porta: 0, host: '127.0.0.1', silencioso: true });
+      var porta, admin;
+      return srv.iniciar().then(function (info) {
+        porta = info.porta;
+        return chamar(porta, 'POST', '/api/primeiro-acesso',
+          { codigo: srv.contas.codigoPrimeiroAcesso(), login: 'admin', nome: 'Admin QA', senha: SENHA });
+      }).then(function (r) {
+        admin = r;
+        return fn(porta, r.cookie, srv);
+      }).then(function () { return srv.fechar(); }, function (e) {
+        return srv.fechar().then(function () { throw e; });
+      }).then(function () { fs.rmSync(pasta, { recursive: true, force: true }); });
+    }
+
+    it('corpo JSON "null" (ou lista, número) é pedido ilegível (400), não erro interno (500)', function () {
+      return comAdmin(function (porta, cookie) {
+        var rotas = ['/api/entrar', '/api/primeiro-acesso', '/api/comando', '/api/usuarios', '/api/minha-senha', '/api/apagar-tudo'];
+        var fila = Promise.resolve();
+        rotas.forEach(function (rota) {
+          ['null', '[]', '123', '"x"'].forEach(function (c) {
+            fila = fila.then(function () { return chamar(porta, 'POST', rota, c, cookie); }).then(function (r) {
+              igual(r.status, 400, rota + ' com corpo ' + c + ' -> ' + r.status);
+            });
+          });
+        });
+        return fila;
+      });
+    });
+
+    it('trocar a própria senha derruba as OUTRAS sessões e mantém a atual', function () {
+      return comAdmin(function (porta, cookieA) {
+        var cookieB;
+        return chamar(porta, 'POST', '/api/entrar', { login: 'admin', senha: SENHA }).then(function (r) {
+          cookieB = r.cookie;
+          return chamar(porta, 'GET', '/api/eu', undefined, cookieB);
+        }).then(function (r) {
+          igual(r.status, 200, 'a outra sessão vale antes da troca');
+          return chamar(porta, 'POST', '/api/minha-senha', { atual: SENHA, nova: NOVA }, cookieA);
+        }).then(function (r) {
+          igual(r.status, 200);
+          return chamar(porta, 'GET', '/api/eu', undefined, cookieB);
+        }).then(function (r) {
+          igual(r.status, 401, 'a outra sessão caiu');
+          return chamar(porta, 'GET', '/api/eu', undefined, cookieA);
+        }).then(function (r) {
+          igual(r.status, 200, 'a sessão que trocou a senha continua');
+          return chamar(porta, 'POST', '/api/entrar', { login: 'admin', senha: NOVA });
+        }).then(function (r) { igual(r.status, 200, 'a senha nova entra'); });
+      });
+    });
+
+    it('errar a senha atual cinco vezes trava a troca de senha (429), até com a senha certa', function () {
+      return comAdmin(function (porta, cookie) {
+        var status = [], fila = Promise.resolve();
+        for (var i = 0; i < 5; i++) {
+          fila = fila.then(function () { return chamar(porta, 'POST', '/api/minha-senha', { atual: 'errada-errada', nova: NOVA }, cookie); })
+            .then(function (r) { status.push(r.status); });
+        }
+        return fila.then(function () {
+          igual(status.join(','), '400,400,400,400,400');
+          return chamar(porta, 'POST', '/api/minha-senha', { atual: SENHA, nova: NOVA }, cookie);
+        }).then(function (r) {
+          igual(r.status, 429, 'travado, nem a senha certa troca');
+          return chamar(porta, 'GET', '/api/eu', undefined, cookie);
+        }).then(function (r) { igual(r.status, 200, 'a sessão em si segue válida'); });
+      });
     });
   });
 
