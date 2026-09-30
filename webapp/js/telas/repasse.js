@@ -70,7 +70,8 @@ TELAS.repasse = (function () {
     var campoDespesa = el('input', { class: 'entrada', type: 'number', min: '0', step: '0.01', id: 'repasse-despesas',
       value: r.despesas ? String(r.despesas) : '', placeholder: '0,00', style: 'max-width:140px', inputmode: 'decimal' });
     var campoObs = el('input', { class: 'entrada', type: 'text', id: 'repasse-obs', value: r.obs,
-      placeholder: 'Do que são (aluguel, contador…)', style: 'flex:1;min-width:180px' });
+      placeholder: 'Do que são (aluguel, contador…)', 'aria-label': 'Do que são as despesas',
+      style: 'flex:1;min-width:180px' });
 
     raiz.appendChild(el('div', { class: 'cartao' }, [
       cab('Base e despesas de ' + nomeMes(app.mes) + ' de ' + app.ano, 'as despesas saem antes da divisão'),

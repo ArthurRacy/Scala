@@ -31,6 +31,7 @@ TELAS.clinica = (function () {
     var form = UI.formulario([f.nome, f.cnpj, f.telefone, f.endereco, f.responsavel, f.crm]);
 
     var texto = el('textarea', { class: 'entrada', id: 'clinica-texto-tcle', rows: 18,
+      'aria-label': 'Texto do termo de consentimento',
       style: 'font-size:13px;line-height:1.55' });
     texto.value = textoAtual;
 

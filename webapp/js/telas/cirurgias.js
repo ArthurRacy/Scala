@@ -38,7 +38,7 @@ TELAS.cirurgias = (function () {
             icone('busca'),
             el('input', {
               class: 'entrada', type: 'search', value: f.texto || '',
-              placeholder: 'Paciente, procedimento, cirurgião, ID…',
+              placeholder: 'Paciente, procedimento, cirurgião, ID…', 'aria-label': 'Buscar cirurgia',
               oninput: function (ev) { f.texto = ev.target.value; app.redesenhar(); }
             })
           ]),

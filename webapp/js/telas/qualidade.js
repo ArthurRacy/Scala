@@ -149,6 +149,7 @@ TELAS.qualidade = (function () {
 
     var busca = el('input', {
       class: 'entrada', type: 'search', placeholder: 'Paciente, procedimento, anestesista ou ID',
+      'aria-label': 'Buscar ficha de qualidade',
       value: filtro.texto, style: 'min-width:220px;flex:1',
       oninput: function (ev) { filtro.texto = ev.target.value; app.redesenhar(); }
     });

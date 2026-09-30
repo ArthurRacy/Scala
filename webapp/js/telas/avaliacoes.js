@@ -68,7 +68,7 @@ TELAS.avaliacoes = (function () {
             icone('busca'),
             el('input', {
               class: 'entrada', type: 'search', value: f.texto || '',
-              placeholder: 'Paciente, cirurgia, ID…',
+              placeholder: 'Paciente, cirurgia, ID…', 'aria-label': 'Buscar avaliação pré',
               oninput: function (ev) { f.texto = ev.target.value; app.redesenhar(); }
             })
           ]),

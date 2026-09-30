@@ -429,6 +429,7 @@ TELAS.escala = (function () {
             icone('busca'),
             el('input', {
               class: 'entrada', type: 'search', value: f.texto || '', placeholder: 'Filtrar…',
+              'aria-label': 'Filtrar a escala por anestesista, data ou posição',
               oninput: function (ev) { f.texto = ev.target.value; app.redesenhar(); }
             })
           ]),

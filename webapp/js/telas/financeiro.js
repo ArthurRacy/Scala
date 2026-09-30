@@ -121,6 +121,7 @@ TELAS.financeiro = (function () {
             icone('busca'),
             el('input', {
               class: 'entrada', type: 'search', value: f.texto || '', placeholder: 'Paciente, ID, nota…',
+              'aria-label': 'Buscar lançamento',
               oninput: function (ev) { f.texto = ev.target.value; app.redesenhar(); }
             })
           ]),

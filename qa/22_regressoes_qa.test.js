@@ -252,6 +252,34 @@ module.exports = function (t, core, dados) {
 
   /* ------------------------------------------------------------------ */
 
+  describe('ISSUE-008 — controles de filtro com nome acessível', function () {
+    // Regression: ISSUE-008 — campos de busca e filtros só tinham placeholder: o
+    // leitor de tela os anunciava sem nome (WCAG 4.1.2 / 3.3.2).
+    // Found by /qa on 2026-09-29
+    // Report: .gstack/qa-reports/qa-report-localhost-2026-09-29.md
+    var TELAS = path.join(__dirname, '..', 'webapp', 'js', 'telas');
+
+    it('todo campo de busca (type: \'search\') das telas declara aria-label', function () {
+      var faltando = [];
+      fs.readdirSync(TELAS).filter(function (f) { return /\.js$/.test(f); }).forEach(function (arq) {
+        var linhas = fs.readFileSync(path.join(TELAS, arq), 'utf8').split(/\r?\n/);
+        linhas.forEach(function (l, i) {
+          if (!/type:\s*'search'/.test(l)) return;
+          var janela = linhas.slice(Math.max(0, i - 3), i + 6).join('\n');
+          if (!/aria-label/.test(janela)) faltando.push(arq + ':' + (i + 1));
+        });
+      });
+      igual(faltando.join(', '), '', 'campo de busca sem aria-label');
+    });
+
+    it('o seletor de filtro dá nome acessível a partir da primeira opção quando ninguém informa', function () {
+      var fonte = fs.readFileSync(path.join(__dirname, '..', 'webapp', 'js', '01b_componentes.js'), 'utf8');
+      verdadeiro(/function seletor\(cfg\)[\s\S]{0,700}'aria-label'/.test(fonte), 'seletor sem aria-label');
+    });
+  });
+
+  /* ------------------------------------------------------------------ */
+
   describe('ISSUE-009 — configuração clínica da qualidade', function () {
     // Regression: ISSUE-009 — SpO₂ mínima 150 e TOF 2 eram aceitos; "abc" e -5
     // voltavam ao padrão com o aviso "Configuração clínica salva".

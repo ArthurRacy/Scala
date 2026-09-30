@@ -84,14 +84,22 @@ var COMP = (function () {
     return el('div', { class: 'secao-form' }, [el('h4', null, titulo)].concat(filhos));
   }
 
-  /** Select solto de filtro (fora de formulário). */
+  /**
+   * Select solto de filtro (fora de formulário). Sem `cfg.rotulo`, o nome
+   * acessível vem da primeira opção ("Todos os status"): um filtro sem nome
+   * é lido pelo leitor de tela só como "caixa de combinação".
+   */
   function seletor(cfg) {
+    var opcoes = cfg.opcoes || [];
+    var primeira = opcoes[0];
+    var nome = cfg.rotulo || (primeira && primeira.rotulo !== undefined ? primeira.rotulo : primeira);
     var s = el('select', {
       class: 'entrada',
       style: 'width:' + (cfg.largura || '160px'),
+      'aria-label': nome ? String(nome) : null,
       onchange: function (ev) { cfg.aoMudar(ev.target.value); }
     });
-    (cfg.opcoes || []).forEach(function (o) {
+    opcoes.forEach(function (o) {
       var valor = o && o.valor !== undefined ? o.valor : o;
       var rotulo = o && o.rotulo !== undefined ? o.rotulo : o;
       s.appendChild(el('option', { value: valor }, rotulo));

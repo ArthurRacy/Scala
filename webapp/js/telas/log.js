@@ -41,6 +41,7 @@ TELAS.log = (function () {
             icone('busca'),
             el('input', {
               class: 'entrada', type: 'search', value: f.texto || '', placeholder: 'ID, campo, valor…',
+              'aria-label': 'Buscar no LOG',
               oninput: function (ev) { f.texto = ev.target.value; app.redesenhar(); }
             })
           ]),

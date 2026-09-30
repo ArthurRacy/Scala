@@ -440,11 +440,11 @@ TELAS.painel_qualidade = (function () {
       var fonte = el('input', { class: 'entrada', 'aria-label': 'Fonte de ' + ind.nome,
         placeholder: 'Fonte normativa ou técnica',
         value: ind.referencia ? ind.referencia.fonte : '' });
-      var versao = el('input', { class: 'entrada', 'aria-label': 'Versão da fonte', placeholder: 'Versão',
+      var versao = el('input', { class: 'entrada', 'aria-label': 'Versão da fonte de ' + ind.nome, placeholder: 'Versão',
         value: ind.referencia ? ind.referencia.versao : '' });
-      var revisada = el('input', { class: 'entrada', type: 'date', 'aria-label': 'Data de revisão',
+      var revisada = el('input', { class: 'entrada', type: 'date', 'aria-label': 'Data de revisão da fonte de ' + ind.nome,
         value: ind.referencia ? ind.referencia.revisadaEm : '' });
-      var ativo = el('input', { type: 'checkbox' });
+      var ativo = el('input', { type: 'checkbox', 'aria-label': 'Indicador no painel: ' + ind.nome });
       ativo.checked = !cfg.desativados[ind.chave];
 
       camposMeta[ind.chave] = meta;

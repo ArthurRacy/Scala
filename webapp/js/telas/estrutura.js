@@ -88,6 +88,7 @@ TELAS.estrutura = (function () {
         el('div', { class: 'linha' }, [
           el('input', {
             class: 'entrada', type: 'search', placeholder: 'Unidade, sala, turno ou observação',
+            'aria-label': 'Buscar registro de estrutura',
             value: filtro.texto, style: 'min-width:220px;flex:1',
             oninput: function (ev) { filtro.texto = ev.target.value; app.redesenhar(); }
           }),
