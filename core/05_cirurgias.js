@@ -281,6 +281,22 @@ function detectarConflitos(lista) {
   return conflitos;
 }
 
+/**
+ * As outras cirurgias que se sobrepõem a `c`: mesmo anestesista, mesma data,
+ * horários previstos que se cruzam. Serve para avisar NA HORA em que a
+ * cirurgia é marcada ou editada (detectarConflitos olha a lista inteira, depois
+ * do fato). Não conta a própria (`c.id`) nem cancelada. Não bloqueia nada.
+ */
+function conflitosDaCirurgia(c, lista) {
+  if (!c || !cirurgiaContabilizavel(c) || vazio(c.data) || vazio(c.anestesista)) return [];
+  var dia = paraData(c.data);
+  var quem = normalizar(c.anestesista);
+  return (lista || []).filter(function (o) {
+    return txt(o.id) !== txt(c.id) && cirurgiaContabilizavel(o) && paraData(o.data) === dia &&
+      normalizar(o.anestesista) === quem && horariosSobrepostos(o, c);
+  });
+}
+
 /* ==================================================================== */
 /*                     ATRIBUIÇÃO AUTOMÁTICA                            */
 /* ==================================================================== */
@@ -448,6 +464,7 @@ if (typeof module !== 'undefined' && module.exports) {
     cirurgiaExecutada: cirurgiaExecutada,
     filtrarPorCompetencia: filtrarPorCompetencia,
     detectarConflitos: detectarConflitos,
+    conflitosDaCirurgia: conflitosDaCirurgia,
     horariosSobrepostos: horariosSobrepostos,
     nomeDoCadastro: nomeDoCadastro,
     sugerirAnestesista: sugerirAnestesista,

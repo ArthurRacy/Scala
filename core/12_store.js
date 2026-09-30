@@ -494,7 +494,7 @@ function criarStore(estadoInicial, opcoes) {
       if (dados && !vazio(dados.id)) c.id = txt(dados.id);
       if (vazio(c.id)) c.id = api.proximoIdCirurgia();
 
-      var rel = validarCirurgia(c, { nomesAnestesistas: nomesAnestesistas(), nomesInativos: nomesInativos() });
+      var rel = validarCirurgia(c, { nomesAnestesistas: nomesAnestesistas(), nomesInativos: nomesInativos(), cirurgias: st.cirurgias });
       if (!rel.ok) return { ok: false, erros: rel.erros, avisos: rel.avisos };
 
       if (st.cirurgias.some(function (x) { return txt(x.id) === txt(c.id); })) {
@@ -518,6 +518,7 @@ function criarStore(estadoInicial, opcoes) {
       var candidato = Object.assign({}, alvo, mudancas);
 
       var rel = validarCirurgia(candidato, {
+        cirurgias: st.cirurgias,
         nomesAnestesistas: nomesAnestesistas(),
         // Só avisa de inativo quando o anestesista está sendo TROCADO — a
         // cirurgia antiga de quem saiu do grupo não precisa alertar a cada edição.

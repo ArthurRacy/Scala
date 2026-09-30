@@ -364,6 +364,24 @@ TELAS.cirurgias = (function () {
         ]));
       }
 
+      /* Mesmo anestesista com outra cirurgia cruzando este horário: avisa aqui,
+         antes de gravar. Vale para o escolhido à mão e para o editado. */
+      var cruzam = core.conflitosDaCirurgia({
+        id: parcial.id, data: parcial.data, status: parcial.status, anestesista: parcial.anestesista,
+        inicioPrev: parcial.inicioPrev, fimPrev: parcial.fimPrev
+      }, store.estado.cirurgias);
+      if (cruzam.length) {
+        painelAuto.appendChild(el('div', { class: 'aviso aviso-atencao' }, [
+          icone('alerta'),
+          el('div', { class: 'aviso-corpo' }, [
+            el('strong', null, 'Conflito de horário para ' + txt(parcial.anestesista)),
+            el('div', { class: 't-pq' }, 'Já tem cirurgia neste horário: ' + cruzam.map(function (o) {
+              return o.id + ' (' + UI.hora(o.inicioPrev) + '–' + UI.hora(o.fimPrev) + ', ' + UI.ou(o.paciente) + ')';
+            }).join(' · ') + '. Dá para gravar assim, mas confira a escala do dia.')
+          ])
+        ]));
+      }
+
       if (ehPendenciaHorario(parcial)) {
         painelAuto.appendChild(el('div', { class: 'aviso aviso-atencao' }, [
           icone('relogio'),

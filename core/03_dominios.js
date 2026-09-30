@@ -126,6 +126,15 @@ function validarCirurgia(c, ctx) {
     r.aviso('anestesista', txt(c.anestesista) + ' está marcado como INATIVO no cadastro.');
   }
 
+  // Duas cirurgias do mesmo anestesista se cruzando: aviso na hora, não bloqueio
+  // (a Integridade só mostrava isso depois de gravado).
+  if (ctx.cirurgias) {
+    conflitosDaCirurgia(c, ctx.cirurgias).forEach(function (o) {
+      r.aviso('anestesista', txt(c.anestesista) + ' já tem a cirurgia ' + txt(o.id) + ' (' + paraHora(o.inicioPrev) + '–' +
+        paraHora(o.fimPrev) + ') que se sobrepõe a este horário.');
+    });
+  }
+
   var realizada = mesmoTexto(c.status, CONFIG.STATUS_EXECUTADO);
   if (realizada && vazio(c.anestesista)) {
     r.aviso('anestesista', 'Cirurgia Realizada sem ANESTESISTA — as horas e a produção não vão para ninguém.');

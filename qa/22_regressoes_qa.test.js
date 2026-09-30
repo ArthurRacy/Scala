@@ -65,6 +65,59 @@ module.exports = function (t, core, dados) {
 
   /* ------------------------------------------------------------------ */
 
+  describe('ISSUE-001 — conflito de horário avisado na hora de marcar', function () {
+    // Regression: ISSUE-001 — duas cirurgias do mesmo anestesista se cruzando
+    // eram gravadas sem aviso; o README promete o aviso "na hora".
+    // Found by /qa on 2026-09-29
+    // Report: .gstack/qa-reports/qa-report-localhost-2026-09-29.md
+
+    function msgs(r) { return (r.avisos || []).map(function (a) { return a.msg; }).join(' | '); }
+
+    it('adicionar cirurgia que cruza outra do mesmo anestesista grava e avisa qual é', function () {
+      var st = novoStore();
+      verdadeiro(st.adicionarCirurgia(cirurgia({ inicioPrev: '08:00', fimPrev: '10:30' })).ok);
+      var r = st.adicionarCirurgia(cirurgia({ paciente: 'Outra', inicioPrev: '09:00', fimPrev: '11:00' }));
+      verdadeiro(r.ok, 'não bloqueia');
+      verdadeiro(/Fabrício Tavares já tem a cirurgia CIR0001 \(08:00–10:30\)/.test(msgs(r)), msgs(r));
+      igual(st.estado.cirurgias.length, 2);
+    });
+
+    it('encostar, outro anestesista, outro dia e cancelada não geram aviso', function () {
+      var st = novoStore();
+      st.adicionarCirurgia(cirurgia({ inicioPrev: '07:00', fimPrev: '09:00' }));
+      [
+        cirurgia({ inicioPrev: '09:00', fimPrev: '11:00' }),
+        cirurgia({ inicioPrev: '08:00', fimPrev: '10:00', anestesista: 'Roberta Almeida' }),
+        cirurgia({ inicioPrev: '08:00', fimPrev: '10:00', data: '2026-10-16' }),
+        cirurgia({ inicioPrev: '08:00', fimPrev: '10:00', status: 'Cancelada' })
+      ].forEach(function (c, i) {
+        var r = st.adicionarCirurgia(c);
+        verdadeiro(r.ok, 'caso ' + i);
+        falso(/sobrep/.test(msgs(r)), 'caso ' + i + ': ' + msgs(r));
+      });
+    });
+
+    it('editar a cirurgia para cruzar outra avisa; editar sem cruzar não', function () {
+      var st = novoStore();
+      st.adicionarCirurgia(cirurgia({ inicioPrev: '07:00', fimPrev: '09:00' }));
+      st.adicionarCirurgia(cirurgia({ paciente: 'B', inicioPrev: '10:00', fimPrev: '12:00' }));
+      var r = st.atualizarCirurgia('CIR0002', { inicioPrev: '08:00', fimPrev: '11:00' });
+      verdadeiro(r.ok);
+      verdadeiro(/CIR0001/.test(msgs(r)), msgs(r));
+      var r2 = st.atualizarCirurgia('CIR0002', { inicioPrev: '13:00', fimPrev: '15:00' });
+      falso(/sobrep/.test(msgs(r2)), msgs(r2));
+    });
+
+    it('conflitosDaCirurgia não conta a própria e ignora horário incompleto', function () {
+      var a = { id: 'CIR0001', data: '2026-10-15', status: 'Agendada', anestesista: 'X', inicioPrev: '08:00', fimPrev: '10:00' };
+      igual(core.conflitosDaCirurgia(a, [a]).length, 0, 'a própria');
+      igual(core.conflitosDaCirurgia({ id: '(novo)', data: '2026-10-15', status: 'Agendada', anestesista: 'x', inicioPrev: '09:00', fimPrev: '' }, [a]).length, 0, 'sem término');
+      igual(core.conflitosDaCirurgia({ id: '(novo)', data: '2026-10-15', status: 'Agendada', anestesista: 'x', inicioPrev: '09:00', fimPrev: '11:00' }, [a]).length, 1, 'nome sem maiúscula ainda cruza');
+    });
+  });
+
+  /* ------------------------------------------------------------------ */
+
   describe('ISSUE-009 — configuração clínica da qualidade', function () {
     // Regression: ISSUE-009 — SpO₂ mínima 150 e TOF 2 eram aceitos; "abc" e -5
     // voltavam ao padrão com o aviso "Configuração clínica salva".
