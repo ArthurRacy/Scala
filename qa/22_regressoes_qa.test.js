@@ -383,6 +383,28 @@ module.exports = function (t, core, dados) {
 
   /* ------------------------------------------------------------------ */
 
+  describe('ISSUE-012 — chip de pendências no topo da ficha de qualidade', function () {
+    // Regression: ISSUE-012 — o topo da ficha só mostrava "em preenchimento": o chip "N item(ns) sem
+    // resposta" nunca aparecia, porque trocar(aba) zerava a lista de atualizadores onde o topo estava.
+    // Found by /qa on 2026-09-30 (ao ligar a ficha ao boletim)
+    var fonte = fs.readFileSync(path.join(__dirname, '..', 'webapp', 'js', 'telas', 'qualidade.js'), 'utf8');
+
+    it('o atualizador do topo é registrado como FIXO e refazer() roda os fixos junto com os da etapa', function () {
+      verdadeiro(/function aoMudarFixo\(fn\)/.test(fonte), 'falta aoMudarFixo');
+      verdadeiro(/atualizadoresFixos\.concat\(atualizadores\)\.forEach/.test(fonte), 'refazer() não roda os fixos');
+      verdadeiro(/aoMudarFixo\(function \(f\) \{\s*var n = totalPendenciasFicha/.test(fonte),
+        'o chip de pendências do topo precisa usar aoMudarFixo');
+    });
+
+    it('trocar(aba) continua zerando só os atualizadores da etapa, não os do topo', function () {
+      var trocar = (fonte.match(/function trocar\(chave\) \{[\s\S]*?\n    \}/) || [''])[0];
+      verdadeiro(/atualizadores = \[\];/.test(trocar), 'trocar deveria zerar os da etapa');
+      falso(/atualizadoresFixos = \[\]/.test(trocar), 'trocar não pode zerar os fixos');
+    });
+  });
+
+  /* ------------------------------------------------------------------ */
+
   describe('ISSUE-009 — configuração clínica da qualidade', function () {
     // Regression: ISSUE-009 — SpO₂ mínima 150 e TOF 2 eram aceitos; "abc" e -5
     // voltavam ao padrão com o aviso "Configuração clínica salva".

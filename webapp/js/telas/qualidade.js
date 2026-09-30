@@ -229,15 +229,17 @@ TELAS.qualidade = (function () {
     var id = f0.id;
     var cir = cirurgiaDe(app, f0);
     var hoje = hojeISO();
-    var atualizadores = [];
+    var atualizadores = [];          // da etapa aberta: recriados a cada troca de aba
+    var atualizadoresFixos = [];     // do topo da ficha: valem para todas as etapas
     var aba = app.filtros.qualidade.aba || 'identificacao';
     // Formulários de evento da etapa aberta: { selecionar(tipo) }. "Sim" numa pergunta abre o do evento dela.
     var formsEvento = {};
 
     function atual() { return store.fichaQualidade(id); }
     function fechado() { var f = atual(); return !!f && f.status === FICHA_CONCLUIDA; }
-    function refazer() { var f = atual(); if (f) atualizadores.forEach(function (fn) { fn(f); }); }
+    function refazer() { var f = atual(); if (f) atualizadoresFixos.concat(atualizadores).forEach(function (fn) { fn(f); }); }
     function aoMudar(fn) { atualizadores.push(fn); return fn; }
+    function aoMudarFixo(fn) { atualizadoresFixos.push(fn); return fn; }
 
     function gravar(mudancas, input) {
       var r = store.salvarFichaQualidade(id, mudancas);
@@ -1258,7 +1260,8 @@ TELAS.qualidade = (function () {
     ]);
     raiz.appendChild(topo);
 
-    aoMudar(function (f) {
+    // Registrado como fixo: trocar(aba) zera os atualizadores da etapa, e o chip do topo sumia junto.
+    aoMudarFixo(function (f) {
       var n = totalPendenciasFicha(f, hoje, cir);
       var seg = seguimentosPendentes(f, hoje, cir);
       UI.preencher(pendCaixa, [
