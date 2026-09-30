@@ -780,7 +780,15 @@ TELAS.painel_qualidade = (function () {
           el('button', { class: 'btn btn-pq', onclick: function () { baixarPPTX(app, painel); } },
             [icone('baixar'), 'PPTX'])
         ]),
-      barraFiltros(app, todos)
+      barraFiltros(app, todos),
+      // De depois de Até: o recorte fica vazio sem explicação ("0 atendimento(s) no recorte · 31/12/2026 a 01/01/2026").
+      f.de && f.ate && f.de > f.ate
+        ? el('div', { class: 'aviso aviso-atencao', role: 'status', style: 'margin:0 var(--e4) var(--e4)' }, [icone('alerta'),
+          el('div', { class: 'aviso-corpo' }, [
+            el('strong', null, 'A data inicial vem depois da final'),
+            'De ' + UI.data(f.de) + ' até ' + UI.data(f.ate) + ' não cabe nenhum atendimento. Inverta as datas ou limpe os filtros.'
+          ])])
+        : null
     ]));
 
     var abas = el('div', { class: 'abas', role: 'tablist' });
