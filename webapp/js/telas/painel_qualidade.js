@@ -57,7 +57,8 @@ TELAS.painel_qualidade = (function () {
       return el('label', { class: 'filtro' }, [
         el('span', { class: 'filtro-rotulo' }, rotulo),
         COMP.seletor({
-          valor: f[campo], largura: '170px',
+          // O <label> em volta já dá o nome; sem `rotulo` o aria-label viria da 1ª opção ("Todos") e o sobrescreveria.
+          rotulo: rotulo, valor: f[campo], largura: '170px',
           opcoes: [{ valor: '', rotulo: 'Todos' }].concat(opcoes.map(function (o) {
             return { valor: o, rotulo: o };
           })),
@@ -350,7 +351,7 @@ TELAS.painel_qualidade = (function () {
       el('div', { class: 'cartao' }, [
         cab('Comparação por profissional', ind.nome, [
           COMP.seletor({
-            valor: f.indicador, largura: '280px',
+            rotulo: 'Indicador comparado', valor: f.indicador, largura: '280px',
             opcoes: painel.indicadores.map(function (i) { return { valor: i.chave, rotulo: i.nome }; }),
             aoMudar: function (v) { f.indicador = v; app.redesenhar(); }
           }),

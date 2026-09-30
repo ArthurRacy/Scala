@@ -176,7 +176,7 @@ TELAS.qualidade = (function () {
             ])
             : null,
           COMP.seletor({
-            valor: filtro.situacao, largura: '180px',
+            rotulo: 'Situação da ficha', valor: filtro.situacao, largura: '180px',
             opcoes: [{ valor: '', rotulo: 'Todas as situações' }, { valor: 'sem', rotulo: 'Sem ficha' },
               { valor: 'rascunho', rotulo: 'Em preenchimento' }, { valor: 'concluida', rotulo: 'Concluída' }],
             aoMudar: function (v) { filtro.situacao = v; app.redesenhar(); }

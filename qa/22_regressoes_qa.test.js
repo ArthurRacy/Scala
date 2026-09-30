@@ -272,6 +272,16 @@ module.exports = function (t, core, dados) {
       igual(faltando.join(', '), '', 'campo de busca sem aria-label');
     });
 
+    it('seletor dentro de <label> ou com opção inicial que muda declara `rotulo` (aria-label não pode vir da 1ª opção)', function () {
+      ['painel_qualidade.js', 'qualidade.js'].forEach(function (arq) {
+        var linhas = fs.readFileSync(path.join(TELAS, arq), 'utf8').split(/\r?\n/);
+        linhas.forEach(function (l, i) {
+          if (!/COMP\.seletor\(\{/.test(l)) return;
+          verdadeiro(/rotulo:/.test(linhas.slice(i, i + 4).join('\n')), arq + ':' + (i + 1) + ' COMP.seletor sem rotulo');
+        });
+      });
+    });
+
     it('o seletor de filtro dá nome acessível a partir da primeira opção quando ninguém informa', function () {
       var fonte = fs.readFileSync(path.join(__dirname, '..', 'webapp', 'js', '01b_componentes.js'), 'utf8');
       verdadeiro(/function seletor\(cfg\)[\s\S]{0,700}'aria-label'/.test(fonte), 'seletor sem aria-label');
