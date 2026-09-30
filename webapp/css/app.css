@@ -1545,6 +1545,8 @@ body.arrastando-quadro { user-select: none; -webkit-user-select: none; cursor: g
   padding: var(--e3); border: 1px dashed var(--borda-forte); border-radius: var(--r2); background: var(--superficie-2);
 }
 .reg-campo { display: flex; flex-direction: column; gap: 4px; min-width: 64px; }
+/* "08:10" e o ícone do relógio precisam de ~100 px: na linha de fármacos o flex espremia a hora a 67 px e cortava o texto. */
+.reg-campo:has(> input[type="time"]) { min-width: 104px; }
 .reg-rotulo { font-size: var(--t-1); font-weight: 550; color: var(--texto-medio); }
 .reg-campo .entrada { font-variant-numeric: tabular-nums; }
 .reg-botoes { display: flex; gap: var(--e2); margin-left: auto; }
