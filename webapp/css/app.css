@@ -1353,14 +1353,6 @@ body.arrastando-quadro { user-select: none; -webkit-user-select: none; cursor: g
 /* ---- Selo com ícone (clipe de exames) ---- */
 .selo-icone { width: 12px; height: 12px; margin-right: 3px; vertical-align: -2px; }
 
-/* ---- "Em breve" (boletim anestésico) ---- */
-.em-breve {
-  display: flex; gap: var(--e3); align-items: flex-start;
-  padding: var(--e3) var(--e4);
-  border: 1px dashed var(--borda-forte); border-radius: var(--r2);
-  background: var(--superficie-2); font-size: var(--t-4);
-}
-.em-breve svg { width: 17px; height: 17px; flex: 0 0 17px; margin-top: 1px; color: var(--texto-suave); }
 .nav-conta.breve { font-weight: 500; font-size: 10px; letter-spacing: .02em; }
 .lista-prevista { margin: 0; padding-left: 18px; font-size: var(--t-4); color: var(--texto-medio); }
 .lista-prevista li { margin-bottom: 6px; }

@@ -274,6 +274,17 @@ TELAS.cirurgias = (function () {
     /* Área de informação viva: escalados do dia e avisos */
     var painelAuto = el('div', { class: 'painel-auto' });
 
+    /* O boletim já existe (Operação › Boletim anestésico): aqui só se diz como chegar nele. */
+    var boletimDela = novo ? null : store.boletimDaCirurgia(c.id);
+    var textoBoletim = novo
+      ? 'O registro intraoperatório (técnica, fármacos, sinais vitais, intercorrências) fica no boletim anestésico ' +
+        'desta cirurgia. Depois de lançá-la, abra-a de novo e use "Criar boletim".'
+      : boletimDela
+        ? 'Esta cirurgia já tem o boletim ' + boletimDela.id + ' (' + String(boletimDela.status).toLowerCase() +
+          '). Use o botão "Boletim" abaixo para abri-lo.'
+        : 'O registro intraoperatório (técnica, fármacos, sinais vitais, intercorrências) fica no boletim anestésico. ' +
+          'Use o botão "Criar boletim" abaixo.';
+
     var form = UI.formulario([
       fData, fStatus, fIniPrev, fFimPrev, fIniReal, fFimReal,
       fPaciente, fConvenio, fTelefone, fProc, fCirurgiao, fSala,
@@ -444,14 +455,9 @@ TELAS.cirurgias = (function () {
       ]),
 
       secao('Boletim anestésico', [
-        el('div', { class: 'em-breve' }, [
+        el('div', { class: 'aviso aviso-info' }, [
           icone('nota'),
-          el('div', null, [
-            el('strong', null, 'Em breve'),
-            el('div', { class: 't-pq t-medio' },
-              'O registro intraoperatório (técnica, drogas, sinais vitais, intercorrências) vai ficar aqui, ' +
-              'ligado a esta cirurgia. Veja o que está previsto em Operação › Boletim anestésico.')
-          ])
+          el('div', { class: 'aviso-corpo t-pq' }, textoBoletim)
         ])
       ]),
 
