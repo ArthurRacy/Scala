@@ -116,6 +116,10 @@ node qa
   pré-anestésica, intraoperatório, recuperação, acompanhamento em 24 h, 48 h e
   30 dias, transição de cuidado e satisfação — mais a revisão clínica. Cada campo
   grava sozinho; funciona no celular.
+- **Do boletim para a ficha**: o botão *Do boletim* compara a ficha com o boletim
+  anestésico da mesma cirurgia (idade, peso, altura, ASA, técnica, horários, destino,
+  menor SpO₂, menor PAM, maior PA sistólica) e copia só o que a pessoa marcar. Resposta
+  Sim/Não nunca é copiada; cada campo copiado fica no histórico com a origem.
 - **Perguntas de evento com quatro respostas** (Sim, Não, Não se aplica, Não
   avaliado/sem informação) que **nascem sem resposta**: campo em branco nunca é
   lido como "não houve evento". "Sim" abre data e horário, descrição, gravidade,
@@ -327,11 +331,11 @@ apps-script/          Camada Google Sheets
   92_gatilhos.gs        Menu, onEdit (criação automática), ações manuais
   appsscript.json
 
-qa/                   622 testes, sem dependência externa
+qa/                   644 testes, sem dependência externa
   index.js              Executor  —  node qa  |  node qa 05
   _runner.js            Arnês de testes
   _mock_sheets.js       Google Sheets de mentira, para testar a ponte
-  01..22_*.test.js
+  01..23_*.test.js
 
 server/               Modo servidor (Node puro, sem npm install)
   servidor.js           HTTP, login, comandos, SSE, anexos, backup

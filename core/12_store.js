@@ -430,7 +430,9 @@ function criarStore(estadoInicial, opcoes) {
       boletim: resultado.boletim || null,
       // Idem para a ficha de qualidade e o registro de estrutura.
       ficha: resultado.ficha || null,
-      registro: resultado.registro || null
+      registro: resultado.registro || null,
+      // Campos copiados de outro registro (ficha preenchida a partir do boletim).
+      preenchidos: resultado.preenchidos || []
     };
 
     ouvintes.forEach(function (f) {
@@ -1157,7 +1159,7 @@ function criarStore(estadoInicial, opcoes) {
   }
 
   /** Troca a ficha pela versão nova — depois de ler, validar e historiar. */
-  function gravarFicha(st, api, alvo, lido, rotulo) {
+  function gravarFicha(st, api, alvo, lido, rotulo, origem) {
     if (lido.erros.length) return { ok: false, erros: lido.erros };
     var rel = validarFicha(lido.ficha);
     if (!rel.ok) return { ok: false, erros: rel.erros, avisos: rel.avisos };
@@ -1170,6 +1172,8 @@ function criarStore(estadoInicial, opcoes) {
     nova.atualizadoPor = usuario;
 
     var mudancas = historicoDaFicha(alvo.f, nova, quando, usuario);
+    // De onde veio o valor (ex.: "do boletim BOL0001"): aparece no histórico, ao lado do campo.
+    if (origem) mudancas.forEach(function (m) { m.campo = m.campo + ' · ' + origem; });
     comHistorico(nova, mudancas);
     st.fichasQualidade[alvo.i] = congelarFicha(nova);
 
@@ -1189,6 +1193,39 @@ function criarStore(estadoInicial, opcoes) {
       var alvo = fichaParaEditar(st, id);
       if (alvo.erro) return alvo.erro;
       return gravarFicha(st, api, alvo, aplicarMudancasFicha(alvo.f, mudancas));
+    });
+  }
+
+  /**
+   * Copia para a ficha o que o boletim da MESMA cirurgia já registrou (ver
+   * sugestoesDoBoletim: dados do paciente, ASA, técnica, horários, menor SpO₂ e
+   * PAM…). `chaves`: os campos escolhidos ("atendimento.idade"…); sem lista, só
+   * os que a ficha ainda não tem. Um campo que a ficha já preencheu só é trocado
+   * se estiver na lista, e nunca entra resposta Sim/Não. Cada campo copiado vai
+   * para o histórico da ficha, e o LOG diz de qual boletim veio.
+   */
+  function preencherFichaDoBoletim(id, chaves) {
+    return transacao(function (st, api) {
+      var alvo = fichaParaEditar(st, id);
+      if (alvo.erro) return alvo.erro;
+      var bol = st.boletins.filter(function (b) { return b.idCirurgia === alvo.f.idCirurgia; })[0];
+      if (!bol) return falhaFicha('A cirurgia ' + alvo.f.idCirurgia + ' ainda não tem boletim anestésico.');
+
+      var pedidas = Array.isArray(chaves) ? chaves.map(String) : null;
+      var escolhidas = sugestoesDoBoletim(alvo.f, bol).filter(function (s) {
+        return pedidas ? (pedidas.indexOf(s.campo) >= 0 && s.situacao !== 'igual') : s.situacao === 'vazio';
+      });
+      if (!escolhidas.length) {
+        return falhaFicha('Nada para copiar: o boletim ' + bol.id + ' não tem valor novo para ' +
+          (pedidas ? 'os campos escolhidos' : 'os campos vazios da ficha') + '.');
+      }
+
+      var mudancas = {};
+      escolhidas.forEach(function (s) { (mudancas[s.secao] = mudancas[s.secao] || {})[s.nome] = s.novo; });
+      var r = gravarFicha(st, api, alvo, aplicarMudancasFicha(alvo.f, mudancas), 'FICHA PREENCHIDA DO BOLETIM ' + bol.id,
+        'do boletim ' + bol.id);
+      if (r.ok) r.preenchidos = escolhidas.map(function (s) { return s.campo; });
+      return r;
     });
   }
 
@@ -1910,6 +1947,7 @@ function criarStore(estadoInicial, opcoes) {
     },
     criarFichaQualidade: criarFichaQualidade,
     salvarFichaQualidade: salvarFichaQualidade,
+    preencherFichaDoBoletim: preencherFichaDoBoletim,
     alterarEventoQualidade: alterarEventoQualidade,
     registrarSeguimentoQualidade: registrarSeguimentoQualidade,
     revisarFichaQualidade: revisarFichaQualidade,
@@ -2000,7 +2038,7 @@ var MUTACOES_STORE = ['adicionarCirurgia', 'atualizarCirurgia', 'removerCirurgia
   'salvarAnestesista', 'ajustarEscala', 'definirEscalaBase', 'definirModoEscalaBase', 'aplicarRemanejamento',
   'salvarConfigClinica', 'salvarDespesasRepasse', 'registrarPagamentoRepasse', 'removerPagamentoRepasse',
   'criarBoletim', 'salvarBoletim', 'alterarLinhaBoletim', 'finalizarBoletim', 'reabrirBoletim', 'descartarBoletim',
-  'criarFichaQualidade', 'salvarFichaQualidade', 'alterarEventoQualidade', 'registrarSeguimentoQualidade',
+  'criarFichaQualidade', 'salvarFichaQualidade', 'preencherFichaDoBoletim', 'alterarEventoQualidade', 'registrarSeguimentoQualidade',
   'revisarFichaQualidade', 'concluirFichaQualidade', 'reabrirFichaQualidade', 'descartarFichaQualidade',
   'salvarRegistroEstrutura', 'removerRegistroEstrutura', 'salvarConfigQualidade',
   'reparar'];
@@ -2014,7 +2052,7 @@ var MUTACOES_STORE = ['adicionarCirurgia', 'atualizarCirurgia', 'removerCirurgia
  */
 var MUTACOES_SEGURAS_EM_CONCORRENCIA = ['atualizarCirurgia', 'atualizarAvaliacao', 'ajustarEscala', 'salvarConfigClinica',
   'salvarDespesasRepasse', 'salvarBoletim', 'alterarLinhaBoletim', 'reabrirBoletim',
-  'salvarFichaQualidade', 'registrarSeguimentoQualidade', 'revisarFichaQualidade', 'reabrirFichaQualidade',
+  'salvarFichaQualidade', 'preencherFichaDoBoletim', 'registrarSeguimentoQualidade', 'revisarFichaQualidade', 'reabrirFichaQualidade',
   'salvarConfigQualidade'];
 
 /**

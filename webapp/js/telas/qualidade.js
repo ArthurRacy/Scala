@@ -1227,6 +1227,108 @@ TELAS.qualidade = (function () {
       });
     }
 
+    /* ---- do boletim ----------------------------------------------------- */
+
+    function boletimDaFicha() { var f = atual(); return f ? store.boletimDaCirurgia(f.idCirurgia) : null; }
+
+    /** Por que o botão fica parado; '' quando dá para usar. */
+    function motivoSemBoletim() {
+      if (fechado()) return 'Reabra a ficha para copiar do boletim.';
+      if (!boletimDaFicha()) return 'Esta cirurgia ainda não tem boletim anestésico.';
+      return '';
+    }
+
+    /**
+     * O boletim já registra peso, ASA, técnica, horários e sinais vitais que a ficha
+     * pergunta de novo. Aqui a pessoa vê a comparação e escolhe o que copiar; nada
+     * é gravado sem o clique, e resposta Sim/Não nunca vem do boletim.
+     */
+    function puxarDoBoletim() {
+      var f = atual(), bol = boletimDaFicha();
+      if (!f || !bol || fechado()) return;
+      var todas = sugestoesDoBoletim(f, bol);
+      var novas = todas.filter(function (s) { return s.situacao !== 'igual'; });
+      var iguais = todas.length - novas.length;
+      var rascunho = bol.status !== BOLETIM_FINALIZADO;
+      var marcas = {};
+      var primario = el('button', { class: 'btn btn-primario', type: 'button', onclick: copiar });
+
+      function marcadas() { return novas.filter(function (s) { return marcas[s.campo].checked; }); }
+      function atualizarBotao() {
+        var n = marcadas().length;
+        primario.disabled = !n;
+        UI.preencher(primario, [icone('check'), n ? 'Copiar ' + n + ' campo(s)' : 'Nada marcado']);
+      }
+
+      function copiar() {
+        var chaves = marcadas().map(function (s) { return s.campo; });
+        if (!chaves.length) return;
+        var r = store.preencherFichaDoBoletim(id, chaves);
+        if (!r.ok) { UI.resultado(r); return; }
+        UI.fecharModal();
+        app.salvar();
+        (r.avisos || []).forEach(function (a) { UI.atencao('Atenção', a.msg); });
+        UI.ok('Ficha preenchida com o boletim ' + bol.id,
+          r.preenchidos.length + ' campo(s) copiado(s). Cada um ficou no histórico da ficha.');
+        trocar(aba);
+      }
+
+      var corpo = [el('div', { class: 'aviso aviso-' + (rascunho ? 'atencao' : 'info') }, [
+        icone(rascunho ? 'alerta' : 'info'),
+        el('div', { class: 'aviso-corpo' }, [
+          el('strong', null, 'Boletim ' + bol.id + (rascunho ? ' · em preenchimento' : ' · finalizado e assinado')),
+          el('div', { class: 't-pq' }, rascunho
+            ? 'O boletim ainda pode mudar, e o que for copiado agora não acompanha uma correção depois. Se der, copie de um boletim finalizado.'
+            : 'Marque o que copiar para a ficha. O que a ficha já tem só troca se você marcar.')
+        ])
+      ])];
+
+      if (!novas.length) {
+        corpo.push(el('p', { class: 't-medio' }, todas.length
+          ? 'A ficha já tem os mesmos valores do boletim (' + iguais + ' campo(s)). Nada a copiar.'
+          : 'O boletim ainda não tem valor que a ficha peça: idade, peso, ASA, técnica, horários ou sinais vitais.'));
+      } else {
+        corpo.push(UI.tabela({
+          colunas: [{ rotulo: '' }, { rotulo: 'Campo' }, { rotulo: 'Na ficha' }, { rotulo: 'No boletim' }],
+          linhas: novas.map(function (s) {
+            var c = el('input', { type: 'checkbox', 'aria-label': 'Copiar ' + s.rotulo, onchange: atualizarBotao });
+            c.checked = s.situacao === 'vazio';
+            marcas[s.campo] = c;
+            return [
+              c,
+              el('span', { class: 'celula-principal' }, s.rotulo),
+              s.situacao === 'vazio'
+                ? el('span', { class: 't-suave' }, '—')
+                : el('span', { class: 't-alerta' }, s.atualTexto + ' (já preenchido)'),
+              el('strong', null, s.novoTexto)
+            ];
+          })
+        }));
+        var notas = [];
+        if (novas.some(function (s) { return s.secao === 'intra'; })) {
+          notas.push('SpO₂, PAM e PA sistólica são o menor e o maior valor REGISTRADO nos sinais vitais do boletim; ' +
+            'PAM = (PAS + 2 × PAD) ÷ 3. Valor que ninguém registrou no boletim não é copiado.');
+        }
+        notas.push('Ficam com quem preenche a ficha: respostas Sim/Não (eventos, checklist, indicações), o tempo abaixo do ' +
+          'limiar de SpO₂ e de PAM (o boletim só tem amostras) e a dor da recuperação.');
+        if (iguais) notas.push(iguais + ' campo(s) já iguais ao boletim não aparecem na lista.');
+        corpo.push(el('div', { class: 'mt-3 t-mpq t-suave' }, notas.map(function (t) { return el('p', { class: 'sem-margem' }, t); })));
+      }
+
+      UI.abrirModal({
+        titulo: 'Copiar do boletim ' + bol.id,
+        sub: 'Ficha ' + id + (cir ? ' · ' + (cir.paciente || '') : ''),
+        tamanho: 'largo',
+        corpo: corpo,
+        acoes: [
+          el('div', { class: 'espaco' }),
+          el('button', { class: 'btn', type: 'button', onclick: function () { UI.fecharModal(); } }, novas.length ? 'Cancelar' : 'Fechar'),
+          novas.length ? primario : null
+        ]
+      });
+      if (novas.length) atualizarBotao();
+    }
+
     /* ---- montagem ------------------------------------------------------- */
 
     var ETAPAS_TELA = [
@@ -1241,6 +1343,16 @@ TELAS.qualidade = (function () {
 
     var raiz = el('div', { class: 'pilha' });
     var pendCaixa = el('div');
+    var botaoBoletim = el('button', { class: 'btn btn-pq', type: 'button', onclick: puxarDoBoletim }, [icone('nota'), 'Do boletim']);
+    // O número é o de campos que o boletim preenche e a ficha ainda não tem.
+    aoMudarFixo(function (f) {
+      var motivo = motivoSemBoletim(), bol = boletimDaFicha();
+      var vazias = !motivo && bol ? sugestoesDoBoletim(f, bol).filter(function (s) { return s.situacao === 'vazio'; }).length : 0;
+      botaoBoletim.disabled = !!motivo;
+      botaoBoletim.title = motivo || 'Copia para a ficha o que o boletim ' + bol.id +
+        ' já registrou: dados do paciente, ASA, técnica, horários e as piores medidas dos sinais vitais.';
+      UI.preencher(botaoBoletim, [icone('nota'), vazias ? 'Do boletim (' + vazias + ')' : 'Do boletim']);
+    });
 
     var topo = el('div', { class: 'cartao' }, [
       cab('Ficha ' + id + ' · ' + (cir ? cir.paciente : 'cirurgia removida'),
@@ -1249,6 +1361,7 @@ TELAS.qualidade = (function () {
             app.filtros.qualidade.id = ''; app.redesenhar();
           } }, [icone('voltar'), 'Lista']),
           el('button', { class: 'btn btn-pq', onclick: gerarPdf }, [icone('baixar'), 'PDF']),
+          botaoBoletim,
           fechado()
             ? el('button', { class: 'btn btn-pq', onclick: reabrir }, [icone('troca'), 'Reabrir'])
             : el('button', { class: 'btn btn-primario btn-pq', onclick: concluir }, [icone('check'), 'Concluir']),

@@ -27,7 +27,7 @@ unidade, sala e turno e configura as **definições clínicas**.
 | Dados fictícios do protótipo | `webapp/js/demo_online.js` |
 | Relatórios de exemplo | `tools/gerar_exemplos_qualidade.js` → `saida/exemplos_qualidade/` |
 | Catálogo para aprovação | `tools/gerar_docs_qualidade.js` → `docs/QUALIDADE_INDICADORES.md` |
-| Testes | `qa/20_qualidade.test.js`, `qa/21_qualidade_prototipo.test.js`, `qa/19_servidor.test.js` |
+| Testes | `qa/20_qualidade.test.js`, `qa/21_qualidade_prototipo.test.js`, `qa/23_ficha_do_boletim.test.js`, `qa/19_servidor.test.js` |
 
 ## Como o formulário funciona
 
@@ -61,6 +61,29 @@ não dá para esconder o que ainda não se sabe que não se aplica.
 **Vários eventos do mesmo tipo** no mesmo atendimento são permitidos (dois
 episódios de hipotensão, por exemplo). Editar um evento que mudou no meio do
 caminho (outra pessoa, outra aba) é recusado com aviso.
+
+**Do boletim para a ficha.** O boletim anestésico já registra o que a ficha
+pergunta de novo (idade, peso, altura, prontuário, ASA, técnica, horários da
+anestesia, destino, sinais vitais). O botão **Do boletim** (topo da ficha, com o
+número de campos que ainda faltam) abre a comparação — *na ficha* × *no boletim*
+— e a pessoa marca o que copiar. Só o que está vazio nasce marcado; o que a ficha
+já tem só é trocado se for marcado. Regras:
+
+- vêm **medidas e cadastro**: idade, peso, altura, prontuário, ASA, técnica,
+  início e fim da anestesia, destino (UTI, enfermaria, alta; SRPA não é destino
+  final), **menor SpO₂**, **menor PAM** (PAS + 2 × PAD ÷ 3, dos registros que têm
+  as duas pressões) e **maior PA sistólica** — sempre o valor *registrado* no
+  boletim; quem não registrou fica sem valor, nunca zero;
+- **resposta Sim/Não nunca vem do boletim** (evento, checklist, indicação,
+  intubação, via aérea difícil prevista): marca ausente no boletim não é "Não";
+- **tempo abaixo do limiar** de SpO₂ e de PAM e **dor da recuperação** ficam com
+  quem preenche: o boletim só tem amostras, e a dor dele é a da alta, não a da
+  primeira avaliação que o indicador pede;
+- valor que a ficha recusaria (fora da faixa) não é sugerido;
+- cada campo copiado entra no **histórico da ficha** ("peso · do boletim
+  BOL0001") e uma entrada no LOG diz de qual boletim veio;
+- com boletim em rascunho a tela avisa que ele ainda pode mudar; ficha concluída
+  precisa ser reaberta antes; cirurgia sem boletim deixa o botão parado, com o motivo.
 
 **Intervalos calculados**: duração da anestesia, permanência na SRPA, tempo de
 jejum (horário da última ingestão até o início da anestesia), tempo entre o

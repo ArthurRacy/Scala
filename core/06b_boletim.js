@@ -583,6 +583,27 @@ function aldreteTotal(rec) {
 }
 
 /** Números do boletim para a tela e o PDF. */
+/**
+ * O que os sinais vitais do boletim dizem de pior: menor SpO₂, menor PAM e maior
+ * PA sistólica dos registros. A PAM sai da conta clássica (PAS + 2 × PAD) ÷ 3, só
+ * dos registros que têm as duas pressões, arredondada para o mmHg inteiro. Sem
+ * registro do parâmetro, o valor fica null — ausência não vira zero nem normal.
+ */
+function resumoSinaisBoletim(b) {
+  var r = { registros: 0, spo2Minima: null, pamMinima: null, pasMaxima: null };
+  ((b && b.sinais) || []).forEach(function (s) {
+    r.registros++;
+    var spo2 = paraNumero(s.spo2), pas = paraNumero(s.pas), pad = paraNumero(s.pad);
+    if (spo2 !== null && (r.spo2Minima === null || spo2 < r.spo2Minima)) r.spo2Minima = spo2;
+    if (pas !== null && (r.pasMaxima === null || pas > r.pasMaxima)) r.pasMaxima = pas;
+    if (pas !== null && pad !== null) {
+      var pam = Math.round((pas + 2 * pad) / 3);
+      if (r.pamMinima === null || pam < r.pamMinima) r.pamMinima = pam;
+    }
+  });
+  return r;
+}
+
 function resumoBoletim(b) {
   var entradas = b.fluidos.reduce(function (s, f) { return s + (f.volume || 0); }, 0);
   var saidas = (b.perdas.sangramento || 0) + (b.perdas.diurese || 0);
@@ -809,6 +830,7 @@ if (typeof module !== 'undefined' && module.exports) {
     pendenciasBoletim: pendenciasBoletim,
     aldreteTotal: aldreteTotal,
     resumoBoletim: resumoBoletim,
+    resumoSinaisBoletim: resumoSinaisBoletim,
     conteudoAssinadoBoletim: conteudoAssinadoBoletim,
     codigoBoletim: codigoBoletim,
     codigoLegivel: codigoLegivel,

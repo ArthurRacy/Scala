@@ -1037,6 +1037,102 @@ function comHistorico(f, entradas) {
   return f;
 }
 
+/* ========================================== do boletim para a ficha ======= */
+
+/**
+ * O boletim anestésico já registra boa parte do que a ficha pergunta de novo:
+ * dados do paciente, ASA, técnica, horários da anestesia, sinais vitais. Digitar
+ * duas vezes dá dois valores para a mesma coisa. Aqui o boletim VIRA SUGESTÃO:
+ * a lista abaixo diz, campo a campo, o que ele sabe e o que a ficha tem hoje.
+ *
+ * O QUE ENTRA: dados medidos ou cadastrais (idade, peso, altura, prontuário, ASA,
+ * técnica, horários, menor SpO₂, menor PAM, maior PA sistólica, destino).
+ * O QUE NÃO ENTRA, NUNCA: resposta Sim / Não / Não se aplica. Marca ausente no
+ * boletim não é "Não", e a regra da ficha é que nenhuma resposta clínica nasce
+ * preenchida. Também fica de fora o TEMPO abaixo do limiar (o boletim só tem
+ * amostras a cada poucos minutos) e a dor da recuperação (o boletim guarda a da
+ * alta; o indicador pede a primeira avaliação).
+ *
+ * Nada é gravado aqui: quem escolhe o que copiar é a pessoa (a tela mostra a
+ * comparação) e a gravação passa por preencherFichaDoBoletim, que deixa a
+ * origem no histórico e no LOG.
+ */
+var DESTINO_DO_BOLETIM_NA_FICHA = { 'UTI': 'UTI', 'Quarto / enfermaria': 'Enfermaria', 'Alta ambulatorial': 'Alta' };
+
+function camposDoBoletimNaFicha() {
+  function num(rotulo, secao, nome, chave, unidade, doBoletim) {
+    return { secao: secao, nome: nome, rotulo: rotulo, unidade: unidade || '', tipo: 'numero', chave: chave, de: doBoletim };
+  }
+  return [
+    { secao: 'atendimento', nome: 'prontuario', rotulo: 'Prontuário', tipo: 'texto', max: 40,
+      de: function (b) { return b.paciente.prontuario; } },
+    num('Idade', 'atendimento', 'idade', 'idade', 'anos', function (b) { return b.paciente.idade; }),
+    num('Peso', 'atendimento', 'peso', 'peso', 'kg', function (b) { return b.paciente.peso; }),
+    num('Altura', 'atendimento', 'altura', 'altura', 'cm', function (b) { return b.paciente.altura; }),
+    { secao: 'atendimento', nome: 'asa', rotulo: 'ASA', tipo: 'opcao', lista: OPCOES_QUALIDADE.asa,
+      de: function (b) { return b.pre.asa; } },
+    { secao: 'atendimento', nome: 'tecnicas', rotulo: 'Técnica anestésica', tipo: 'lista', lista: OPCOES_QUALIDADE.tecnicas,
+      de: function (b) { return b.tecnicas; } },
+    { secao: 'atendimento', nome: 'tecnicaOutra', rotulo: 'Outra técnica', tipo: 'texto', max: 200,
+      de: function (b) { return b.tecnicaOutra; } },
+    { secao: 'atendimento', nome: 'inicioAnestesia', rotulo: 'Início da anestesia', tipo: 'hora',
+      de: function (b) { return b.tempos.inicioAnestesia; } },
+    { secao: 'atendimento', nome: 'fimAnestesia', rotulo: 'Término da anestesia', tipo: 'hora',
+      de: function (b) { return b.tempos.fimAnestesia; } },
+    { secao: 'atendimento', nome: 'destino', rotulo: 'Destino após o procedimento', tipo: 'opcao', lista: OPCOES_QUALIDADE.destino,
+      de: function (b) { return DESTINO_DO_BOLETIM_NA_FICHA[b.destino] || ''; } },
+    num('Menor SpO₂ registrada', 'intra', 'spo2Minima', 'spo2', '%', function (b) { return resumoSinaisBoletim(b).spo2Minima; }),
+    num('Menor PAM registrada', 'intra', 'pamMinima', 'pam', 'mmHg', function (b) { return resumoSinaisBoletim(b).pamMinima; }),
+    num('Maior PA sistólica registrada', 'intra', 'pasMaxima', 'pas', 'mmHg', function (b) { return resumoSinaisBoletim(b).pasMaxima; })
+  ];
+}
+
+/**
+ * Compara o boletim com a ficha. Devolve [{ campo ("secao.nome"), secao, nome, rotulo, atual, novo,
+ * atualTexto, novoTexto, situacao }], só dos campos em que o boletim TEM valor:
+ *   'vazio'     a ficha ainda não tem — é o que se pode copiar sem tirar nada de ninguém;
+ *   'diferente' a ficha já tem outro valor (quem preencheu pode ter razão);
+ *   'igual'     nada a fazer.
+ * O valor do boletim passa pelo mesmo leitor da ficha: o que a ficha recusaria (fora da faixa) nem é sugerido.
+ */
+function sugestoesDoBoletim(ficha, boletim) {
+  if (!ficha || !boletim) return [];
+  var L = leitorQualidade(false);
+  var saida = [];
+
+  function texto(tipo, v, unidade) {
+    if (tipo === 'lista') return v.length ? v.join(' + ') : '—';
+    if (v === null || v === undefined || v === '') return '—';
+    return (typeof v === 'number' ? numeroBRQ(v) : String(v)) + (unidade ? ' ' + unidade : '');
+  }
+  function vazioQ(tipo, v) { return tipo === 'lista' ? !v.length : (v === null || v === undefined || v === ''); }
+  function iguais(tipo, a, b) {
+    if (tipo === 'lista') {
+      return a.length === b.length && a.every(function (x) { return b.some(function (y) { return mesmoTexto(x, y); }); });
+    }
+    return tipo === 'numero' ? Number(a) === Number(b) : mesmoTexto(a, b);
+  }
+
+  camposDoBoletimNaFicha().forEach(function (c) {
+    var bruto = c.de(boletim), novo;
+    if (c.tipo === 'numero') novo = L.numero(bruto, c.chave);
+    else if (c.tipo === 'opcao') novo = L.opcao(bruto, c.lista, c.rotulo);
+    else if (c.tipo === 'hora') novo = L.hora(bruto, c.rotulo);
+    else if (c.tipo === 'lista') novo = L.escolhas(bruto, 12).filter(function (t) { return c.lista.indexOf(t) >= 0; });
+    else novo = L.texto(bruto, c.max);
+    if (vazioQ(c.tipo, novo)) return;
+
+    var atual = ficha[c.secao][c.nome];
+    var situacao = vazioQ(c.tipo, atual) ? 'vazio' : (iguais(c.tipo, atual, novo) ? 'igual' : 'diferente');
+    saida.push({
+      campo: c.secao + '.' + c.nome, secao: c.secao, nome: c.nome, rotulo: c.rotulo, unidade: c.unidade || '',
+      atual: atual, novo: novo, atualTexto: texto(c.tipo, atual, c.unidade), novoTexto: texto(c.tipo, novo, c.unidade),
+      situacao: situacao
+    });
+  });
+  return saida;
+}
+
 /**
  * Congela a ficha inteira. O store guarda fichas congeladas pelo mesmo
  * motivo do boletim: mudar uma no lugar, sem passar pela transação,
@@ -1079,6 +1175,8 @@ if (typeof module !== 'undefined' && module.exports) {
     ordenarEventosFicha: ordenarEventosFicha,
     ehGeralNaFicha: ehGeralNaFicha,
     resumoQualidade: resumoQualidade,
+    camposDoBoletimNaFicha: camposDoBoletimNaFicha,
+    sugestoesDoBoletim: sugestoesDoBoletim,
     validarFicha: validarFicha,
     pendenciasFicha: pendenciasFicha,
     totalPendenciasFicha: totalPendenciasFicha,
