@@ -118,6 +118,30 @@ module.exports = function (t, core, dados) {
 
   /* ------------------------------------------------------------------ */
 
+  describe('ISSUE-007 — valor absurdo no repasse', function () {
+    // Regression: ISSUE-007 — R$ 999.999.999.999,00 foi registrado como repasse
+    // de uma cota de R$ 123,34 e a coluna "falta" ficou negativa.
+    // Found by /qa on 2026-09-29
+    // Report: .gstack/qa-reports/qa-report-localhost-2026-09-29.md
+
+    it('repasse acima do teto de sanidade é recusado e nada é gravado', function () {
+      var st = novoStore();
+      var r = st.registrarPagamentoRepasse(2026, 10, 'A01', '999999999999', '2026-10-05');
+      falso(r.ok);
+      verdadeiro(/acima de/.test(r.erros[0].msg), r.erros[0].msg);
+      igual(core.registroDeRepasse(st.estado.repasses, '2026-10').pagamentos.length, 0);
+    });
+
+    it('valores normais continuam sendo registrados, inclusive acima da cota (adiantamento)', function () {
+      var st = novoStore();
+      verdadeiro(st.registrarPagamentoRepasse(2026, 10, 'A01', '123,34', '2026-10-05').ok);
+      verdadeiro(st.registrarPagamentoRepasse(2026, 10, 'A01', 5000, '2026-10-06').ok);
+      igual(core.registroDeRepasse(st.estado.repasses, '2026-10').pagamentos.length, 2);
+    });
+  });
+
+  /* ------------------------------------------------------------------ */
+
   describe('ISSUE-009 — configuração clínica da qualidade', function () {
     // Regression: ISSUE-009 — SpO₂ mínima 150 e TOF 2 eram aceitos; "abc" e -5
     // voltavam ao padrão com o aviso "Configuração clínica salva".

@@ -158,6 +158,11 @@ TELAS.repasse = (function () {
     var fData = UI.campo({ rotulo: 'Data do repasse', nome: 'data', tipo: 'date', valor: hojeISO() });
     var form = UI.formulario([fValor, fData]);
 
+    /* Valor maior do que falta: um zero a mais vira R$ 12.334 em vez de R$ 123,34.
+       O primeiro clique só avisa; repetir o mesmo valor confirma. */
+    var avisoAcima = el('div', { class: 'mt-3' });
+    var confirmadoAcima = null;
+
     var historico = l.pagamentos.length ? el('div', { class: 'anexos mt-3' }, l.pagamentos.map(function (p) {
       var indice = registroDoMes(app, r).pagamentos.indexOf(p);
       return el('div', { class: 'anexo' }, [
@@ -180,13 +185,26 @@ TELAS.repasse = (function () {
       sub: nomeMes(app.mes) + ' de ' + app.ano + ' · cota ' + UI.moedaZero(l.cota) +
         (vazio(l.pix) ? ' · sem chave PIX cadastrada' : ' · PIX ' + l.pix),
       tamanho: 'estreito',
-      corpo: [el('div', { class: 'campo-grupo' }, [fValor.no, fData.no]), historico],
+      corpo: [el('div', { class: 'campo-grupo' }, [fValor.no, fData.no]), avisoAcima, historico],
       acoes: [
         el('div', { class: 'espaco' }),
         el('button', { class: 'btn', onclick: function () { UI.fecharModal(); } }, 'Fechar'),
         el('button', {
-          class: 'btn btn-primario', onclick: function () {
+          class: 'btn btn-primario', onclick: function (ev) {
             var d = form.dados();
+            var digitado = paraNumero(d.valor);
+            var falta = Math.max(0, l.diferenca);
+            if (digitado !== null && digitado > falta + 0.005 && confirmadoAcima !== digitado) {
+              confirmadoAcima = digitado;
+              UI.preencher(avisoAcima, el('div', { class: 'aviso aviso-atencao' }, [icone('alerta'),
+                el('div', { class: 'aviso-corpo' }, [
+                  el('strong', null, UI.moedaZero(digitado) + ' é mais do que falta (' + UI.moedaZero(falta) + ')'),
+                  el('div', { class: 't-pq' }, 'Confira se não sobrou um zero ou a vírgula está no lugar. Se o valor está certo, ' +
+                    'clique de novo em Registrar mesmo assim — dá para desfazer depois, e fica no LOG.')
+                ])]));
+              UI.preencher(ev.currentTarget, [icone('check'), 'Registrar mesmo assim']);
+              return;
+            }
             var res = app.store.registrarPagamentoRepasse(app.ano, app.mes, l.id, d.valor, d.data);
             if (!res.ok) { form.mostrarErros(res.erros); return; }
             UI.fecharModal(); app.salvarEredesenhar();

@@ -867,6 +867,9 @@ function criarStore(estadoInicial, opcoes) {
     });
   }
 
+  /** Teto de sanidade por repasse: R$ 999.999.999.999 entrava e virava "falta" negativa. */
+  var LIMITE_REPASSE = 10000000;
+
   /** Registra um repasse feito (valor e data) para um anestesista. */
   function registrarPagamentoRepasse(ano, mes, idAnestesista, valor, data) {
     return transacao(function (st, api) {
@@ -877,6 +880,7 @@ function criarStore(estadoInicial, opcoes) {
       if (!info) erros.push({ campo: 'mes', msg: 'Mês inválido.' });
       if (!a) erros.push({ campo: 'anestesista', msg: 'Anestesista ' + idAnestesista + ' não existe.' });
       if (v === null || v <= 0) erros.push({ campo: 'valor', msg: 'Informe o valor repassado (maior que zero).' });
+      else if (v > LIMITE_REPASSE) erros.push({ campo: 'valor', msg: 'Valor do repasse acima de ' + moedaBR(LIMITE_REPASSE) + ' — confira a digitação.' });
       if (!dataValida(data)) erros.push({ campo: 'data', msg: 'Informe a data do repasse.' });
       if (erros.length) return { ok: false, erros: erros };
 
