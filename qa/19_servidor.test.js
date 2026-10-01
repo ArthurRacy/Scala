@@ -375,6 +375,23 @@ module.exports = function (t, core, dados) {
         });
       });
     });
+
+    it('PDF para avaliação que o servidor não conhece é recusado — cirurgia recusada por concorrência não deixa exame órfão', function () {
+      // A tela de cirurgia nova só envia os PDFs depois de o comando ser confirmado; se o servidor recusou o
+      // comando (alguém gravou no mesmo instante), a avaliação criada na tela não existe aqui.
+      return comServidor(function (cli, srv, pasta) {
+        return administrador(cli, pasta).then(function () {
+          return cli.post('/api/anexos', PDF, { 'X-Uid-Avaliacao': 'uQueNuncaExistiu', 'X-Nome': 'hemograma.pdf', 'Content-Type': 'application/pdf' });
+        }).then(function (r) {
+          igual(r.status, 400);
+          verdadeiro(/Avaliação não encontrada/.test(r.corpo.erro), JSON.stringify(r.corpo));
+          return cli.get('/api/anexos');
+        }).then(function (r) {
+          igual(r.corpo.metas.length, 0, 'nada foi guardado');
+          igual(fs.readdirSync(path.join(pasta, 'anexos')).filter(function (f) { return /\.pdf$/.test(f); }).length, 0, 'nem no disco');
+        });
+      });
+    });
   });
 
   describe('Servidor: disco, avisos e backup', function () {

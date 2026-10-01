@@ -1,7 +1,7 @@
 # QA — o que a bateria cobre
 
 ```bash
-node qa              # tudo (644 testes)
+node qa              # tudo (667 testes)
 node qa 05           # só o arquivo que começa com "05"
 node qa rodizio      # só os arquivos cujo nome contém "rodizio"
 ```
@@ -9,7 +9,7 @@ node qa rodizio      # só os arquivos cujo nome contém "rodizio"
 Sai com código 1 se qualquer teste falhar, então serve de porta de CI.
 Zero dependências: o arnês está em `qa/_runner.js`.
 
-**Resultado atual: 644 testes, 644 aprovados.**
+**Resultado atual: 667 testes, 667 aprovados.**
 
 ---
 
@@ -75,11 +75,12 @@ cada arquivo; somados aos 15, dão 514.
 | `16_tcle_clinica.test.js` | 9 | Dados da clínica (CNPJ, LOG, backup saneado), texto próprio do termo, PDF válido com assinatura em vetor e código, link de WhatsApp do paciente |
 | `17_boletim.test.js` | 30 | Boletim anestésico: SHA-256 contra vetores oficiais e o Node, leitura estrita x tolerante, horários atravessando a meia-noite, validação (PA, fármaco sem via), checklist, ciclo de vida (criar, finalizar, reabrir com motivo, descartar), horário real e CRM levados na assinatura, cirurgia com boletim não se exclui, congelamento e rollback, integridade (adulteração, órfão, duplicado), backup, CSV e PDF com xref conferida |
 | `18_downloads.test.js` | 4 | Planilhas num .zip (CRC-32 igual ao do zlib, nomes com acento em UTF-8, conteúdo intacto); versão online entregando pela capacidade "downloads" (nome, bytes com BOM, recusa sem erro) |
-| `19_servidor.test.js` | 12 | Modo servidor: só webapp/ e core/ servidos (sem travessia), primeiro acesso com código, cookie HttpOnly/SameSite, CSRF, trava após 5 senhas erradas, comando reexecutado chega ao MESMO estado da tela (uid, LOG, assinatura), concorrência (criar recusado, editar aceito), papéis, PDFs com cascata, reinício e diário reaplicado, SSE, backup e importação; **ficha de qualidade idêntica no servidor e na tela, sobrevivendo ao reinício, e recusa (403) de estrutura e configuração clínica para a equipe** |
+| `19_servidor.test.js` | 13 | Modo servidor: só webapp/ e core/ servidos (sem travessia), primeiro acesso com código, cookie HttpOnly/SameSite, CSRF, trava após 5 senhas erradas, comando reexecutado chega ao MESMO estado da tela (uid, LOG, assinatura), concorrência (criar recusado, editar aceito), papéis, PDFs com cascata (e PDF para avaliação que o servidor não conhece é recusado, sem sobra no disco), reinício e diário reaplicado, SSE, backup e importação; **ficha de qualidade idêntica no servidor e na tela, sobrevivendo ao reinício, e recusa (403) de estrutura e configuração clínica para a equipe** |
 | `20_qualidade.test.js` | 66 | Ficha de qualidade: nenhuma resposta nasce marcada, leitura estrita x tolerante, idempotência, imutabilidade; intervalos (duração, SRPA, jejum, antibiótico, meia-noite); pendência que não bloqueia; janela realizada sem respostas vira pendência; ciclo de vida (concluir, reabrir com motivo, descartar, IDs que não renascem); vários eventos do mesmo tipo; relação com a anestesia nunca presumida; histórico com autor e horário; revisão clínica sem apagar o registro original; **dado ausente nunca vira "não"**, "não se aplica" sai da população, elegibilidade por indicador, limiares configuráveis, evolução mês a mês, filtros, completude; pertinência à técnica; comparação estratificada por ASA; estrutura (duplicidade, vínculo com o atendimento, item não verificado); configuração clínica e aprovação; integridade, backup e saneamento; PDF, planilha e PPTX |
 | `21_qualidade_prototipo.test.js` | 14 | Protótipo: a demonstração (18 atendimentos fictícios, estrutura, eventos, acompanhamentos, lacunas) monta sem erro e a integridade fecha; os números do painel batem com a recontagem independente das fichas; eventos + "não" + sem informação = elegíveis em todos os 36 indicadores; comparação por profissional soma o painel geral; exportação por atendimento sem nome, prontuário nem data exata; "Tirar exemplos" limpa tudo; cirurgia com ficha não se exclui |
 | `22_regressoes_qa.test.js` | 28 | Uma regressão por achado da rodada de QA de 29/09/2026: dose de fármaco, configuração clínica, conflito de horário, repasse, servidor (corpo `null`, sessões, trava da troca de senha), nomes acessíveis, partida com arquivo faltando e formato de telefone/PIX/CRM/CNPJ |
 | `23_ficha_do_boletim.test.js` | 20 | Ficha preenchida a partir do boletim: menor SpO₂, menor PAM (PAS + 2 × PAD ÷ 3) e maior PAS dos sinais vitais; o que é sugerido (vazio, igual, diferente); destino; valor fora da faixa da ficha não é sugerido; **resposta Sim/Não nunca é preenchida**; só o marcado é copiado, com origem no histórico e no LOG; recusa sem boletim, sem novidade e com ficha concluída; comando aceito no servidor; o painel enxerga o valor copiado (hipoxemia, hipotensão, "sem informação"); botão da tela |
+| `24_exames_na_cirurgia.test.js` | 22 | Exames do paciente na tela de cirurgia nova: a regra que diz se a cirurgia gera avaliação (onde os PDFs ficam) é a mesma da criação da linha e vem do core; `adicionarCirurgia` e `atualizarCirurgia` devolvem a avaliação criada (uid e `idCirurgia`) e a mesma semente dá o mesmo uid na tela e no servidor; conferência do arquivo (PDF de verdade com lixo antes do cabeçalho, texto com extensão `.pdf`, vazio, grande demais); fila de espera (aceitos, recusados com motivo, repetidos, duas levas quase juntas, remover); envio um a um preso ao uid, o que falha fica na fila e sai em `falhas`, avaliação sem uid não envia nada; ligações da tela (conferir os exames antes de gravar e enviar só depois de fechar, erro volta para a aba de dados, a regra vem do core, soltar fora da área é barrado) e o CSS que mantém o modal dentro do celular com nome de arquivo comprido e a altura fixa com abas |
 
 ---
 

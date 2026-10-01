@@ -319,7 +319,7 @@ TELAS.avaliacoes = (function () {
     no.appendChild(entrada);
 
     no.appendChild(itens.length
-      ? el('div', { class: 'anexos' }, itens.map(function (m) { return linhaAnexo(m, redesenhar); }))
+      ? el('div', { class: 'anexos' }, itens.map(function (m) { return COMP.linhaExameGuardado(m, redesenhar); }))
       : el('div', { class: 'anexos-vazio t-pq t-suave' }, 'Nenhum exame anexado ainda.'));
 
     no.appendChild(el('div', { class: 'linha mt-3' }, [
@@ -327,53 +327,6 @@ TELAS.avaliacoes = (function () {
       el('span', { class: 't-mpq t-suave' },
         'Só PDF, até ' + Math.round(ANEXOS.TAMANHO_MAXIMO / 1048576) + ' MB cada. Ficam guardados neste computador.')
     ]));
-  }
-
-  function linhaAnexo(m, aoMudar) {
-    var botaoRemover = el('button', {
-      class: 'btn btn-plano btn-icone btn-pq', title: 'Remover', 'aria-label': 'Remover ' + m.nome,
-      onclick: function () {
-        // Dois cliques: o primeiro arma, o segundo remove. Evita um confirm()
-        // que fecharia o modal da avaliação.
-        if (!botaoRemover.classList.contains('armado')) {
-          botaoRemover.classList.add('armado');
-          botaoRemover.title = 'Clique de novo para remover';
-          UI.limpar(botaoRemover);
-          botaoRemover.appendChild(el('span', { class: 't-mpq t-forte' }, 'Remover?'));
-          botaoRemover.classList.remove('btn-icone');
-          setTimeout(function () { if (botaoRemover.classList.contains('armado')) desarmar(); }, 4000);
-          return;
-        }
-        ANEXOS.remover(m.id).then(function () { UI.ok('Exame removido', m.nome); aoMudar(); },
-          function (e) { UI.erro('Não foi possível remover', e.message); });
-      }
-    }, icone('lixo'));
-
-    function desarmar() {
-      botaoRemover.classList.remove('armado');
-      botaoRemover.classList.add('btn-icone');
-      botaoRemover.title = 'Remover';
-      UI.limpar(botaoRemover);
-      botaoRemover.appendChild(icone('lixo'));
-    }
-
-    return el('div', { class: 'anexo' }, [
-      el('div', { class: 'anexo-marca' }, icone('nota')),
-      el('div', { class: 'anexo-corpo' }, [
-        el('div', { class: 'anexo-nome', title: m.nome }, m.nome),
-        el('div', { class: 't-mpq t-suave' }, ANEXOS.tamanhoLegivel(m.tamanho) + ' · ' +
-          UI.data(m.criadoEm) + (m.criadoPor ? ' · ' + m.criadoPor : ''))
-      ]),
-      el('button', {
-        class: 'btn btn-plano btn-icone btn-pq', title: 'Abrir', 'aria-label': 'Abrir ' + m.nome,
-        onclick: function () { ANEXOS.abrirEmAba(m.id, m.nome).catch(function (e) { UI.erro('Não foi possível abrir', e.message); }); }
-      }, icone('olho')),
-      el('button', {
-        class: 'btn btn-plano btn-icone btn-pq', title: 'Baixar', 'aria-label': 'Baixar ' + m.nome,
-        onclick: function () { ANEXOS.baixar(m.id, m.nome).catch(function (e) { UI.erro('Não foi possível baixar', e.message); }); }
-      }, icone('baixar')),
-      botaoRemover
-    ]);
   }
 
   /**

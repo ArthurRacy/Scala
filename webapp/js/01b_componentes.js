@@ -113,12 +113,13 @@ var COMP = (function () {
     return el('button', { 'aria-pressed': ativo ? 'true' : 'false', onclick: aoClicar }, rotulo);
   }
 
-  function abaBtn(rotulo, ativo, aoClicar) {
-    return el('button', {
+  /** Botão de aba. `extras` (opcional) junta atributos, como `id` e `aria-controls`. */
+  function abaBtn(rotulo, ativo, aoClicar, extras) {
+    return el('button', Object.assign({
       class: 'aba', role: 'tab',
       'aria-selected': ativo ? 'true' : 'false',
       onclick: aoClicar
-    }, rotulo);
+    }, extras || {}), rotulo);
   }
 
   /** Linha de definição rótulo/valor. */
@@ -228,6 +229,174 @@ var COMP = (function () {
       svg.appendChild(caminho);
     });
     return el('div', { class: 'assinatura-vista-caixa' }, svg);
+  }
+
+  /* ================================================== exames (PDF) ===== */
+
+  /**
+   * Uma linha da lista de exames: marca, nome, detalhe e as ações que quem
+   * chama passar (`aoAbrir`, `aoBaixar`, `aoRemover`; a que faltar não
+   * aparece). Remover pede dois cliques em vez de um confirm(): o confirm
+   * fecharia o modal em que a lista está.
+   *   cfg: { nome, detalhe, aoAbrir, aoBaixar, aoRemover }
+   */
+  function linhaExame(cfg) {
+    var botaoRemover = null;
+
+    function desarmar() {
+      botaoRemover.classList.remove('armado');
+      botaoRemover.classList.add('btn-icone');
+      botaoRemover.title = 'Remover';
+      botaoRemover.setAttribute('aria-label', 'Remover ' + cfg.nome);
+      UI.limpar(botaoRemover);
+      botaoRemover.appendChild(icone('lixo'));
+    }
+
+    if (cfg.aoRemover) {
+      botaoRemover = el('button', {
+        class: 'btn btn-plano btn-icone btn-pq', type: 'button', title: 'Remover', 'aria-label': 'Remover ' + cfg.nome,
+        onclick: function () {
+          if (!botaoRemover.classList.contains('armado')) {
+            botaoRemover.classList.add('armado');
+            botaoRemover.title = 'Clique de novo para remover';
+            botaoRemover.setAttribute('aria-label', 'Clique de novo para remover ' + cfg.nome);
+            UI.limpar(botaoRemover);
+            botaoRemover.appendChild(el('span', { class: 't-mpq t-forte' }, 'Remover?'));
+            botaoRemover.classList.remove('btn-icone');
+            setTimeout(function () { if (botaoRemover.classList.contains('armado')) desarmar(); }, 4000);
+            return;
+          }
+          cfg.aoRemover();
+        }
+      }, icone('lixo'));
+    }
+
+    return el('div', { class: 'anexo' }, [
+      el('div', { class: 'anexo-marca' }, icone('nota')),
+      el('div', { class: 'anexo-corpo' }, [
+        el('div', { class: 'anexo-nome', title: cfg.nome }, cfg.nome),
+        cfg.detalhe ? el('div', { class: 't-mpq t-suave' }, cfg.detalhe) : null
+      ]),
+      cfg.aoAbrir ? el('button', {
+        class: 'btn btn-plano btn-icone btn-pq', type: 'button', title: 'Abrir', 'aria-label': 'Abrir ' + cfg.nome,
+        onclick: cfg.aoAbrir
+      }, icone('olho')) : null,
+      cfg.aoBaixar ? el('button', {
+        class: 'btn btn-plano btn-icone btn-pq', type: 'button', title: 'Baixar', 'aria-label': 'Baixar ' + cfg.nome,
+        onclick: cfg.aoBaixar
+      }, icone('baixar')) : null,
+      botaoRemover
+    ]);
+  }
+
+  /**
+   * Linha de um exame já guardado (meta do ANEXOS): abrir, baixar e remover.
+   * `aoMudar` roda depois de remover, para a tela desenhar a lista de novo.
+   * É a mesma linha nas telas Avaliações pré e Cirurgias.
+   */
+  function linhaExameGuardado(m, aoMudar) {
+    return linhaExame({
+      nome: m.nome,
+      detalhe: ANEXOS.tamanhoLegivel(m.tamanho) + ' · ' + UI.data(m.criadoEm) + (m.criadoPor ? ' · ' + m.criadoPor : ''),
+      aoAbrir: function () { ANEXOS.abrirEmAba(m.id, m.nome).catch(function (e) { UI.erro('Não foi possível abrir', e.message); }); },
+      aoBaixar: function () { ANEXOS.baixar(m.id, m.nome).catch(function (e) { UI.erro('Não foi possível baixar', e.message); }); },
+      aoRemover: function () {
+        ANEXOS.remover(m.id).then(function () { UI.ok('Exame removido', m.nome); aoMudar(); },
+          function (e) { UI.erro('Não foi possível remover', e.message); });
+      }
+    });
+  }
+
+  var contadorAreas = 0;
+
+  /** O arrasto traz arquivo (e não, por exemplo, um texto selecionado)? */
+  function arrastoDeArquivo(ev) {
+    var tipos = ev.dataTransfer && ev.dataTransfer.types;
+    return !!tipos && Array.prototype.indexOf.call(tipos, 'Files') >= 0;
+  }
+
+  /**
+   * Área para soltar ou escolher PDFs de exame. Não guarda nada: entrega os
+   * arquivos a `cfg.aoReceber(File[])`, que decide o que fazer com eles.
+   *   cfg: { aoReceber, dica }   `dica` é a linha pequena de baixo
+   */
+  function areaDeExames(cfg) {
+    var idDica = 'soltar-dica-' + (++contadorAreas);
+
+    function entregar(lista) {
+      // A lista do arrasto só vale durante o evento: copia já.
+      var arquivos = Array.prototype.slice.call(lista || []);
+      if (arquivos.length) cfg.aoReceber(arquivos);
+    }
+
+    var entrada = el('input', {
+      type: 'file', accept: 'application/pdf,.pdf', multiple: true,
+      style: 'display:none', tabindex: '-1', 'aria-hidden': 'true',
+      onchange: function () { var lista = entrada.files; entregar(lista); entrada.value = ''; }
+    });
+
+    var zona = el('div', { class: 'soltar' }, [
+      icone('subir', 'soltar-icone'),
+      el('div', { class: 'soltar-texto' }, [
+        el('strong', null, 'PDFs dos exames do paciente'),
+        el('span', { class: 't-pq t-medio so-mouse' }, 'Arraste os arquivos para cá ou use o botão.'),
+        el('span', { class: 't-pq t-medio so-toque' }, 'Toque no botão para escolher os arquivos.')
+      ]),
+      el('button', {
+        class: 'btn', type: 'button', 'aria-describedby': idDica,
+        onclick: function () { entrada.click(); }
+      }, [icone('clipe'), 'Escolher PDFs']),
+      entrada
+    ]);
+
+    // dragenter/dragleave disparam também ao passar por cima dos filhos da
+    // área; o contador evita que o destaque pisque.
+    var dentro = 0;
+    zona.addEventListener('dragenter', function (ev) {
+      if (!arrastoDeArquivo(ev)) return;
+      ev.preventDefault();
+      dentro++;
+      zona.classList.add('arrastando');
+    });
+    zona.addEventListener('dragover', function (ev) {
+      if (!arrastoDeArquivo(ev)) return;
+      ev.preventDefault();
+      ev.dataTransfer.dropEffect = 'copy';
+    });
+    zona.addEventListener('dragleave', function (ev) {
+      if (!arrastoDeArquivo(ev)) return;
+      dentro = Math.max(0, dentro - 1);
+      if (!dentro) zona.classList.remove('arrastando');
+    });
+    zona.addEventListener('drop', function (ev) {
+      if (!arrastoDeArquivo(ev)) return;
+      ev.preventDefault();
+      dentro = 0;
+      zona.classList.remove('arrastando');
+      entregar(ev.dataTransfer.files);
+    });
+
+    return el('div', { class: 'soltar-caixa' }, [
+      zona,
+      cfg.dica ? el('div', { class: 't-mpq t-suave mt-2', id: idDica }, cfg.dica) : null
+    ]);
+  }
+
+  /**
+   * Arquivo solto fora da área de exames faria o navegador abri-lo no lugar
+   * do sistema, e tudo o que está digitado na tela se perderia. Em `no` (o
+   * fundo do modal), largar arquivo em qualquer outro ponto não faz nada.
+   */
+  function impedirSoltarArquivo(no) {
+    no.addEventListener('dragover', function (ev) {
+      if (!arrastoDeArquivo(ev)) return;
+      // Se a área de exames já aceitou (defaultPrevented), o cursor de "copiar" fica.
+      if (!ev.defaultPrevented) ev.dataTransfer.dropEffect = 'none';
+      ev.preventDefault();
+    });
+    no.addEventListener('drop', function (ev) {
+      if (arrastoDeArquivo(ev)) ev.preventDefault();
+    });
   }
 
   /* ================================================== calendário ====== */
@@ -383,6 +552,10 @@ var COMP = (function () {
     seletor: seletor,
     botaoSeg: botaoSeg,
     abaBtn: abaBtn,
+    linhaExame: linhaExame,
+    linhaExameGuardado: linhaExameGuardado,
+    areaDeExames: areaDeExames,
+    impedirSoltarArquivo: impedirSoltarArquivo,
     def: def,
     nomeMes: nomeMes,
     corDoStatus: corDoStatus

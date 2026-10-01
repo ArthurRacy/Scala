@@ -2,9 +2,9 @@
 
 Documento de passagem entre conversas. Diz o que o sistema é, como está
 montado, o que já foi feito, as regras que não podem ser quebradas e o que
-ainda falta. Atualizado em **29/09/2026**.
+ainda falta. Atualizado em **01/10/2026**.
 
-- Estado atual: **644 testes, todos passando** (`node qa`).
+- Estado atual: **667 testes, todos passando** (`node qa`).
 - Versão online publicada: **versão 10** (com o módulo de qualidade e segurança).
 
 ---
@@ -22,7 +22,8 @@ Faz:
   substituições e horizonte móvel. O calendário escolhe dia, mês e ano, até
   24 meses à frente.
 - **Cirurgias, avaliações e termo:** cirurgias e avaliações pré-anestésicas
-  (criadas sozinhas). Os PDFs de exame ficam presos à avaliação. O TCLE sai
+  (criadas sozinhas). Os PDFs de exame ficam presos à avaliação e podem ser
+  anexados na própria tela de cirurgia (aba *Exames do paciente*). O TCLE sai
   em PDF, pode ser assinado na tela e enviado por WhatsApp.
 - **Boletim anestésico:** completo, com gráfico, assinatura, código SHA-256,
   PDF, reabertura com motivo e histórico de versões.
@@ -71,7 +72,12 @@ docs/        REGRAS_DE_NEGOCIO.md, QA.md, KANBAN.md
 3. **IDs nunca são reaproveitados.** As sequências ficam em
    `config.sequencias` (cirurgia, avaliação, boletim). Formato `CIR0001`,
    `AVP0001`, `BOL0001`.
-4. **Vínculo dos PDFs de exame pelo `uid` da avaliação**, nunca pelo ID.
+4. **Vínculo dos PDFs de exame pelo `uid` da avaliação**, nunca pelo ID. A aba
+   *Exames do paciente* da cirurgia respeita isso: cirurgia sem avaliação junta os
+   PDFs numa fila em memória (`ANEXOS.novaFila`) e só os envia **depois** de a
+   cirurgia gravada (no servidor, depois de o comando ser confirmado — é ele que
+   faz a avaliação existir lá). Quem gera a avaliação é `cirurgiaPedeAvaliacao`
+   (core/06): a tela não repete essa regra.
 5. **Fronteira de confiança:** tudo que entra de fora passa por
    `DADOS.sanearEstado` (webapp/js/03_dados.js). Os boletins são saneados pelo
    próprio core (`sanearBoletins`).
@@ -250,8 +256,28 @@ Regras de concorrência e de acesso:
    protótipo). Tudo entregue como **protótipo para aprovação**; ver `docs/KANBAN.md`
    (tabela item a item) e `docs/QUALIDADE.md`. Validado em navegador (desktop e
    375 px), no PowerPoint e no Excel de verdade (por automação COM).
+10. **Exames do paciente na cirurgia nova** (01/10/2026): o formulário de cirurgia
+    ganhou abas (*Dados da cirurgia* | *Exames do paciente*), com área de soltar
+    PDFs, fila de espera para cirurgia sem avaliação e envio à avaliação criada ao
+    lançar. `abrirModal` aceita `abas`; `COMP` ganhou `linhaExame`,
+    `linhaExameGuardado`, `areaDeExames` e `impedirSoltarArquivo`; `.modal` ganhou
+    `min-width: 0` (nome de arquivo comprido empurrava o modal para fora de uma
+    tela de 375 px). Validado em navegador (computador, 375 px, tema claro e
+    escuro, teclado) e no servidor da clínica. Testes em `qa/24_*`.
 
 ## 9. Pendências e ideias (nada bloqueando)
+
+- **Versão online e GitHub Pages:** a aba *Exames do paciente* ainda **não** foi
+  publicada. `index.html` da raiz e o Artifact foram gerados antes dela; para
+  publicar, `python tools/gerar_versao_online.py index.html --completo` e depois o
+  fluxo da seção 10, item 4.
+- **Exames:** só PDF (decisão do grupo, desde os "dez ajustes"); foto de exame
+  (JPG/PNG) exigiria mexer na conferência do arquivo (`ANEXOS.conferir`), no
+  servidor (`receberAnexo`), no backup e na abertura em outra aba. Fechar o
+  formulário de cirurgia sem lançar descarta os PDFs que ainda esperavam na fila,
+  como já descarta os campos.
+- **`qa/19_servidor.test.js`** continua falhando de vez em quando com
+  "fetch failed" (já registrado em `docs/QA.md`): nada a ver com as regras.
 
 - **Qualidade — decisões da instituição, não do sistema** (detalhe em
   `docs/QUALIDADE.md`, seção *Decisões em aberto*):
@@ -294,13 +320,13 @@ Regras de concorrência e de acesso:
     8091). Não afeta o navegador da pessoa usuária;
   - a pasta de teste do servidor ficou no scratchpad.
 - **Documentação** atualizada: README (seções de boletim, qualidade, servidor e
-  segurança), docs/QA.md (tabela por arquivo, 644 testes), docs/KANBAN.md,
+  segurança), docs/QA.md (tabela por arquivo, 667 testes), docs/KANBAN.md,
   docs/QUALIDADE.md e docs/QUALIDADE_INDICADORES.md (este é **gerado**: rode
   `node tools/gerar_docs_qualidade.js` depois de mudar o catálogo).
 
 ## 10. Primeiros passos sugeridos para o próximo chat
 
-1. Rodar `node qa` e confirmar 644 de 644.
+1. Rodar `node qa` e confirmar 667 de 667.
 2. Ler `README.md` (visão de uso) e a seção 3 deste arquivo (invariantes).
 3. Antes de mexer no store, conferir as listas `MUTACOES_*` e o contexto de
    execução.

@@ -63,6 +63,22 @@ node qa
   tempo real, dia da semana, escalados do dia, sugestão da posição 1, mês e ano.
 - Avisa na hora quando o anestesista escolhido **não está na escala** daquela
   data, e quando a cirurgia tem **conflito de horário**.
+- **Exames do paciente**: o formulário tem duas abas, *Dados da cirurgia* e
+  *Exames do paciente*. Na segunda, arraste ou escolha os PDFs dos exames ainda
+  na hora de lançar a cirurgia nova; o número de exames aparece na própria aba.
+  Eles ficam presos à **avaliação pré-anestésica** (os mesmos da tela
+  *Avaliações pré*):
+  - com *Avaliação pré necessária? = Sim*, os arquivos esperam e vão para a
+    avaliação que o sistema cria ao lançar. Se a avaliação estiver como "Não",
+    a aba oferece marcá-la com um clique; cirurgia cancelada não gera avaliação,
+    então não aceita exames;
+  - em cirurgia que já tem avaliação, o PDF é guardado na hora, sem esperar o
+    botão de salvar.
+
+  Só PDF de verdade, até 25 MB cada: o arquivo errado (texto com extensão
+  `.pdf`, vazio, grande demais) é recusado já na escolha, com o motivo. Fechar o
+  formulário sem lançar descarta os PDFs que ainda esperavam, como descarta os
+  campos.
 
 ### Avaliações pré-anestésicas
 - A linha é **criada sozinha** no momento em que a cirurgia é marcada com
@@ -71,9 +87,9 @@ node qa
   mantêm atualizados.
 - Quem avalia pode ser diferente de quem operou — a receita da avaliação vai
   para quem a realizou.
-- A secretaria anexa os **PDFs dos exames** do paciente na própria avaliação
-  (guardados no navegador, via IndexedDB). O backup pode sair **com ou sem**
-  os PDFs.
+- A secretaria anexa os **PDFs dos exames** do paciente na própria avaliação —
+  ou já na aba *Exames do paciente* do formulário de cirurgia — (guardados no
+  navegador, via IndexedDB). O backup pode sair **com ou sem** os PDFs.
 - O sistema gera o **PDF do termo de consentimento (TCLE)** já preenchido,
   para baixar, enviar (WhatsApp) ou **assinar na tela** — a assinatura vira
   PDF anexado à avaliação, com código de conferência (SHA-256).
@@ -308,10 +324,10 @@ webapp/               Interface — sem framework, sem build, sem CDN
   css/app.css           Design system (claro e escuro)
   js/00_bootstrap.js    Ponte com o core + verificação de carga
   js/01_ui.js           DOM, ícones, modal, torradas, tabelas, formulários
-  js/01b_componentes.js Peças de tela comuns (KPI, cartão, filtros) + registro TELAS
+  js/01b_componentes.js Peças de tela comuns (KPI, cartão, filtros, área e linha de exames) + registro TELAS
   js/02_graficos.js     Gráficos em SVG escritos à mão
   js/03_dados.js        Persistência, import/export, saneamento da entrada, CSV
-  js/03a_anexos.js      PDFs de exames (IndexedDB), presos ao uid da avaliação
+  js/03a_anexos.js      PDFs de exames (IndexedDB), presos ao uid da avaliação; fila da cirurgia nova
   js/03b_pdf.js         Gerador de PDF mínimo, sem biblioteca
   js/03c_tcle.js        Texto e montagem do termo de consentimento
   js/03d_guarda.js      Guarda dos dados: IndexedDB, cópias, backup em pasta
@@ -331,11 +347,11 @@ apps-script/          Camada Google Sheets
   92_gatilhos.gs        Menu, onEdit (criação automática), ações manuais
   appsscript.json
 
-qa/                   644 testes, sem dependência externa
+qa/                   667 testes, sem dependência externa
   index.js              Executor  —  node qa  |  node qa 05
   _runner.js            Arnês de testes
   _mock_sheets.js       Google Sheets de mentira, para testar a ponte
-  01..23_*.test.js
+  01..24_*.test.js
 
 server/               Modo servidor (Node puro, sem npm install)
   servidor.js           HTTP, login, comandos, SSE, anexos, backup

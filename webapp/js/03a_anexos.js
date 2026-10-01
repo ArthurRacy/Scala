@@ -15,6 +15,9 @@
  * pode renascer em outro paciente depois de "apagar tudo" ou de importar um
  * backup; o uid não. `idAvaliacao` fica na meta só para leitura humana.
  *
+ * FILA (novaFila): a tela de cirurgia nova junta os PDFs antes de a avaliação
+ * existir e os manda para ela assim que a cirurgia é lançada.
+ *
  * ATENÇÃO: os anexos ficam NESTE navegador e não entram no backup .json.
  *
  * MODO SERVIDOR (usarServidor): a mesma interface, mas os PDFs ficam no
@@ -181,6 +184,24 @@ var ANEXOS = (function () {
   }
 
   /**
+   * O arquivo serve? Recusa o que passa do tamanho máximo, está vazio ou não
+   * é um PDF de verdade. Rejeita com uma mensagem pronta para a tela. É a
+   * mesma conferência de `adicionar`, exposta para a tela recusar já na hora
+   * de escolher o arquivo e não só depois de a cirurgia ser lançada.
+   */
+  function conferir(arquivo) {
+    if (!arquivo) return Promise.reject(new Error('Nenhum arquivo.'));
+    var nome = '"' + (arquivo.name || 'arquivo') + '"';
+    if (arquivo.size > TAMANHO_MAXIMO) {
+      return Promise.reject(new Error(nome + ' passa de ' + (TAMANHO_MAXIMO / 1048576) + ' MB.'));
+    }
+    if (!arquivo.size) return Promise.reject(new Error(nome + ' está vazio.'));
+    return assinaturaPDF(arquivo).then(function (ehPDF) {
+      if (!ehPDF) throw new Error(nome + ' não é um PDF.');
+    });
+  }
+
+  /**
    * Guarda um PDF preso à avaliação. Recusa o que não for PDF de verdade
    * ou passar do tamanho máximo.
    */
@@ -188,13 +209,8 @@ var ANEXOS = (function () {
     if (!avaliacao || !avaliacao.uid) {
       return Promise.reject(new Error('Avaliação sem identificador interno — salve e abra de novo.'));
     }
-    if (!arquivo) return Promise.reject(new Error('Nenhum arquivo.'));
-    if (arquivo.size > TAMANHO_MAXIMO) {
-      return Promise.reject(new Error('"' + arquivo.name + '" passa de ' + (TAMANHO_MAXIMO / 1048576) + ' MB.'));
-    }
 
-    return assinaturaPDF(arquivo).then(function (ehPDF) {
-      if (!ehPDF) throw new Error('"' + (arquivo.name || 'arquivo') + '" não é um PDF.');
+    return conferir(arquivo).then(function () {
       if (rede) return rede.enviar(avaliacao, arquivo).then(function (meta) { indexar(meta); return meta; });
 
       var meta = {
@@ -213,6 +229,69 @@ var ANEXOS = (function () {
         tx.objectStore('arquivos').put({ id: meta.id, blob: arquivo });
       }).then(function () { indexar(meta); return meta; });
     });
+  }
+
+  /**
+   * Fila de exames à espera de uma avaliação. Na tela de cirurgia nova a
+   * avaliação ainda não existe: ela nasce quando a cirurgia é lançada. Os
+   * arquivos esperam aqui — em memória, como File, sem ler o disco até o envio —
+   * e seguem para `enviarPara(avaliacao)` depois que a cirurgia foi gravada.
+   * Cada arquivo é conferido ao entrar (PDF de verdade, até o tamanho máximo):
+   * quem escolheu o arquivo errado descobre na hora, e não depois de lançar.
+   */
+  function novaFila() {
+    var itens = [];
+
+    function igual(a, b) { return a.name === b.name && a.size === b.size && a.lastModified === b.lastModified; }
+
+    return {
+      itens: function () { return itens.slice(); },
+      tamanho: function () { return itens.length; },
+
+      /**
+       * Confere e põe na fila, um a um. Nunca rejeita: devolve o que entrou
+       * (`aceitos`), o que foi recusado e por quê, e o que já estava na fila.
+       */
+      adicionar: function (arquivos) {
+        var saida = { aceitos: [], recusados: [], repetidos: [] };
+        return Array.prototype.slice.call(arquivos || []).reduce(function (fila, arq) {
+          return fila.then(function () {
+            return conferir(arq).then(function () {
+              // A repetição é conferida aqui, sem pausa até o push: duas levas
+              // soltas quase juntas não furam a checagem.
+              if (itens.some(function (x) { return igual(x, arq); })) { saida.repetidos.push(arq.name); return; }
+              itens.push(arq);
+              saida.aceitos.push(arq);
+            }, function (e) {
+              saida.recusados.push({ nome: String((arq && arq.name) || 'arquivo'), motivo: e.message });
+            });
+          });
+        }, Promise.resolve()).then(function () { return saida; });
+      },
+
+      remover: function (arquivo) {
+        var i = itens.indexOf(arquivo);
+        if (i >= 0) itens.splice(i, 1);
+      },
+
+      /**
+       * Guarda os arquivos na avaliação, um de cada vez. Nunca rejeita: o que
+       * foi guardado sai da fila, o que falhou fica nela (e vem em `falhas`).
+       */
+      enviarPara: function (avaliacao, usuario) {
+        var saida = { feitos: 0, falhas: [] };
+        return itens.slice().reduce(function (fila, arq) {
+          return fila.then(function () {
+            return adicionar(avaliacao, arq, usuario).then(function () {
+              saida.feitos++;
+              itens.splice(itens.indexOf(arq), 1);
+            }, function (e) {
+              saida.falhas.push({ nome: String(arq.name || 'arquivo'), motivo: (e && e.message) || 'erro desconhecido' });
+            });
+          });
+        }, Promise.resolve()).then(function () { return saida; });
+      }
+    };
   }
 
   /** O arquivo em si (Blob). */
@@ -358,7 +437,9 @@ var ANEXOS = (function () {
     exportarTodos: exportarTodos,
     importarTodos: importarTodos,
     orfaos: orfaos,
+    conferir: conferir,
     adicionar: adicionar,
+    novaFila: novaFila,
     obter: obter,
     remover: remover,
     removerDaAvaliacao: removerDaAvaliacao,

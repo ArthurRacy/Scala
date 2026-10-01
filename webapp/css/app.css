@@ -630,7 +630,10 @@ select.entrada {
   border: 1px solid var(--borda);
   border-radius: var(--r4);
   box-shadow: var(--sombra-3);
-  width: 100%; max-width: 760px;
+  /* min-width: 0 — o fundo é um grid, e sem isto o modal nunca fica mais estreito que o
+     conteúdo que não quebra linha (nome de arquivo comprido): numa tela de 375px ele
+     passava da borda e cortava o botão de salvar. */
+  width: 100%; min-width: 0; max-width: 760px;
   max-height: calc(100vh - 2 * var(--e4));
   display: flex; flex-direction: column;
   animation: subir var(--dur-base) var(--facil-entra);
@@ -1379,6 +1382,46 @@ body.arrastando-quadro { user-select: none; -webkit-user-select: none; cursor: g
   border: 1px dashed var(--borda-forte); border-radius: var(--r2);
 }
 .btn.armado { color: var(--perigo); padding: 0 var(--e2); }
+
+/* ---- Abas dentro do modal (formulário de cirurgia: dados | exames) ----
+   A barra fica entre o cabeçalho e o corpo, fora da rolagem: trocar de aba
+   é possível de qualquer ponto do formulário. O traço do cabeçalho some para
+   não haver duas linhas seguidas. A altura é fixa: uma aba curta (exames) e
+   uma longa (dados) não podem fazer o modal encolher e crescer a cada troca. ---- */
+.modal.com-abas { height: min(920px, calc(100vh - 2 * var(--e4))); }
+.modal.com-abas .modal-topo { border-bottom: 0; padding-bottom: var(--e2); }
+.modal-abas { margin: 0; padding: 0 var(--e5); flex: 0 0 auto; }
+.painel-aba[hidden] { display: none; }
+.aba-contagem {
+  display: inline-block; margin-left: 6px; min-width: 18px; padding: 0 6px;
+  border-radius: 999px; background: var(--acento-suave); color: var(--acento-forte);
+  font-size: var(--t-1); font-weight: 650; line-height: 18px; text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.aba-contagem[hidden] { display: none; }
+:root[data-dispositivo="celular"] .modal-abas { padding: 0 var(--e4); }
+
+/* ---- Área de soltar PDFs de exame (aba "Exames do paciente") ----
+   Tracejado porque é um lugar para largar algo; vira traço cheio em
+   esmeralda enquanto um arquivo está por cima. ---- */
+.soltar {
+  display: flex; align-items: center; gap: var(--e4); flex-wrap: wrap;
+  padding: var(--e4) var(--e5);
+  border: 1px dashed var(--borda-campo); border-radius: var(--r2);
+  background: var(--superficie-2);
+  transition: background-color .12s, border-color .12s;
+}
+.soltar.arrastando { border-style: solid; border-color: var(--acento); background: var(--acento-suave); }
+.soltar-icone { width: 28px; height: 28px; flex: 0 0 28px; color: var(--texto-suave); }
+.soltar.arrastando .soltar-icone { color: var(--acento); }
+.soltar-texto { flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.soltar-texto strong { font-weight: 600; }
+/* Arrastar é coisa de mouse: no celular a dica é tocar no botão. */
+.so-toque { display: none; }
+:root[data-dispositivo="celular"] .so-mouse { display: none; }
+:root[data-dispositivo="celular"] .so-toque { display: block; }
+:root[data-dispositivo="celular"] .soltar { padding: var(--e4); }
+@media (prefers-reduced-motion: reduce) { .soltar { transition: none; } }
 
 /* ---- Faixa: outra aba gravou (esta parou de salvar) ---- */
 .faixa-bloqueio {

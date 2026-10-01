@@ -260,7 +260,7 @@ TELAS.cirurgias = (function () {
     var fAvalNec = UI.campo({
       rotulo: 'Avaliação pré necessária?', nome: 'avaliacaoNec', tipo: 'select',
       opcoes: DOMINIOS.SIM_NAO, vazioPermitido: false, valor: c.avaliacaoNec || 'Não',
-      dica: 'Ao marcar "Sim", a linha da avaliação é criada sozinha.',
+      dica: 'Ao marcar "Sim", a linha da avaliação é criada sozinha — e é nela que ficam os exames do paciente (aba "Exames do paciente").',
       aoMudar: atualizarCalculados
     });
 
@@ -270,6 +270,14 @@ TELAS.cirurgias = (function () {
     var fNF = UI.campo({ rotulo: 'Número da nota fiscal', nome: 'nf', valor: c.nf || '' });
 
     var fObs = UI.campo({ rotulo: 'Observações', nome: 'obs', tipo: 'textarea', valor: c.obs || '', largo: true, linhas: 2 });
+
+    /* Exames do paciente: a segunda aba. Enxerga só o que precisa dos campos da primeira. */
+    var exames = abaExames(app, existente, {
+      avalNec: function () { return fAvalNec.valor(); },
+      status: function () { return fStatus.valor(); },
+      marcarAval: function () { fAvalNec.definir('Sim'); atualizarCalculados(); },
+      aoMudar: function () { atualizarContagemDaAba(); }
+    });
 
     /* Área de informação viva: escalados do dia e avisos */
     var painelAuto = el('div', { class: 'painel-auto' });
@@ -416,12 +424,15 @@ TELAS.cirurgias = (function () {
           ])
         ]));
       }
+
+      // Status e "avaliação necessária?" decidem se a aba de exames aceita arquivos.
+      exames.atualizar();
     }
 
     atualizarCalculados();
 
     /* --- corpo do modal ----------------------------------------------- */
-    var corpo = [
+    var conteudoDados = [
       painelAuto,
 
       secao('Agendamento', [
@@ -464,6 +475,51 @@ TELAS.cirurgias = (function () {
       secao('Observações', [el('div', { class: 'campo-grupo' }, [fObs.no])])
     ];
 
+    /* --- abas: dados da cirurgia | exames do paciente ------------------- */
+    var idAbas = 'cir-aba-' + Math.random().toString(36).slice(2, 7);
+    var chipExames = el('span', { class: 'aba-contagem' });
+    var abaDados = COMP.abaBtn('Dados da cirurgia', true, function () { mostrarAba('dados'); },
+      { id: idAbas + '-dados', 'aria-controls': idAbas + '-painel-dados' });
+    var abaExamesBtn = COMP.abaBtn(['Exames do paciente', chipExames], false, function () { mostrarAba('exames'); },
+      { id: idAbas + '-exames', 'aria-controls': idAbas + '-painel-exames', tabindex: '-1' });
+
+    var painelDados = el('div', { class: 'painel-aba', role: 'tabpanel',
+      id: idAbas + '-painel-dados', 'aria-labelledby': idAbas + '-dados' }, conteudoDados);
+    var painelExames = el('div', { class: 'painel-aba', role: 'tabpanel', hidden: true,
+      id: idAbas + '-painel-exames', 'aria-labelledby': idAbas + '-exames' }, exames.no);
+
+    function mostrarAba(qual) {
+      var dados = qual === 'dados';
+      painelDados.hidden = !dados;
+      painelExames.hidden = dados;
+      abaDados.setAttribute('aria-selected', dados ? 'true' : 'false');
+      abaDados.tabIndex = dados ? 0 : -1;
+      abaExamesBtn.setAttribute('aria-selected', dados ? 'false' : 'true');
+      abaExamesBtn.tabIndex = dados ? -1 : 0;
+      // O corpo é um só: sem isto, trocar de aba herda o ponto onde o outro painel estava rolado.
+      if (painelDados.parentNode) painelDados.parentNode.scrollTop = 0;
+    }
+
+    // Setas e Home/End trocam de aba, como em qualquer lista de abas.
+    [abaDados, abaExamesBtn].forEach(function (b) {
+      b.addEventListener('keydown', function (ev) {
+        if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].indexOf(ev.key) < 0) return;
+        ev.preventDefault();
+        var alvo = (ev.key === 'ArrowLeft' || ev.key === 'Home') ? abaDados : abaExamesBtn;
+        alvo.click();
+        alvo.focus();
+      });
+    });
+
+    /** O número de exames aparece na aba, para não ser preciso abri-la para saber se há. */
+    function atualizarContagemDaAba() {
+      var n = exames.contagem();
+      chipExames.hidden = n === 0;
+      chipExames.textContent = n ? String(n) : '';
+      chipExames.setAttribute('aria-label', nExames(n));
+    }
+    atualizarContagemDaAba();
+
     /* --- salvar -------------------------------------------------------- */
     function salvar() {
       var d = form.dados();
@@ -471,10 +527,20 @@ TELAS.cirurgias = (function () {
       /* Remove os auxiliares de exibição (prefixo _). */
       Object.keys(d).forEach(function (k) { if (k.charAt(0) === '_') delete d[k]; });
 
+      // Exame sem avaliação para recebê-lo (avaliação marcada "Não", cirurgia cancelada): avisa
+      // antes de gravar, para nenhum arquivo ficar pelo caminho sem ninguém perceber.
+      var impedimento = exames.impedimento();
+      if (impedimento) {
+        mostrarAba('exames');
+        UI.erro('Confira os exames', impedimento);
+        return;
+      }
+
       var pendentesAntes = store.pendencias({ mes: app.mes, ano: app.ano }).length;
       var r = novo ? store.adicionarCirurgia(d) : store.atualizarCirurgia(c.id, d);
 
       if (!r.ok) {
+        mostrarAba('dados');   // os campos com erro estão nesta aba
         var soltos = form.mostrarErros(r.erros);
         if (soltos.length) UI.erro('Não foi possível salvar', soltos.join(' '));
         else UI.erro('Confira os campos destacados');
@@ -486,6 +552,9 @@ TELAS.cirurgias = (function () {
       UI.resultado(r, novo ? 'Cirurgia lançada' : 'Cirurgia atualizada');
       app.salvarEredesenhar();
 
+      // Os exames esperavam a cirurgia (e a avaliação dela) existir.
+      exames.guardar(novo ? ((r.criadas || [])[0] || {}).idCirurgia : c.id, d.paciente);
+
       // A última pendência do mês saiu: quem fecha horas todo mês merece saber que acabou.
       if (pendentesAntes > 0 && store.pendencias({ mes: app.mes, ano: app.ano }).length === 0) {
         UI.marco('Horas de ' + COMP.nomeMes(app.mes) + ' fechadas',
@@ -493,13 +562,15 @@ TELAS.cirurgias = (function () {
       }
     }
 
-    UI.abrirModal({
+    var caixa = UI.abrirModal({
       titulo: novo ? 'Nova cirurgia' : 'Cirurgia ' + c.id,
       sub: novo
         ? 'Os campos com cadeado são calculados pelo sistema.'
         : 'Paciente: ' + UI.ou(c.paciente) + ' · ' + UI.data(c.data),
       tamanho: 'largo',
-      corpo: corpo,
+      abas: [abaDados, abaExamesBtn],
+      rotuloAbas: 'Seções da cirurgia',
+      corpo: [painelDados, painelExames],
       acoes: [
         novo ? null : el('button', {
           class: 'btn btn-perigo',
@@ -515,6 +586,237 @@ TELAS.cirurgias = (function () {
           [icone('check'), novo ? 'Lançar cirurgia' : 'Salvar alterações'])
       ]
     });
+
+    // PDF solto fora da área de exames faria o navegador abri-lo no lugar do sistema.
+    COMP.impedirSoltarArquivo(caixa.parentNode);
+  }
+
+  /* ====================================================== exames ======== */
+
+  /** A avaliação pré-anestésica da cirurgia `id` (a primeira), ou nula. */
+  function avaliacaoDaCirurgia(store, id) {
+    return store.estado.avaliacoes.filter(function (a) { return txt(a.idCirurgia) === txt(id); })[0] || null;
+  }
+
+  /** "1 exame", "3 exames". */
+  function nExames(n) { return n + (n === 1 ? ' exame' : ' exames'); }
+
+  /**
+   * Segunda aba do formulário de cirurgia: os PDFs de exame do paciente.
+   *
+   * Eles ficam presos à AVALIAÇÃO pré-anestésica — é lá que o sistema os
+   * guarda, mostra (tela Avaliações pré) e apaga junto com ela. Daí:
+   *   - cirurgia que já tem avaliação: o PDF é guardado na hora, como naquela tela;
+   *   - cirurgia sem avaliação (nova, ou marcada "Não"): os arquivos esperam
+   *     numa fila e vão para a avaliação que o sistema cria ao lançar. Isso só
+   *     acontece com "Avaliação pré necessária? = Sim" e a cirurgia não cancelada.
+   *
+   * `campos` liga a aba ao resto do formulário (a outra aba):
+   *   avalNec(), status()  o que está escolhido agora
+   *   marcarAval()         marca "Avaliação pré necessária? = Sim"
+   *   aoMudar()            avisa que a quantidade de exames mudou
+   */
+  function abaExames(app, existente, campos) {
+    var fila = ANEXOS.novaFila();
+    var no = el('div');
+    var desenhado = null;   // situação que está na tela: só se redesenha quando ela muda
+
+    // O destino é fixado ao abrir o formulário: a lista de exames muda, a avaliação não.
+    var dela = existente ? avaliacaoDaCirurgia(app.store, existente.id) : null;
+    var aval = dela ? { uid: dela.uid, id: dela.id } : null;
+
+    /**
+     * Onde os exames ficam, pelo que está escolhido agora no formulário:
+     *   'existente'   a cirurgia já tem avaliação
+     *   'fila'        a avaliação nascerá ao gravar (mesma regra do core)
+     *   'precisaSim'  "Avaliação pré necessária?" está como "Não"
+     *   'cancelada'   está "Sim", mas cirurgia cancelada não gera avaliação
+     */
+    function situacao() {
+      if (aval) return 'existente';
+      if (cirurgiaPedeAvaliacao({ avaliacaoNec: campos.avalNec(), status: campos.status() })) return 'fila';
+      return ehSim(campos.avalNec()) ? 'cancelada' : 'precisaSim';
+    }
+
+    function contagem() { return aval ? ANEXOS.contar(aval.uid) : fila.tamanho(); }
+
+    /** Por que a cirurgia não pode ser gravada com estes exames (ou nulo, se pode). */
+    function impedimento() {
+      var n = fila.tamanho();
+      if (aval || !n) return null;
+      var s = situacao();
+      if (s === 'precisaSim') {
+        return nExames(n) + ' na aba "Exames do paciente", mas "Avaliação pré necessária?" está como "Não". ' +
+          'Os exames ficam na avaliação pré-anestésica: marque "Sim" ou remova os exames.';
+      }
+      if (s === 'cancelada') {
+        return nExames(n) + ' na aba "Exames do paciente", mas cirurgia cancelada não tem avaliação pré-anestésica. ' +
+          'Mude o status ou remova os exames.';
+      }
+      return null;
+    }
+
+    function dica() {
+      return 'Só PDF, até ' + Math.round(ANEXOS.TAMANHO_MAXIMO / 1048576) + ' MB cada. ' +
+        (ANEXOS.naRede() ? 'Ficam guardados no servidor da clínica.' : 'Ficam guardados neste computador.');
+    }
+
+    function aviso(tipo, nomeIcone, titulo, texto, extra) {
+      return el('div', { class: 'aviso aviso-' + tipo }, [
+        icone(nomeIcone),
+        el('div', { class: 'aviso-corpo' }, [el('strong', null, titulo), el('div', { class: 't-pq' }, texto), extra || null])
+      ]);
+    }
+
+    function desenhar() {
+      // O botão que acabou de ser apertado some na redesenhada. Sem devolver o foco, ele cai no
+      // <body> e quem usa o teclado recomeça a navegação do alto do formulário.
+      var tinhaFoco = no.contains(document.activeElement);
+
+      desenhado = situacao();
+      UI.limpar(no);
+
+      if (!ANEXOS.disponivel()) {
+        no.appendChild(aviso('atencao', 'alerta', 'Este navegador não permite guardar arquivos',
+          'Janela privada ou armazenamento bloqueado. Abra o sistema numa janela normal.'));
+      } else if (desenhado === 'existente') {
+        desenharGuardados();
+      } else {
+        desenharFila(desenhado);
+      }
+
+      if (tinhaFoco && !no.contains(document.activeElement)) {
+        var alvo = no.querySelector('.soltar button') || no.querySelector('button');
+        if (alvo) alvo.focus({ preventScroll: true });
+      }
+    }
+
+    function depoisDeMudar() { desenhar(); campos.aoMudar(); app.redesenhar(); }
+
+    /* --- cirurgia que já tem avaliação: guarda na hora ---------------- */
+
+    function desenharGuardados() {
+      var itens = ANEXOS.listar(aval.uid);
+      no.appendChild(aviso('info', 'info', 'Guardados na avaliação pré-anestésica ' + aval.id,
+        'Cada PDF é guardado assim que é enviado, sem esperar o botão "Salvar alterações". ' +
+        'Os mesmos exames aparecem na tela Avaliações pré.'));
+      no.appendChild(COMP.areaDeExames({ aoReceber: guardarNaHora, dica: dica() }));
+      no.appendChild(itens.length
+        ? el('div', { class: 'anexos mt-3' }, itens.map(function (m) { return COMP.linhaExameGuardado(m, depoisDeMudar); }))
+        : el('div', { class: 'anexos-vazio t-pq t-suave mt-3' }, 'Nenhum exame anexado ainda.'));
+    }
+
+    function guardarNaHora(arquivos) {
+      var feitos = 0, falhas = [];
+      arquivos.reduce(function (p, arq) {
+        return p.then(function () {
+          return ANEXOS.adicionar(aval, arq, app.store.usuario)
+            .then(function () { feitos++; }, function (e) { falhas.push(e.message); });
+        });
+      }, Promise.resolve()).then(function () {
+        depoisDeMudar();
+        if (feitos) UI.ok(feitos === 1 ? 'Exame anexado' : feitos + ' exames anexados', 'Avaliação ' + aval.id);
+        if (falhas.length) UI.erro('Alguns arquivos não foram aceitos', falhas.join(' '));
+      });
+    }
+
+    /* --- sem avaliação ainda: os arquivos esperam na fila -------------- */
+
+    function desenharFila(s) {
+      var quando = existente ? 'o salvamento' : 'o lançamento da cirurgia';
+
+      if (s === 'fila') {
+        no.appendChild(aviso('info', 'info', 'Os exames ficam na avaliação pré-anestésica',
+          'Escolha os PDFs agora: eles são guardados quando você ' + (existente ? 'salvar as alterações' : 'lançar a cirurgia') +
+          ', na avaliação que o sistema cria para ela.'));
+        no.appendChild(COMP.areaDeExames({ aoReceber: entrarNaFila, dica: dica() }));
+      } else if (s === 'precisaSim') {
+        // É o estado normal de uma cirurgia nova ("Avaliação pré necessária? = Não"), e não um erro:
+        // só vira aviso âmbar quando já há arquivo esperando, que aí não teria para onde ir.
+        var comArquivo = fila.tamanho() > 0;
+        no.appendChild(aviso(comArquivo ? 'atencao' : 'info', comArquivo ? 'alerta' : 'info',
+          'Os exames ficam na avaliação pré-anestésica',
+          'Esta cirurgia está com "Avaliação pré necessária? = Não". Marque como necessária e o sistema cria a avaliação ao ' +
+          (existente ? 'salvar' : 'lançar a cirurgia') + ' — é nela que os PDFs são guardados.',
+          el('button', { class: 'btn btn-primario mt-3', type: 'button', onclick: campos.marcarAval },
+            [icone('check'), 'Marcar avaliação pré como necessária'])));
+      } else {
+        no.appendChild(aviso('atencao', 'alerta', 'Cirurgia cancelada não tem avaliação pré-anestésica',
+          'Sem avaliação não há onde guardar os exames. Para anexá-los, mude o status na aba "Dados da cirurgia".'));
+      }
+
+      if (fila.tamanho()) {
+        no.appendChild(el('div', { class: 'anexos mt-3' }, fila.itens().map(function (arq) {
+          return COMP.linhaExame({
+            nome: arq.name,
+            detalhe: ANEXOS.tamanhoLegivel(arq.size) + ' · aguardando ' + quando,
+            aoRemover: function () { fila.remover(arq); desenhar(); campos.aoMudar(); }
+          });
+        })));
+        no.appendChild(el('div', { class: 't-mpq t-suave mt-2' }, nExames(fila.tamanho()) + ' aguardando ' + quando + '.'));
+      }
+    }
+
+    function entrarNaFila(arquivos) {
+      fila.adicionar(arquivos).then(function (r) {
+        desenhar();
+        campos.aoMudar();
+        if (r.recusados.length) {
+          UI.erro(r.recusados.length === 1 ? 'Um arquivo não foi aceito' : r.recusados.length + ' arquivos não foram aceitos',
+            r.recusados.map(function (x) { return x.motivo; }).join(' '));
+        }
+        if (r.repetidos.length) UI.info('Já estava na lista', r.repetidos.join(', '));
+      });
+    }
+
+    /**
+     * Com a cirurgia gravada, manda a fila para a avaliação dela. Roda depois de
+     * o modal fechar: no servidor, espera o comando ser confirmado (é ele que faz
+     * a avaliação existir lá) antes de enviar os PDFs.
+     */
+    function guardar(idCirurgia, paciente) {
+      var n = fila.tamanho();
+      if (aval || !n) return;
+
+      function naoAnexados(motivo) {
+        UI.erro(n === 1 ? 'O exame não foi anexado' : 'Os exames não foram anexados', motivo);
+      }
+
+      app.salvar().then(function (gravou) {
+        var destino = gravou && gravou.ok === false ? null : (idCirurgia ? avaliacaoDaCirurgia(app.store, idCirurgia) : null);
+        if (!destino) {
+          naoAnexados('A cirurgia não chegou a ser gravada, então a avaliação pré não foi criada. ' +
+            'Lance a cirurgia de novo e anexe os exames na aba "Exames do paciente".');
+          return null;
+        }
+        return fila.enviarPara(destino, app.store.usuario).then(function (res) {
+          if (res.feitos) {
+            UI.ok(res.feitos === 1 ? 'Exame anexado' : res.feitos + ' exames anexados',
+              UI.ou(paciente, '') + (paciente ? ' · ' : '') + 'avaliação ' + destino.id);
+          }
+          if (res.falhas.length) {
+            // "Confira se a cirurgia foi gravada": no servidor, uma recusa (alguém gravou no mesmo instante)
+            // faz a avaliação não existir lá, e o envio falha por isso.
+            UI.erro(res.feitos ? 'Alguns exames não foram anexados' : 'Os exames não foram anexados',
+              res.falhas.map(function (f) { return f.nome + ': ' + f.motivo; }).join(' ') +
+              ' Confira se a cirurgia foi gravada e anexe de novo pela aba "Exames do paciente".');
+          }
+          app.redesenhar();
+        });
+      }).catch(function (e) {
+        naoAnexados((e && e.message) || 'Erro inesperado ao enviar os arquivos.');
+      });
+    }
+
+    desenhar();
+
+    return {
+      no: no,
+      contagem: contagem,
+      impedimento: impedimento,
+      guardar: guardar,
+      atualizar: function () { if (situacao() !== desenhado) desenhar(); }
+    };
   }
 
   /** Exclusão com confirmação, avisando sobre a cascata. */

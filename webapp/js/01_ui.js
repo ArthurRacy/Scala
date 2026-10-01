@@ -359,8 +359,10 @@ var UI = (function () {
 
   /**
    * Abre um modal.
-   *   abrirModal({ titulo, sub, corpo, acoes, tamanho, aoFechar })
-   * `corpo` e `acoes` são nós ou listas de nós.
+   *   abrirModal({ titulo, sub, corpo, acoes, tamanho, aoFechar, abas, rotuloAbas })
+   * `corpo` e `acoes` são nós ou listas de nós. `abas` (opcional) são os botões
+   * de aba (COMP.abaBtn): ficam entre o cabeçalho e o corpo e não rolam com ele;
+   * quem chama mostra e esconde os painéis no corpo.
    */
   function abrirModal(cfg) {
     fecharModal();
@@ -372,7 +374,7 @@ var UI = (function () {
     var idSub = cfg.sub ? 'modal-sub-' + contadorModal : null;
 
     var caixa = el('div', {
-      class: 'modal' + (cfg.tamanho ? ' ' + cfg.tamanho : ''),
+      class: 'modal' + (cfg.tamanho ? ' ' + cfg.tamanho : '') + (cfg.abas ? ' com-abas' : ''),
       role: 'dialog', 'aria-modal': 'true',
       'aria-labelledby': idTitulo, 'aria-describedby': idSub
     }, [
@@ -386,6 +388,7 @@ var UI = (function () {
           onclick: function () { fecharModal(); }
         }, icone('x'))
       ]),
+      cfg.abas ? el('div', { class: 'abas modal-abas', role: 'tablist', 'aria-label': cfg.rotuloAbas || 'Seções' }, cfg.abas) : null,
       el('div', { class: 'modal-corpo' }, cfg.corpo),
       cfg.acoes ? el('div', { class: 'modal-pe' }, cfg.acoes) : null
     ]);

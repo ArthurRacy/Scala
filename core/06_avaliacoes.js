@@ -85,6 +85,16 @@ function recalcularAvaliacao(a, cirurgia, porNome) {
 }
 
 /**
+ * A cirurgia pede uma avaliação pré-anestésica? É a regra que cria a linha em
+ * `sincronizarAvaliacoes`: AVALIAÇÃO PRÉ NECESSÁRIA? = "Sim" e a cirurgia não
+ * cancelada. A tela de cirurgia usa a mesma conta para saber, antes de a linha
+ * existir, se os exames do paciente terão onde ficar guardados.
+ */
+function cirurgiaPedeAvaliacao(c) {
+  return !!c && ehSim(c.avaliacaoNec) && cirurgiaContabilizavel(c);
+}
+
+/**
  * TASK-301 — Sincroniza a aba AVALIAÇÕES PRÉ com a aba CIRURGIAS.
  *
  * Regras, na ordem:
@@ -115,9 +125,8 @@ function sincronizarAvaliacoes(cirurgias, avaliacoes, opcoes) {
 
   /* --- 1. criar o que falta -------------------------------------------- */
   (cirurgias || []).forEach(function (c) {
-    if (!ehSim(c.avaliacaoNec)) return;
+    if (!cirurgiaPedeAvaliacao(c)) return;            // não é "Sim", ou está cancelada
     if (vazio(c.id)) return;                          // cirurgia sem ID ainda
-    if (!cirurgiaContabilizavel(c)) return;           // cancelada não gera
     if ((idx[txt(c.id)] || []).length > 0) return;    // já tem: idempotente
 
     var nova = novaAvaliacao(c, lista, opcoes);
@@ -244,6 +253,7 @@ if (typeof module !== 'undefined' && module.exports) {
     avaliacaoFaturavel: avaliacaoFaturavel,
     indexarCanceladas: indexarCanceladas,
     garantirUid: garantirUid,
+    cirurgiaPedeAvaliacao: cirurgiaPedeAvaliacao,
     indexarAvaliacoesPorCirurgia: indexarAvaliacoesPorCirurgia,
     espelharDadosDaCirurgia: espelharDadosDaCirurgia,
     calcCompetenciaAvaliacao: calcCompetenciaAvaliacao,
