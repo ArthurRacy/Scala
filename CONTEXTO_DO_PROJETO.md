@@ -267,10 +267,10 @@ Regras de concorrência e de acesso:
 
 ## 9. Pendências e ideias (nada bloqueando)
 
-- **Versão online e GitHub Pages:** a aba *Exames do paciente* ainda **não** foi
-  publicada. `index.html` da raiz e o Artifact foram gerados antes dela; para
-  publicar, `python tools/gerar_versao_online.py index.html --completo` e depois o
-  fluxo da seção 10, item 4.
+- **Versão online:** o GitHub Pages já tem a aba *Exames do paciente* (commit
+  `e258d54`, 01/10/2026; testada na URL pública). O **Artifact** (link da seção 7)
+  continua na versão 10, **sem** a aba: para atualizar, gerar a página (seção 7) e
+  publicar no mesmo link.
 - **Exames:** só PDF (decisão do grupo, desde os "dez ajustes"); foto de exame
   (JPG/PNG) exigiria mexer na conferência do arquivo (`ANEXOS.conferir`), no
   servidor (`receberAnexo`), no backup e na abertura em outra aba. Fechar o
