@@ -642,7 +642,10 @@ select.entrada {
   border: 1px solid var(--borda);
   border-radius: var(--r4);
   box-shadow: var(--sombra-3);
-  width: 100%; max-width: 760px;
+  /* min-width: 0 — o fundo é um grid, e sem isto o modal nunca fica mais estreito que o
+     conteúdo que não quebra linha (nome de arquivo comprido): numa tela de 375px ele
+     passava da borda e cortava o botão de salvar. */
+  width: 100%; min-width: 0; max-width: 760px;
   max-height: calc(100vh - 2 * var(--e4));
   display: flex; flex-direction: column;
   animation: subir var(--dur-base) var(--facil-entra);
@@ -1391,6 +1394,46 @@ body.arrastando-quadro { user-select: none; -webkit-user-select: none; cursor: g
   border: 1px dashed var(--borda-forte); border-radius: var(--r2);
 }
 .btn.armado { color: var(--perigo); padding: 0 var(--e2); }
+
+/* ---- Abas dentro do modal (formulário de cirurgia: dados | exames) ----
+   A barra fica entre o cabeçalho e o corpo, fora da rolagem: trocar de aba
+   é possível de qualquer ponto do formulário. O traço do cabeçalho some para
+   não haver duas linhas seguidas. A altura é fixa: uma aba curta (exames) e
+   uma longa (dados) não podem fazer o modal encolher e crescer a cada troca. ---- */
+.modal.com-abas { height: min(920px, calc(100vh - 2 * var(--e4))); }
+.modal.com-abas .modal-topo { border-bottom: 0; padding-bottom: var(--e2); }
+.modal-abas { margin: 0; padding: 0 var(--e5); flex: 0 0 auto; }
+.painel-aba[hidden] { display: none; }
+.aba-contagem {
+  display: inline-block; margin-left: 6px; min-width: 18px; padding: 0 6px;
+  border-radius: 999px; background: var(--acento-suave); color: var(--acento-forte);
+  font-size: var(--t-1); font-weight: 650; line-height: 18px; text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.aba-contagem[hidden] { display: none; }
+:root[data-dispositivo="celular"] .modal-abas { padding: 0 var(--e4); }
+
+/* ---- Área de soltar PDFs de exame (aba "Exames do paciente") ----
+   Tracejado porque é um lugar para largar algo; vira traço cheio em
+   esmeralda enquanto um arquivo está por cima. ---- */
+.soltar {
+  display: flex; align-items: center; gap: var(--e4); flex-wrap: wrap;
+  padding: var(--e4) var(--e5);
+  border: 1px dashed var(--borda-campo); border-radius: var(--r2);
+  background: var(--superficie-2);
+  transition: background-color .12s, border-color .12s;
+}
+.soltar.arrastando { border-style: solid; border-color: var(--acento); background: var(--acento-suave); }
+.soltar-icone { width: 28px; height: 28px; flex: 0 0 28px; color: var(--texto-suave); }
+.soltar.arrastando .soltar-icone { color: var(--acento); }
+.soltar-texto { flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.soltar-texto strong { font-weight: 600; }
+/* Arrastar é coisa de mouse: no celular a dica é tocar no botão. */
+.so-toque { display: none; }
+:root[data-dispositivo="celular"] .so-mouse { display: none; }
+:root[data-dispositivo="celular"] .so-toque { display: block; }
+:root[data-dispositivo="celular"] .soltar { padding: var(--e4); }
+@media (prefers-reduced-motion: reduce) { .soltar { transition: none; } }
 
 /* ---- Faixa: outra aba gravou (esta parou de salvar) ---- */
 .faixa-bloqueio {
@@ -4448,6 +4491,16 @@ function recalcularAvaliacao(a, cirurgia, porNome) {
 }
 
 /**
+ * A cirurgia pede uma avaliação pré-anestésica? É a regra que cria a linha em
+ * `sincronizarAvaliacoes`: AVALIAÇÃO PRÉ NECESSÁRIA? = "Sim" e a cirurgia não
+ * cancelada. A tela de cirurgia usa a mesma conta para saber, antes de a linha
+ * existir, se os exames do paciente terão onde ficar guardados.
+ */
+function cirurgiaPedeAvaliacao(c) {
+  return !!c && ehSim(c.avaliacaoNec) && cirurgiaContabilizavel(c);
+}
+
+/**
  * TASK-301 — Sincroniza a aba AVALIAÇÕES PRÉ com a aba CIRURGIAS.
  *
  * Regras, na ordem:
@@ -4478,9 +4531,8 @@ function sincronizarAvaliacoes(cirurgias, avaliacoes, opcoes) {
 
   /* --- 1. criar o que falta -------------------------------------------- */
   (cirurgias || []).forEach(function (c) {
-    if (!ehSim(c.avaliacaoNec)) return;
+    if (!cirurgiaPedeAvaliacao(c)) return;            // não é "Sim", ou está cancelada
     if (vazio(c.id)) return;                          // cirurgia sem ID ainda
-    if (!cirurgiaContabilizavel(c)) return;           // cancelada não gera
     if ((idx[txt(c.id)] || []).length > 0) return;    // já tem: idempotente
 
     var nova = novaAvaliacao(c, lista, opcoes);
@@ -4607,6 +4659,7 @@ if (typeof module !== 'undefined' && module.exports) {
     avaliacaoFaturavel: avaliacaoFaturavel,
     indexarCanceladas: indexarCanceladas,
     garantirUid: garantirUid,
+    cirurgiaPedeAvaliacao: cirurgiaPedeAvaliacao,
     indexarAvaliacoesPorCirurgia: indexarAvaliacoesPorCirurgia,
     espelharDadosDaCirurgia: espelharDadosDaCirurgia,
     calcCompetenciaAvaliacao: calcCompetenciaAvaliacao,
@@ -5206,6 +5259,27 @@ function aldreteTotal(rec) {
 }
 
 /** Números do boletim para a tela e o PDF. */
+/**
+ * O que os sinais vitais do boletim dizem de pior: menor SpO₂, menor PAM e maior
+ * PA sistólica dos registros. A PAM sai da conta clássica (PAS + 2 × PAD) ÷ 3, só
+ * dos registros que têm as duas pressões, arredondada para o mmHg inteiro. Sem
+ * registro do parâmetro, o valor fica null — ausência não vira zero nem normal.
+ */
+function resumoSinaisBoletim(b) {
+  var r = { registros: 0, spo2Minima: null, pamMinima: null, pasMaxima: null };
+  ((b && b.sinais) || []).forEach(function (s) {
+    r.registros++;
+    var spo2 = paraNumero(s.spo2), pas = paraNumero(s.pas), pad = paraNumero(s.pad);
+    if (spo2 !== null && (r.spo2Minima === null || spo2 < r.spo2Minima)) r.spo2Minima = spo2;
+    if (pas !== null && (r.pasMaxima === null || pas > r.pasMaxima)) r.pasMaxima = pas;
+    if (pas !== null && pad !== null) {
+      var pam = Math.round((pas + 2 * pad) / 3);
+      if (r.pamMinima === null || pam < r.pamMinima) r.pamMinima = pam;
+    }
+  });
+  return r;
+}
+
 function resumoBoletim(b) {
   var entradas = b.fluidos.reduce(function (s, f) { return s + (f.volume || 0); }, 0);
   var saidas = (b.perdas.sangramento || 0) + (b.perdas.diurese || 0);
@@ -5432,6 +5506,7 @@ if (typeof module !== 'undefined' && module.exports) {
     pendenciasBoletim: pendenciasBoletim,
     aldreteTotal: aldreteTotal,
     resumoBoletim: resumoBoletim,
+    resumoSinaisBoletim: resumoSinaisBoletim,
     conteudoAssinadoBoletim: conteudoAssinadoBoletim,
     codigoBoletim: codigoBoletim,
     codigoLegivel: codigoLegivel,
@@ -6489,6 +6564,102 @@ function comHistorico(f, entradas) {
   return f;
 }
 
+/* ========================================== do boletim para a ficha ======= */
+
+/**
+ * O boletim anestésico já registra boa parte do que a ficha pergunta de novo:
+ * dados do paciente, ASA, técnica, horários da anestesia, sinais vitais. Digitar
+ * duas vezes dá dois valores para a mesma coisa. Aqui o boletim VIRA SUGESTÃO:
+ * a lista abaixo diz, campo a campo, o que ele sabe e o que a ficha tem hoje.
+ *
+ * O QUE ENTRA: dados medidos ou cadastrais (idade, peso, altura, prontuário, ASA,
+ * técnica, horários, menor SpO₂, menor PAM, maior PA sistólica, destino).
+ * O QUE NÃO ENTRA, NUNCA: resposta Sim / Não / Não se aplica. Marca ausente no
+ * boletim não é "Não", e a regra da ficha é que nenhuma resposta clínica nasce
+ * preenchida. Também fica de fora o TEMPO abaixo do limiar (o boletim só tem
+ * amostras a cada poucos minutos) e a dor da recuperação (o boletim guarda a da
+ * alta; o indicador pede a primeira avaliação).
+ *
+ * Nada é gravado aqui: quem escolhe o que copiar é a pessoa (a tela mostra a
+ * comparação) e a gravação passa por preencherFichaDoBoletim, que deixa a
+ * origem no histórico e no LOG.
+ */
+var DESTINO_DO_BOLETIM_NA_FICHA = { 'UTI': 'UTI', 'Quarto / enfermaria': 'Enfermaria', 'Alta ambulatorial': 'Alta' };
+
+function camposDoBoletimNaFicha() {
+  function num(rotulo, secao, nome, chave, unidade, doBoletim) {
+    return { secao: secao, nome: nome, rotulo: rotulo, unidade: unidade || '', tipo: 'numero', chave: chave, de: doBoletim };
+  }
+  return [
+    { secao: 'atendimento', nome: 'prontuario', rotulo: 'Prontuário', tipo: 'texto', max: 40,
+      de: function (b) { return b.paciente.prontuario; } },
+    num('Idade', 'atendimento', 'idade', 'idade', 'anos', function (b) { return b.paciente.idade; }),
+    num('Peso', 'atendimento', 'peso', 'peso', 'kg', function (b) { return b.paciente.peso; }),
+    num('Altura', 'atendimento', 'altura', 'altura', 'cm', function (b) { return b.paciente.altura; }),
+    { secao: 'atendimento', nome: 'asa', rotulo: 'ASA', tipo: 'opcao', lista: OPCOES_QUALIDADE.asa,
+      de: function (b) { return b.pre.asa; } },
+    { secao: 'atendimento', nome: 'tecnicas', rotulo: 'Técnica anestésica', tipo: 'lista', lista: OPCOES_QUALIDADE.tecnicas,
+      de: function (b) { return b.tecnicas; } },
+    { secao: 'atendimento', nome: 'tecnicaOutra', rotulo: 'Outra técnica', tipo: 'texto', max: 200,
+      de: function (b) { return b.tecnicaOutra; } },
+    { secao: 'atendimento', nome: 'inicioAnestesia', rotulo: 'Início da anestesia', tipo: 'hora',
+      de: function (b) { return b.tempos.inicioAnestesia; } },
+    { secao: 'atendimento', nome: 'fimAnestesia', rotulo: 'Término da anestesia', tipo: 'hora',
+      de: function (b) { return b.tempos.fimAnestesia; } },
+    { secao: 'atendimento', nome: 'destino', rotulo: 'Destino após o procedimento', tipo: 'opcao', lista: OPCOES_QUALIDADE.destino,
+      de: function (b) { return DESTINO_DO_BOLETIM_NA_FICHA[b.destino] || ''; } },
+    num('Menor SpO₂ registrada', 'intra', 'spo2Minima', 'spo2', '%', function (b) { return resumoSinaisBoletim(b).spo2Minima; }),
+    num('Menor PAM registrada', 'intra', 'pamMinima', 'pam', 'mmHg', function (b) { return resumoSinaisBoletim(b).pamMinima; }),
+    num('Maior PA sistólica registrada', 'intra', 'pasMaxima', 'pas', 'mmHg', function (b) { return resumoSinaisBoletim(b).pasMaxima; })
+  ];
+}
+
+/**
+ * Compara o boletim com a ficha. Devolve [{ campo ("secao.nome"), secao, nome, rotulo, atual, novo,
+ * atualTexto, novoTexto, situacao }], só dos campos em que o boletim TEM valor:
+ *   'vazio'     a ficha ainda não tem — é o que se pode copiar sem tirar nada de ninguém;
+ *   'diferente' a ficha já tem outro valor (quem preencheu pode ter razão);
+ *   'igual'     nada a fazer.
+ * O valor do boletim passa pelo mesmo leitor da ficha: o que a ficha recusaria (fora da faixa) nem é sugerido.
+ */
+function sugestoesDoBoletim(ficha, boletim) {
+  if (!ficha || !boletim) return [];
+  var L = leitorQualidade(false);
+  var saida = [];
+
+  function texto(tipo, v, unidade) {
+    if (tipo === 'lista') return v.length ? v.join(' + ') : '—';
+    if (v === null || v === undefined || v === '') return '—';
+    return (typeof v === 'number' ? numeroBRQ(v) : String(v)) + (unidade ? ' ' + unidade : '');
+  }
+  function vazioQ(tipo, v) { return tipo === 'lista' ? !v.length : (v === null || v === undefined || v === ''); }
+  function iguais(tipo, a, b) {
+    if (tipo === 'lista') {
+      return a.length === b.length && a.every(function (x) { return b.some(function (y) { return mesmoTexto(x, y); }); });
+    }
+    return tipo === 'numero' ? Number(a) === Number(b) : mesmoTexto(a, b);
+  }
+
+  camposDoBoletimNaFicha().forEach(function (c) {
+    var bruto = c.de(boletim), novo;
+    if (c.tipo === 'numero') novo = L.numero(bruto, c.chave);
+    else if (c.tipo === 'opcao') novo = L.opcao(bruto, c.lista, c.rotulo);
+    else if (c.tipo === 'hora') novo = L.hora(bruto, c.rotulo);
+    else if (c.tipo === 'lista') novo = L.escolhas(bruto, 12).filter(function (t) { return c.lista.indexOf(t) >= 0; });
+    else novo = L.texto(bruto, c.max);
+    if (vazioQ(c.tipo, novo)) return;
+
+    var atual = ficha[c.secao][c.nome];
+    var situacao = vazioQ(c.tipo, atual) ? 'vazio' : (iguais(c.tipo, atual, novo) ? 'igual' : 'diferente');
+    saida.push({
+      campo: c.secao + '.' + c.nome, secao: c.secao, nome: c.nome, rotulo: c.rotulo, unidade: c.unidade || '',
+      atual: atual, novo: novo, atualTexto: texto(c.tipo, atual, c.unidade), novoTexto: texto(c.tipo, novo, c.unidade),
+      situacao: situacao
+    });
+  });
+  return saida;
+}
+
 /**
  * Congela a ficha inteira. O store guarda fichas congeladas pelo mesmo
  * motivo do boletim: mudar uma no lugar, sem passar pela transação,
@@ -6531,6 +6702,8 @@ if (typeof module !== 'undefined' && module.exports) {
     ordenarEventosFicha: ordenarEventosFicha,
     ehGeralNaFicha: ehGeralNaFicha,
     resumoQualidade: resumoQualidade,
+    camposDoBoletimNaFicha: camposDoBoletimNaFicha,
+    sugestoesDoBoletim: sugestoesDoBoletim,
     validarFicha: validarFicha,
     pendenciasFicha: pendenciasFicha,
     totalPendenciasFicha: totalPendenciasFicha,
@@ -9446,7 +9619,9 @@ function criarStore(estadoInicial, opcoes) {
       boletim: resultado.boletim || null,
       // Idem para a ficha de qualidade e o registro de estrutura.
       ficha: resultado.ficha || null,
-      registro: resultado.registro || null
+      registro: resultado.registro || null,
+      // Campos copiados de outro registro (ficha preenchida a partir do boletim).
+      preenchidos: resultado.preenchidos || []
     };
 
     ouvintes.forEach(function (f) {
@@ -10173,7 +10348,7 @@ function criarStore(estadoInicial, opcoes) {
   }
 
   /** Troca a ficha pela versão nova — depois de ler, validar e historiar. */
-  function gravarFicha(st, api, alvo, lido, rotulo) {
+  function gravarFicha(st, api, alvo, lido, rotulo, origem) {
     if (lido.erros.length) return { ok: false, erros: lido.erros };
     var rel = validarFicha(lido.ficha);
     if (!rel.ok) return { ok: false, erros: rel.erros, avisos: rel.avisos };
@@ -10186,6 +10361,8 @@ function criarStore(estadoInicial, opcoes) {
     nova.atualizadoPor = usuario;
 
     var mudancas = historicoDaFicha(alvo.f, nova, quando, usuario);
+    // De onde veio o valor (ex.: "do boletim BOL0001"): aparece no histórico, ao lado do campo.
+    if (origem) mudancas.forEach(function (m) { m.campo = m.campo + ' · ' + origem; });
     comHistorico(nova, mudancas);
     st.fichasQualidade[alvo.i] = congelarFicha(nova);
 
@@ -10205,6 +10382,39 @@ function criarStore(estadoInicial, opcoes) {
       var alvo = fichaParaEditar(st, id);
       if (alvo.erro) return alvo.erro;
       return gravarFicha(st, api, alvo, aplicarMudancasFicha(alvo.f, mudancas));
+    });
+  }
+
+  /**
+   * Copia para a ficha o que o boletim da MESMA cirurgia já registrou (ver
+   * sugestoesDoBoletim: dados do paciente, ASA, técnica, horários, menor SpO₂ e
+   * PAM…). `chaves`: os campos escolhidos ("atendimento.idade"…); sem lista, só
+   * os que a ficha ainda não tem. Um campo que a ficha já preencheu só é trocado
+   * se estiver na lista, e nunca entra resposta Sim/Não. Cada campo copiado vai
+   * para o histórico da ficha, e o LOG diz de qual boletim veio.
+   */
+  function preencherFichaDoBoletim(id, chaves) {
+    return transacao(function (st, api) {
+      var alvo = fichaParaEditar(st, id);
+      if (alvo.erro) return alvo.erro;
+      var bol = st.boletins.filter(function (b) { return b.idCirurgia === alvo.f.idCirurgia; })[0];
+      if (!bol) return falhaFicha('A cirurgia ' + alvo.f.idCirurgia + ' ainda não tem boletim anestésico.');
+
+      var pedidas = Array.isArray(chaves) ? chaves.map(String) : null;
+      var escolhidas = sugestoesDoBoletim(alvo.f, bol).filter(function (s) {
+        return pedidas ? (pedidas.indexOf(s.campo) >= 0 && s.situacao !== 'igual') : s.situacao === 'vazio';
+      });
+      if (!escolhidas.length) {
+        return falhaFicha('Nada para copiar: o boletim ' + bol.id + ' não tem valor novo para ' +
+          (pedidas ? 'os campos escolhidos' : 'os campos vazios da ficha') + '.');
+      }
+
+      var mudancas = {};
+      escolhidas.forEach(function (s) { (mudancas[s.secao] = mudancas[s.secao] || {})[s.nome] = s.novo; });
+      var r = gravarFicha(st, api, alvo, aplicarMudancasFicha(alvo.f, mudancas), 'FICHA PREENCHIDA DO BOLETIM ' + bol.id,
+        'do boletim ' + bol.id);
+      if (r.ok) r.preenchidos = escolhidas.map(function (s) { return s.campo; });
+      return r;
     });
   }
 
@@ -10926,6 +11136,7 @@ function criarStore(estadoInicial, opcoes) {
     },
     criarFichaQualidade: criarFichaQualidade,
     salvarFichaQualidade: salvarFichaQualidade,
+    preencherFichaDoBoletim: preencherFichaDoBoletim,
     alterarEventoQualidade: alterarEventoQualidade,
     registrarSeguimentoQualidade: registrarSeguimentoQualidade,
     revisarFichaQualidade: revisarFichaQualidade,
@@ -11016,7 +11227,7 @@ var MUTACOES_STORE = ['adicionarCirurgia', 'atualizarCirurgia', 'removerCirurgia
   'salvarAnestesista', 'ajustarEscala', 'definirEscalaBase', 'definirModoEscalaBase', 'aplicarRemanejamento',
   'salvarConfigClinica', 'salvarDespesasRepasse', 'registrarPagamentoRepasse', 'removerPagamentoRepasse',
   'criarBoletim', 'salvarBoletim', 'alterarLinhaBoletim', 'finalizarBoletim', 'reabrirBoletim', 'descartarBoletim',
-  'criarFichaQualidade', 'salvarFichaQualidade', 'alterarEventoQualidade', 'registrarSeguimentoQualidade',
+  'criarFichaQualidade', 'salvarFichaQualidade', 'preencherFichaDoBoletim', 'alterarEventoQualidade', 'registrarSeguimentoQualidade',
   'revisarFichaQualidade', 'concluirFichaQualidade', 'reabrirFichaQualidade', 'descartarFichaQualidade',
   'salvarRegistroEstrutura', 'removerRegistroEstrutura', 'salvarConfigQualidade',
   'reparar'];
@@ -11030,7 +11241,7 @@ var MUTACOES_STORE = ['adicionarCirurgia', 'atualizarCirurgia', 'removerCirurgia
  */
 var MUTACOES_SEGURAS_EM_CONCORRENCIA = ['atualizarCirurgia', 'atualizarAvaliacao', 'ajustarEscala', 'salvarConfigClinica',
   'salvarDespesasRepasse', 'salvarBoletim', 'alterarLinhaBoletim', 'reabrirBoletim',
-  'salvarFichaQualidade', 'registrarSeguimentoQualidade', 'revisarFichaQualidade', 'reabrirFichaQualidade',
+  'salvarFichaQualidade', 'preencherFichaDoBoletim', 'registrarSeguimentoQualidade', 'revisarFichaQualidade', 'reabrirFichaQualidade',
   'salvarConfigQualidade'];
 
 /**
@@ -11852,8 +12063,10 @@ var UI = (function () {
 
   /**
    * Abre um modal.
-   *   abrirModal({ titulo, sub, corpo, acoes, tamanho, aoFechar })
-   * `corpo` e `acoes` são nós ou listas de nós.
+   *   abrirModal({ titulo, sub, corpo, acoes, tamanho, aoFechar, abas, rotuloAbas })
+   * `corpo` e `acoes` são nós ou listas de nós. `abas` (opcional) são os botões
+   * de aba (COMP.abaBtn): ficam entre o cabeçalho e o corpo e não rolam com ele;
+   * quem chama mostra e esconde os painéis no corpo.
    */
   function abrirModal(cfg) {
     fecharModal();
@@ -11865,7 +12078,7 @@ var UI = (function () {
     var idSub = cfg.sub ? 'modal-sub-' + contadorModal : null;
 
     var caixa = el('div', {
-      class: 'modal' + (cfg.tamanho ? ' ' + cfg.tamanho : ''),
+      class: 'modal' + (cfg.tamanho ? ' ' + cfg.tamanho : '') + (cfg.abas ? ' com-abas' : ''),
       role: 'dialog', 'aria-modal': 'true',
       'aria-labelledby': idTitulo, 'aria-describedby': idSub
     }, [
@@ -11879,6 +12092,7 @@ var UI = (function () {
           onclick: function () { fecharModal(); }
         }, icone('x'))
       ]),
+      cfg.abas ? el('div', { class: 'abas modal-abas', role: 'tablist', 'aria-label': cfg.rotuloAbas || 'Seções' }, cfg.abas) : null,
       el('div', { class: 'modal-corpo' }, cfg.corpo),
       cfg.acoes ? el('div', { class: 'modal-pe' }, cfg.acoes) : null
     ]);
@@ -12405,12 +12619,13 @@ var COMP = (function () {
     return el('button', { 'aria-pressed': ativo ? 'true' : 'false', onclick: aoClicar }, rotulo);
   }
 
-  function abaBtn(rotulo, ativo, aoClicar) {
-    return el('button', {
+  /** Botão de aba. `extras` (opcional) junta atributos, como `id` e `aria-controls`. */
+  function abaBtn(rotulo, ativo, aoClicar, extras) {
+    return el('button', Object.assign({
       class: 'aba', role: 'tab',
       'aria-selected': ativo ? 'true' : 'false',
       onclick: aoClicar
-    }, rotulo);
+    }, extras || {}), rotulo);
   }
 
   /** Linha de definição rótulo/valor. */
@@ -12520,6 +12735,174 @@ var COMP = (function () {
       svg.appendChild(caminho);
     });
     return el('div', { class: 'assinatura-vista-caixa' }, svg);
+  }
+
+  /* ================================================== exames (PDF) ===== */
+
+  /**
+   * Uma linha da lista de exames: marca, nome, detalhe e as ações que quem
+   * chama passar (`aoAbrir`, `aoBaixar`, `aoRemover`; a que faltar não
+   * aparece). Remover pede dois cliques em vez de um confirm(): o confirm
+   * fecharia o modal em que a lista está.
+   *   cfg: { nome, detalhe, aoAbrir, aoBaixar, aoRemover }
+   */
+  function linhaExame(cfg) {
+    var botaoRemover = null;
+
+    function desarmar() {
+      botaoRemover.classList.remove('armado');
+      botaoRemover.classList.add('btn-icone');
+      botaoRemover.title = 'Remover';
+      botaoRemover.setAttribute('aria-label', 'Remover ' + cfg.nome);
+      UI.limpar(botaoRemover);
+      botaoRemover.appendChild(icone('lixo'));
+    }
+
+    if (cfg.aoRemover) {
+      botaoRemover = el('button', {
+        class: 'btn btn-plano btn-icone btn-pq', type: 'button', title: 'Remover', 'aria-label': 'Remover ' + cfg.nome,
+        onclick: function () {
+          if (!botaoRemover.classList.contains('armado')) {
+            botaoRemover.classList.add('armado');
+            botaoRemover.title = 'Clique de novo para remover';
+            botaoRemover.setAttribute('aria-label', 'Clique de novo para remover ' + cfg.nome);
+            UI.limpar(botaoRemover);
+            botaoRemover.appendChild(el('span', { class: 't-mpq t-forte' }, 'Remover?'));
+            botaoRemover.classList.remove('btn-icone');
+            setTimeout(function () { if (botaoRemover.classList.contains('armado')) desarmar(); }, 4000);
+            return;
+          }
+          cfg.aoRemover();
+        }
+      }, icone('lixo'));
+    }
+
+    return el('div', { class: 'anexo' }, [
+      el('div', { class: 'anexo-marca' }, icone('nota')),
+      el('div', { class: 'anexo-corpo' }, [
+        el('div', { class: 'anexo-nome', title: cfg.nome }, cfg.nome),
+        cfg.detalhe ? el('div', { class: 't-mpq t-suave' }, cfg.detalhe) : null
+      ]),
+      cfg.aoAbrir ? el('button', {
+        class: 'btn btn-plano btn-icone btn-pq', type: 'button', title: 'Abrir', 'aria-label': 'Abrir ' + cfg.nome,
+        onclick: cfg.aoAbrir
+      }, icone('olho')) : null,
+      cfg.aoBaixar ? el('button', {
+        class: 'btn btn-plano btn-icone btn-pq', type: 'button', title: 'Baixar', 'aria-label': 'Baixar ' + cfg.nome,
+        onclick: cfg.aoBaixar
+      }, icone('baixar')) : null,
+      botaoRemover
+    ]);
+  }
+
+  /**
+   * Linha de um exame já guardado (meta do ANEXOS): abrir, baixar e remover.
+   * `aoMudar` roda depois de remover, para a tela desenhar a lista de novo.
+   * É a mesma linha nas telas Avaliações pré e Cirurgias.
+   */
+  function linhaExameGuardado(m, aoMudar) {
+    return linhaExame({
+      nome: m.nome,
+      detalhe: ANEXOS.tamanhoLegivel(m.tamanho) + ' · ' + UI.data(m.criadoEm) + (m.criadoPor ? ' · ' + m.criadoPor : ''),
+      aoAbrir: function () { ANEXOS.abrirEmAba(m.id, m.nome).catch(function (e) { UI.erro('Não foi possível abrir', e.message); }); },
+      aoBaixar: function () { ANEXOS.baixar(m.id, m.nome).catch(function (e) { UI.erro('Não foi possível baixar', e.message); }); },
+      aoRemover: function () {
+        ANEXOS.remover(m.id).then(function () { UI.ok('Exame removido', m.nome); aoMudar(); },
+          function (e) { UI.erro('Não foi possível remover', e.message); });
+      }
+    });
+  }
+
+  var contadorAreas = 0;
+
+  /** O arrasto traz arquivo (e não, por exemplo, um texto selecionado)? */
+  function arrastoDeArquivo(ev) {
+    var tipos = ev.dataTransfer && ev.dataTransfer.types;
+    return !!tipos && Array.prototype.indexOf.call(tipos, 'Files') >= 0;
+  }
+
+  /**
+   * Área para soltar ou escolher PDFs de exame. Não guarda nada: entrega os
+   * arquivos a `cfg.aoReceber(File[])`, que decide o que fazer com eles.
+   *   cfg: { aoReceber, dica }   `dica` é a linha pequena de baixo
+   */
+  function areaDeExames(cfg) {
+    var idDica = 'soltar-dica-' + (++contadorAreas);
+
+    function entregar(lista) {
+      // A lista do arrasto só vale durante o evento: copia já.
+      var arquivos = Array.prototype.slice.call(lista || []);
+      if (arquivos.length) cfg.aoReceber(arquivos);
+    }
+
+    var entrada = el('input', {
+      type: 'file', accept: 'application/pdf,.pdf', multiple: true,
+      style: 'display:none', tabindex: '-1', 'aria-hidden': 'true',
+      onchange: function () { var lista = entrada.files; entregar(lista); entrada.value = ''; }
+    });
+
+    var zona = el('div', { class: 'soltar' }, [
+      icone('subir', 'soltar-icone'),
+      el('div', { class: 'soltar-texto' }, [
+        el('strong', null, 'PDFs dos exames do paciente'),
+        el('span', { class: 't-pq t-medio so-mouse' }, 'Arraste os arquivos para cá ou use o botão.'),
+        el('span', { class: 't-pq t-medio so-toque' }, 'Toque no botão para escolher os arquivos.')
+      ]),
+      el('button', {
+        class: 'btn', type: 'button', 'aria-describedby': idDica,
+        onclick: function () { entrada.click(); }
+      }, [icone('clipe'), 'Escolher PDFs']),
+      entrada
+    ]);
+
+    // dragenter/dragleave disparam também ao passar por cima dos filhos da
+    // área; o contador evita que o destaque pisque.
+    var dentro = 0;
+    zona.addEventListener('dragenter', function (ev) {
+      if (!arrastoDeArquivo(ev)) return;
+      ev.preventDefault();
+      dentro++;
+      zona.classList.add('arrastando');
+    });
+    zona.addEventListener('dragover', function (ev) {
+      if (!arrastoDeArquivo(ev)) return;
+      ev.preventDefault();
+      ev.dataTransfer.dropEffect = 'copy';
+    });
+    zona.addEventListener('dragleave', function (ev) {
+      if (!arrastoDeArquivo(ev)) return;
+      dentro = Math.max(0, dentro - 1);
+      if (!dentro) zona.classList.remove('arrastando');
+    });
+    zona.addEventListener('drop', function (ev) {
+      if (!arrastoDeArquivo(ev)) return;
+      ev.preventDefault();
+      dentro = 0;
+      zona.classList.remove('arrastando');
+      entregar(ev.dataTransfer.files);
+    });
+
+    return el('div', { class: 'soltar-caixa' }, [
+      zona,
+      cfg.dica ? el('div', { class: 't-mpq t-suave mt-2', id: idDica }, cfg.dica) : null
+    ]);
+  }
+
+  /**
+   * Arquivo solto fora da área de exames faria o navegador abri-lo no lugar
+   * do sistema, e tudo o que está digitado na tela se perderia. Em `no` (o
+   * fundo do modal), largar arquivo em qualquer outro ponto não faz nada.
+   */
+  function impedirSoltarArquivo(no) {
+    no.addEventListener('dragover', function (ev) {
+      if (!arrastoDeArquivo(ev)) return;
+      // Se a área de exames já aceitou (defaultPrevented), o cursor de "copiar" fica.
+      if (!ev.defaultPrevented) ev.dataTransfer.dropEffect = 'none';
+      ev.preventDefault();
+    });
+    no.addEventListener('drop', function (ev) {
+      if (arrastoDeArquivo(ev)) ev.preventDefault();
+    });
   }
 
   /* ================================================== calendário ====== */
@@ -12675,6 +13058,10 @@ var COMP = (function () {
     seletor: seletor,
     botaoSeg: botaoSeg,
     abaBtn: abaBtn,
+    linhaExame: linhaExame,
+    linhaExameGuardado: linhaExameGuardado,
+    areaDeExames: areaDeExames,
+    impedirSoltarArquivo: impedirSoltarArquivo,
     def: def,
     nomeMes: nomeMes,
     corDoStatus: corDoStatus
@@ -13839,6 +14226,9 @@ var DADOS = (function () {
  * pode renascer em outro paciente depois de "apagar tudo" ou de importar um
  * backup; o uid não. `idAvaliacao` fica na meta só para leitura humana.
  *
+ * FILA (novaFila): a tela de cirurgia nova junta os PDFs antes de a avaliação
+ * existir e os manda para ela assim que a cirurgia é lançada.
+ *
  * ATENÇÃO: os anexos ficam NESTE navegador e não entram no backup .json.
  *
  * MODO SERVIDOR (usarServidor): a mesma interface, mas os PDFs ficam no
@@ -14005,6 +14395,24 @@ var ANEXOS = (function () {
   }
 
   /**
+   * O arquivo serve? Recusa o que passa do tamanho máximo, está vazio ou não
+   * é um PDF de verdade. Rejeita com uma mensagem pronta para a tela. É a
+   * mesma conferência de `adicionar`, exposta para a tela recusar já na hora
+   * de escolher o arquivo e não só depois de a cirurgia ser lançada.
+   */
+  function conferir(arquivo) {
+    if (!arquivo) return Promise.reject(new Error('Nenhum arquivo.'));
+    var nome = '"' + (arquivo.name || 'arquivo') + '"';
+    if (arquivo.size > TAMANHO_MAXIMO) {
+      return Promise.reject(new Error(nome + ' passa de ' + (TAMANHO_MAXIMO / 1048576) + ' MB.'));
+    }
+    if (!arquivo.size) return Promise.reject(new Error(nome + ' está vazio.'));
+    return assinaturaPDF(arquivo).then(function (ehPDF) {
+      if (!ehPDF) throw new Error(nome + ' não é um PDF.');
+    });
+  }
+
+  /**
    * Guarda um PDF preso à avaliação. Recusa o que não for PDF de verdade
    * ou passar do tamanho máximo.
    */
@@ -14012,13 +14420,8 @@ var ANEXOS = (function () {
     if (!avaliacao || !avaliacao.uid) {
       return Promise.reject(new Error('Avaliação sem identificador interno — salve e abra de novo.'));
     }
-    if (!arquivo) return Promise.reject(new Error('Nenhum arquivo.'));
-    if (arquivo.size > TAMANHO_MAXIMO) {
-      return Promise.reject(new Error('"' + arquivo.name + '" passa de ' + (TAMANHO_MAXIMO / 1048576) + ' MB.'));
-    }
 
-    return assinaturaPDF(arquivo).then(function (ehPDF) {
-      if (!ehPDF) throw new Error('"' + (arquivo.name || 'arquivo') + '" não é um PDF.');
+    return conferir(arquivo).then(function () {
       if (rede) return rede.enviar(avaliacao, arquivo).then(function (meta) { indexar(meta); return meta; });
 
       var meta = {
@@ -14037,6 +14440,69 @@ var ANEXOS = (function () {
         tx.objectStore('arquivos').put({ id: meta.id, blob: arquivo });
       }).then(function () { indexar(meta); return meta; });
     });
+  }
+
+  /**
+   * Fila de exames à espera de uma avaliação. Na tela de cirurgia nova a
+   * avaliação ainda não existe: ela nasce quando a cirurgia é lançada. Os
+   * arquivos esperam aqui — em memória, como File, sem ler o disco até o envio —
+   * e seguem para `enviarPara(avaliacao)` depois que a cirurgia foi gravada.
+   * Cada arquivo é conferido ao entrar (PDF de verdade, até o tamanho máximo):
+   * quem escolheu o arquivo errado descobre na hora, e não depois de lançar.
+   */
+  function novaFila() {
+    var itens = [];
+
+    function igual(a, b) { return a.name === b.name && a.size === b.size && a.lastModified === b.lastModified; }
+
+    return {
+      itens: function () { return itens.slice(); },
+      tamanho: function () { return itens.length; },
+
+      /**
+       * Confere e põe na fila, um a um. Nunca rejeita: devolve o que entrou
+       * (`aceitos`), o que foi recusado e por quê, e o que já estava na fila.
+       */
+      adicionar: function (arquivos) {
+        var saida = { aceitos: [], recusados: [], repetidos: [] };
+        return Array.prototype.slice.call(arquivos || []).reduce(function (fila, arq) {
+          return fila.then(function () {
+            return conferir(arq).then(function () {
+              // A repetição é conferida aqui, sem pausa até o push: duas levas
+              // soltas quase juntas não furam a checagem.
+              if (itens.some(function (x) { return igual(x, arq); })) { saida.repetidos.push(arq.name); return; }
+              itens.push(arq);
+              saida.aceitos.push(arq);
+            }, function (e) {
+              saida.recusados.push({ nome: String((arq && arq.name) || 'arquivo'), motivo: e.message });
+            });
+          });
+        }, Promise.resolve()).then(function () { return saida; });
+      },
+
+      remover: function (arquivo) {
+        var i = itens.indexOf(arquivo);
+        if (i >= 0) itens.splice(i, 1);
+      },
+
+      /**
+       * Guarda os arquivos na avaliação, um de cada vez. Nunca rejeita: o que
+       * foi guardado sai da fila, o que falhou fica nela (e vem em `falhas`).
+       */
+      enviarPara: function (avaliacao, usuario) {
+        var saida = { feitos: 0, falhas: [] };
+        return itens.slice().reduce(function (fila, arq) {
+          return fila.then(function () {
+            return adicionar(avaliacao, arq, usuario).then(function () {
+              saida.feitos++;
+              itens.splice(itens.indexOf(arq), 1);
+            }, function (e) {
+              saida.falhas.push({ nome: String(arq.name || 'arquivo'), motivo: (e && e.message) || 'erro desconhecido' });
+            });
+          });
+        }, Promise.resolve()).then(function () { return saida; });
+      }
+    };
   }
 
   /** O arquivo em si (Blob). */
@@ -14182,7 +14648,9 @@ var ANEXOS = (function () {
     exportarTodos: exportarTodos,
     importarTodos: importarTodos,
     orfaos: orfaos,
+    conferir: conferir,
     adicionar: adicionar,
+    novaFila: novaFila,
     obter: obter,
     remover: remover,
     removerDaAvaliacao: removerDaAvaliacao,
@@ -18963,7 +19431,7 @@ TELAS.cirurgias = (function () {
     var fAvalNec = UI.campo({
       rotulo: 'Avaliação pré necessária?', nome: 'avaliacaoNec', tipo: 'select',
       opcoes: DOMINIOS.SIM_NAO, vazioPermitido: false, valor: c.avaliacaoNec || 'Não',
-      dica: 'Ao marcar "Sim", a linha da avaliação é criada sozinha.',
+      dica: 'Ao marcar "Sim", a linha da avaliação é criada sozinha — e é nela que ficam os exames do paciente (aba "Exames do paciente").',
       aoMudar: atualizarCalculados
     });
 
@@ -18973,6 +19441,14 @@ TELAS.cirurgias = (function () {
     var fNF = UI.campo({ rotulo: 'Número da nota fiscal', nome: 'nf', valor: c.nf || '' });
 
     var fObs = UI.campo({ rotulo: 'Observações', nome: 'obs', tipo: 'textarea', valor: c.obs || '', largo: true, linhas: 2 });
+
+    /* Exames do paciente: a segunda aba. Enxerga só o que precisa dos campos da primeira. */
+    var exames = abaExames(app, existente, {
+      avalNec: function () { return fAvalNec.valor(); },
+      status: function () { return fStatus.valor(); },
+      marcarAval: function () { fAvalNec.definir('Sim'); atualizarCalculados(); },
+      aoMudar: function () { atualizarContagemDaAba(); }
+    });
 
     /* Área de informação viva: escalados do dia e avisos */
     var painelAuto = el('div', { class: 'painel-auto' });
@@ -19119,12 +19595,15 @@ TELAS.cirurgias = (function () {
           ])
         ]));
       }
+
+      // Status e "avaliação necessária?" decidem se a aba de exames aceita arquivos.
+      exames.atualizar();
     }
 
     atualizarCalculados();
 
     /* --- corpo do modal ----------------------------------------------- */
-    var corpo = [
+    var conteudoDados = [
       painelAuto,
 
       secao('Agendamento', [
@@ -19167,6 +19646,51 @@ TELAS.cirurgias = (function () {
       secao('Observações', [el('div', { class: 'campo-grupo' }, [fObs.no])])
     ];
 
+    /* --- abas: dados da cirurgia | exames do paciente ------------------- */
+    var idAbas = 'cir-aba-' + Math.random().toString(36).slice(2, 7);
+    var chipExames = el('span', { class: 'aba-contagem' });
+    var abaDados = COMP.abaBtn('Dados da cirurgia', true, function () { mostrarAba('dados'); },
+      { id: idAbas + '-dados', 'aria-controls': idAbas + '-painel-dados' });
+    var abaExamesBtn = COMP.abaBtn(['Exames do paciente', chipExames], false, function () { mostrarAba('exames'); },
+      { id: idAbas + '-exames', 'aria-controls': idAbas + '-painel-exames', tabindex: '-1' });
+
+    var painelDados = el('div', { class: 'painel-aba', role: 'tabpanel',
+      id: idAbas + '-painel-dados', 'aria-labelledby': idAbas + '-dados' }, conteudoDados);
+    var painelExames = el('div', { class: 'painel-aba', role: 'tabpanel', hidden: true,
+      id: idAbas + '-painel-exames', 'aria-labelledby': idAbas + '-exames' }, exames.no);
+
+    function mostrarAba(qual) {
+      var dados = qual === 'dados';
+      painelDados.hidden = !dados;
+      painelExames.hidden = dados;
+      abaDados.setAttribute('aria-selected', dados ? 'true' : 'false');
+      abaDados.tabIndex = dados ? 0 : -1;
+      abaExamesBtn.setAttribute('aria-selected', dados ? 'false' : 'true');
+      abaExamesBtn.tabIndex = dados ? -1 : 0;
+      // O corpo é um só: sem isto, trocar de aba herda o ponto onde o outro painel estava rolado.
+      if (painelDados.parentNode) painelDados.parentNode.scrollTop = 0;
+    }
+
+    // Setas e Home/End trocam de aba, como em qualquer lista de abas.
+    [abaDados, abaExamesBtn].forEach(function (b) {
+      b.addEventListener('keydown', function (ev) {
+        if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].indexOf(ev.key) < 0) return;
+        ev.preventDefault();
+        var alvo = (ev.key === 'ArrowLeft' || ev.key === 'Home') ? abaDados : abaExamesBtn;
+        alvo.click();
+        alvo.focus();
+      });
+    });
+
+    /** O número de exames aparece na aba, para não ser preciso abri-la para saber se há. */
+    function atualizarContagemDaAba() {
+      var n = exames.contagem();
+      chipExames.hidden = n === 0;
+      chipExames.textContent = n ? String(n) : '';
+      chipExames.setAttribute('aria-label', nExames(n));
+    }
+    atualizarContagemDaAba();
+
     /* --- salvar -------------------------------------------------------- */
     function salvar() {
       var d = form.dados();
@@ -19174,10 +19698,20 @@ TELAS.cirurgias = (function () {
       /* Remove os auxiliares de exibição (prefixo _). */
       Object.keys(d).forEach(function (k) { if (k.charAt(0) === '_') delete d[k]; });
 
+      // Exame sem avaliação para recebê-lo (avaliação marcada "Não", cirurgia cancelada): avisa
+      // antes de gravar, para nenhum arquivo ficar pelo caminho sem ninguém perceber.
+      var impedimento = exames.impedimento();
+      if (impedimento) {
+        mostrarAba('exames');
+        UI.erro('Confira os exames', impedimento);
+        return;
+      }
+
       var pendentesAntes = store.pendencias({ mes: app.mes, ano: app.ano }).length;
       var r = novo ? store.adicionarCirurgia(d) : store.atualizarCirurgia(c.id, d);
 
       if (!r.ok) {
+        mostrarAba('dados');   // os campos com erro estão nesta aba
         var soltos = form.mostrarErros(r.erros);
         if (soltos.length) UI.erro('Não foi possível salvar', soltos.join(' '));
         else UI.erro('Confira os campos destacados');
@@ -19189,6 +19723,9 @@ TELAS.cirurgias = (function () {
       UI.resultado(r, novo ? 'Cirurgia lançada' : 'Cirurgia atualizada');
       app.salvarEredesenhar();
 
+      // Os exames esperavam a cirurgia (e a avaliação dela) existir.
+      exames.guardar(novo ? ((r.criadas || [])[0] || {}).idCirurgia : c.id, d.paciente);
+
       // A última pendência do mês saiu: quem fecha horas todo mês merece saber que acabou.
       if (pendentesAntes > 0 && store.pendencias({ mes: app.mes, ano: app.ano }).length === 0) {
         UI.marco('Horas de ' + COMP.nomeMes(app.mes) + ' fechadas',
@@ -19196,13 +19733,15 @@ TELAS.cirurgias = (function () {
       }
     }
 
-    UI.abrirModal({
+    var caixa = UI.abrirModal({
       titulo: novo ? 'Nova cirurgia' : 'Cirurgia ' + c.id,
       sub: novo
         ? 'Os campos com cadeado são calculados pelo sistema.'
         : 'Paciente: ' + UI.ou(c.paciente) + ' · ' + UI.data(c.data),
       tamanho: 'largo',
-      corpo: corpo,
+      abas: [abaDados, abaExamesBtn],
+      rotuloAbas: 'Seções da cirurgia',
+      corpo: [painelDados, painelExames],
       acoes: [
         novo ? null : el('button', {
           class: 'btn btn-perigo',
@@ -19218,6 +19757,237 @@ TELAS.cirurgias = (function () {
           [icone('check'), novo ? 'Lançar cirurgia' : 'Salvar alterações'])
       ]
     });
+
+    // PDF solto fora da área de exames faria o navegador abri-lo no lugar do sistema.
+    COMP.impedirSoltarArquivo(caixa.parentNode);
+  }
+
+  /* ====================================================== exames ======== */
+
+  /** A avaliação pré-anestésica da cirurgia `id` (a primeira), ou nula. */
+  function avaliacaoDaCirurgia(store, id) {
+    return store.estado.avaliacoes.filter(function (a) { return txt(a.idCirurgia) === txt(id); })[0] || null;
+  }
+
+  /** "1 exame", "3 exames". */
+  function nExames(n) { return n + (n === 1 ? ' exame' : ' exames'); }
+
+  /**
+   * Segunda aba do formulário de cirurgia: os PDFs de exame do paciente.
+   *
+   * Eles ficam presos à AVALIAÇÃO pré-anestésica — é lá que o sistema os
+   * guarda, mostra (tela Avaliações pré) e apaga junto com ela. Daí:
+   *   - cirurgia que já tem avaliação: o PDF é guardado na hora, como naquela tela;
+   *   - cirurgia sem avaliação (nova, ou marcada "Não"): os arquivos esperam
+   *     numa fila e vão para a avaliação que o sistema cria ao lançar. Isso só
+   *     acontece com "Avaliação pré necessária? = Sim" e a cirurgia não cancelada.
+   *
+   * `campos` liga a aba ao resto do formulário (a outra aba):
+   *   avalNec(), status()  o que está escolhido agora
+   *   marcarAval()         marca "Avaliação pré necessária? = Sim"
+   *   aoMudar()            avisa que a quantidade de exames mudou
+   */
+  function abaExames(app, existente, campos) {
+    var fila = ANEXOS.novaFila();
+    var no = el('div');
+    var desenhado = null;   // situação que está na tela: só se redesenha quando ela muda
+
+    // O destino é fixado ao abrir o formulário: a lista de exames muda, a avaliação não.
+    var dela = existente ? avaliacaoDaCirurgia(app.store, existente.id) : null;
+    var aval = dela ? { uid: dela.uid, id: dela.id } : null;
+
+    /**
+     * Onde os exames ficam, pelo que está escolhido agora no formulário:
+     *   'existente'   a cirurgia já tem avaliação
+     *   'fila'        a avaliação nascerá ao gravar (mesma regra do core)
+     *   'precisaSim'  "Avaliação pré necessária?" está como "Não"
+     *   'cancelada'   está "Sim", mas cirurgia cancelada não gera avaliação
+     */
+    function situacao() {
+      if (aval) return 'existente';
+      if (cirurgiaPedeAvaliacao({ avaliacaoNec: campos.avalNec(), status: campos.status() })) return 'fila';
+      return ehSim(campos.avalNec()) ? 'cancelada' : 'precisaSim';
+    }
+
+    function contagem() { return aval ? ANEXOS.contar(aval.uid) : fila.tamanho(); }
+
+    /** Por que a cirurgia não pode ser gravada com estes exames (ou nulo, se pode). */
+    function impedimento() {
+      var n = fila.tamanho();
+      if (aval || !n) return null;
+      var s = situacao();
+      if (s === 'precisaSim') {
+        return nExames(n) + ' na aba "Exames do paciente", mas "Avaliação pré necessária?" está como "Não". ' +
+          'Os exames ficam na avaliação pré-anestésica: marque "Sim" ou remova os exames.';
+      }
+      if (s === 'cancelada') {
+        return nExames(n) + ' na aba "Exames do paciente", mas cirurgia cancelada não tem avaliação pré-anestésica. ' +
+          'Mude o status ou remova os exames.';
+      }
+      return null;
+    }
+
+    function dica() {
+      return 'Só PDF, até ' + Math.round(ANEXOS.TAMANHO_MAXIMO / 1048576) + ' MB cada. ' +
+        (ANEXOS.naRede() ? 'Ficam guardados no servidor da clínica.' : 'Ficam guardados neste computador.');
+    }
+
+    function aviso(tipo, nomeIcone, titulo, texto, extra) {
+      return el('div', { class: 'aviso aviso-' + tipo }, [
+        icone(nomeIcone),
+        el('div', { class: 'aviso-corpo' }, [el('strong', null, titulo), el('div', { class: 't-pq' }, texto), extra || null])
+      ]);
+    }
+
+    function desenhar() {
+      // O botão que acabou de ser apertado some na redesenhada. Sem devolver o foco, ele cai no
+      // <body> e quem usa o teclado recomeça a navegação do alto do formulário.
+      var tinhaFoco = no.contains(document.activeElement);
+
+      desenhado = situacao();
+      UI.limpar(no);
+
+      if (!ANEXOS.disponivel()) {
+        no.appendChild(aviso('atencao', 'alerta', 'Este navegador não permite guardar arquivos',
+          'Janela privada ou armazenamento bloqueado. Abra o sistema numa janela normal.'));
+      } else if (desenhado === 'existente') {
+        desenharGuardados();
+      } else {
+        desenharFila(desenhado);
+      }
+
+      if (tinhaFoco && !no.contains(document.activeElement)) {
+        var alvo = no.querySelector('.soltar button') || no.querySelector('button');
+        if (alvo) alvo.focus({ preventScroll: true });
+      }
+    }
+
+    function depoisDeMudar() { desenhar(); campos.aoMudar(); app.redesenhar(); }
+
+    /* --- cirurgia que já tem avaliação: guarda na hora ---------------- */
+
+    function desenharGuardados() {
+      var itens = ANEXOS.listar(aval.uid);
+      no.appendChild(aviso('info', 'info', 'Guardados na avaliação pré-anestésica ' + aval.id,
+        'Cada PDF é guardado assim que é enviado, sem esperar o botão "Salvar alterações". ' +
+        'Os mesmos exames aparecem na tela Avaliações pré.'));
+      no.appendChild(COMP.areaDeExames({ aoReceber: guardarNaHora, dica: dica() }));
+      no.appendChild(itens.length
+        ? el('div', { class: 'anexos mt-3' }, itens.map(function (m) { return COMP.linhaExameGuardado(m, depoisDeMudar); }))
+        : el('div', { class: 'anexos-vazio t-pq t-suave mt-3' }, 'Nenhum exame anexado ainda.'));
+    }
+
+    function guardarNaHora(arquivos) {
+      var feitos = 0, falhas = [];
+      arquivos.reduce(function (p, arq) {
+        return p.then(function () {
+          return ANEXOS.adicionar(aval, arq, app.store.usuario)
+            .then(function () { feitos++; }, function (e) { falhas.push(e.message); });
+        });
+      }, Promise.resolve()).then(function () {
+        depoisDeMudar();
+        if (feitos) UI.ok(feitos === 1 ? 'Exame anexado' : feitos + ' exames anexados', 'Avaliação ' + aval.id);
+        if (falhas.length) UI.erro('Alguns arquivos não foram aceitos', falhas.join(' '));
+      });
+    }
+
+    /* --- sem avaliação ainda: os arquivos esperam na fila -------------- */
+
+    function desenharFila(s) {
+      var quando = existente ? 'o salvamento' : 'o lançamento da cirurgia';
+
+      if (s === 'fila') {
+        no.appendChild(aviso('info', 'info', 'Os exames ficam na avaliação pré-anestésica',
+          'Escolha os PDFs agora: eles são guardados quando você ' + (existente ? 'salvar as alterações' : 'lançar a cirurgia') +
+          ', na avaliação que o sistema cria para ela.'));
+        no.appendChild(COMP.areaDeExames({ aoReceber: entrarNaFila, dica: dica() }));
+      } else if (s === 'precisaSim') {
+        // É o estado normal de uma cirurgia nova ("Avaliação pré necessária? = Não"), e não um erro:
+        // só vira aviso âmbar quando já há arquivo esperando, que aí não teria para onde ir.
+        var comArquivo = fila.tamanho() > 0;
+        no.appendChild(aviso(comArquivo ? 'atencao' : 'info', comArquivo ? 'alerta' : 'info',
+          'Os exames ficam na avaliação pré-anestésica',
+          'Esta cirurgia está com "Avaliação pré necessária? = Não". Marque como necessária e o sistema cria a avaliação ao ' +
+          (existente ? 'salvar' : 'lançar a cirurgia') + ' — é nela que os PDFs são guardados.',
+          el('button', { class: 'btn btn-primario mt-3', type: 'button', onclick: campos.marcarAval },
+            [icone('check'), 'Marcar avaliação pré como necessária'])));
+      } else {
+        no.appendChild(aviso('atencao', 'alerta', 'Cirurgia cancelada não tem avaliação pré-anestésica',
+          'Sem avaliação não há onde guardar os exames. Para anexá-los, mude o status na aba "Dados da cirurgia".'));
+      }
+
+      if (fila.tamanho()) {
+        no.appendChild(el('div', { class: 'anexos mt-3' }, fila.itens().map(function (arq) {
+          return COMP.linhaExame({
+            nome: arq.name,
+            detalhe: ANEXOS.tamanhoLegivel(arq.size) + ' · aguardando ' + quando,
+            aoRemover: function () { fila.remover(arq); desenhar(); campos.aoMudar(); }
+          });
+        })));
+        no.appendChild(el('div', { class: 't-mpq t-suave mt-2' }, nExames(fila.tamanho()) + ' aguardando ' + quando + '.'));
+      }
+    }
+
+    function entrarNaFila(arquivos) {
+      fila.adicionar(arquivos).then(function (r) {
+        desenhar();
+        campos.aoMudar();
+        if (r.recusados.length) {
+          UI.erro(r.recusados.length === 1 ? 'Um arquivo não foi aceito' : r.recusados.length + ' arquivos não foram aceitos',
+            r.recusados.map(function (x) { return x.motivo; }).join(' '));
+        }
+        if (r.repetidos.length) UI.info('Já estava na lista', r.repetidos.join(', '));
+      });
+    }
+
+    /**
+     * Com a cirurgia gravada, manda a fila para a avaliação dela. Roda depois de
+     * o modal fechar: no servidor, espera o comando ser confirmado (é ele que faz
+     * a avaliação existir lá) antes de enviar os PDFs.
+     */
+    function guardar(idCirurgia, paciente) {
+      var n = fila.tamanho();
+      if (aval || !n) return;
+
+      function naoAnexados(motivo) {
+        UI.erro(n === 1 ? 'O exame não foi anexado' : 'Os exames não foram anexados', motivo);
+      }
+
+      app.salvar().then(function (gravou) {
+        var destino = gravou && gravou.ok === false ? null : (idCirurgia ? avaliacaoDaCirurgia(app.store, idCirurgia) : null);
+        if (!destino) {
+          naoAnexados('A cirurgia não chegou a ser gravada, então a avaliação pré não foi criada. ' +
+            'Lance a cirurgia de novo e anexe os exames na aba "Exames do paciente".');
+          return null;
+        }
+        return fila.enviarPara(destino, app.store.usuario).then(function (res) {
+          if (res.feitos) {
+            UI.ok(res.feitos === 1 ? 'Exame anexado' : res.feitos + ' exames anexados',
+              UI.ou(paciente, '') + (paciente ? ' · ' : '') + 'avaliação ' + destino.id);
+          }
+          if (res.falhas.length) {
+            // "Confira se a cirurgia foi gravada": no servidor, uma recusa (alguém gravou no mesmo instante)
+            // faz a avaliação não existir lá, e o envio falha por isso.
+            UI.erro(res.feitos ? 'Alguns exames não foram anexados' : 'Os exames não foram anexados',
+              res.falhas.map(function (f) { return f.nome + ': ' + f.motivo; }).join(' ') +
+              ' Confira se a cirurgia foi gravada e anexe de novo pela aba "Exames do paciente".');
+          }
+          app.redesenhar();
+        });
+      }).catch(function (e) {
+        naoAnexados((e && e.message) || 'Erro inesperado ao enviar os arquivos.');
+      });
+    }
+
+    desenhar();
+
+    return {
+      no: no,
+      contagem: contagem,
+      impedimento: impedimento,
+      guardar: guardar,
+      atualizar: function () { if (situacao() !== desenhado) desenhar(); }
+    };
   }
 
   /** Exclusão com confirmação, avisando sobre a cascata. */
@@ -19593,7 +20363,7 @@ TELAS.avaliacoes = (function () {
     no.appendChild(entrada);
 
     no.appendChild(itens.length
-      ? el('div', { class: 'anexos' }, itens.map(function (m) { return linhaAnexo(m, redesenhar); }))
+      ? el('div', { class: 'anexos' }, itens.map(function (m) { return COMP.linhaExameGuardado(m, redesenhar); }))
       : el('div', { class: 'anexos-vazio t-pq t-suave' }, 'Nenhum exame anexado ainda.'));
 
     no.appendChild(el('div', { class: 'linha mt-3' }, [
@@ -19601,53 +20371,6 @@ TELAS.avaliacoes = (function () {
       el('span', { class: 't-mpq t-suave' },
         'Só PDF, até ' + Math.round(ANEXOS.TAMANHO_MAXIMO / 1048576) + ' MB cada. Ficam guardados neste computador.')
     ]));
-  }
-
-  function linhaAnexo(m, aoMudar) {
-    var botaoRemover = el('button', {
-      class: 'btn btn-plano btn-icone btn-pq', title: 'Remover', 'aria-label': 'Remover ' + m.nome,
-      onclick: function () {
-        // Dois cliques: o primeiro arma, o segundo remove. Evita um confirm()
-        // que fecharia o modal da avaliação.
-        if (!botaoRemover.classList.contains('armado')) {
-          botaoRemover.classList.add('armado');
-          botaoRemover.title = 'Clique de novo para remover';
-          UI.limpar(botaoRemover);
-          botaoRemover.appendChild(el('span', { class: 't-mpq t-forte' }, 'Remover?'));
-          botaoRemover.classList.remove('btn-icone');
-          setTimeout(function () { if (botaoRemover.classList.contains('armado')) desarmar(); }, 4000);
-          return;
-        }
-        ANEXOS.remover(m.id).then(function () { UI.ok('Exame removido', m.nome); aoMudar(); },
-          function (e) { UI.erro('Não foi possível remover', e.message); });
-      }
-    }, icone('lixo'));
-
-    function desarmar() {
-      botaoRemover.classList.remove('armado');
-      botaoRemover.classList.add('btn-icone');
-      botaoRemover.title = 'Remover';
-      UI.limpar(botaoRemover);
-      botaoRemover.appendChild(icone('lixo'));
-    }
-
-    return el('div', { class: 'anexo' }, [
-      el('div', { class: 'anexo-marca' }, icone('nota')),
-      el('div', { class: 'anexo-corpo' }, [
-        el('div', { class: 'anexo-nome', title: m.nome }, m.nome),
-        el('div', { class: 't-mpq t-suave' }, ANEXOS.tamanhoLegivel(m.tamanho) + ' · ' +
-          UI.data(m.criadoEm) + (m.criadoPor ? ' · ' + m.criadoPor : ''))
-      ]),
-      el('button', {
-        class: 'btn btn-plano btn-icone btn-pq', title: 'Abrir', 'aria-label': 'Abrir ' + m.nome,
-        onclick: function () { ANEXOS.abrirEmAba(m.id, m.nome).catch(function (e) { UI.erro('Não foi possível abrir', e.message); }); }
-      }, icone('olho')),
-      el('button', {
-        class: 'btn btn-plano btn-icone btn-pq', title: 'Baixar', 'aria-label': 'Baixar ' + m.nome,
-        onclick: function () { ANEXOS.baixar(m.id, m.nome).catch(function (e) { UI.erro('Não foi possível baixar', e.message); }); }
-      }, icone('baixar')),
-      botaoRemover
-    ]);
   }
 
   /**
@@ -21054,15 +21777,17 @@ TELAS.qualidade = (function () {
     var id = f0.id;
     var cir = cirurgiaDe(app, f0);
     var hoje = hojeISO();
-    var atualizadores = [];
+    var atualizadores = [];          // da etapa aberta: recriados a cada troca de aba
+    var atualizadoresFixos = [];     // do topo da ficha: valem para todas as etapas
     var aba = app.filtros.qualidade.aba || 'identificacao';
     // Formulários de evento da etapa aberta: { selecionar(tipo) }. "Sim" numa pergunta abre o do evento dela.
     var formsEvento = {};
 
     function atual() { return store.fichaQualidade(id); }
     function fechado() { var f = atual(); return !!f && f.status === FICHA_CONCLUIDA; }
-    function refazer() { var f = atual(); if (f) atualizadores.forEach(function (fn) { fn(f); }); }
+    function refazer() { var f = atual(); if (f) atualizadoresFixos.concat(atualizadores).forEach(function (fn) { fn(f); }); }
     function aoMudar(fn) { atualizadores.push(fn); return fn; }
+    function aoMudarFixo(fn) { atualizadoresFixos.push(fn); return fn; }
 
     function gravar(mudancas, input) {
       var r = store.salvarFichaQualidade(id, mudancas);
@@ -22050,6 +22775,108 @@ TELAS.qualidade = (function () {
       });
     }
 
+    /* ---- do boletim ----------------------------------------------------- */
+
+    function boletimDaFicha() { var f = atual(); return f ? store.boletimDaCirurgia(f.idCirurgia) : null; }
+
+    /** Por que o botão fica parado; '' quando dá para usar. */
+    function motivoSemBoletim() {
+      if (fechado()) return 'Reabra a ficha para copiar do boletim.';
+      if (!boletimDaFicha()) return 'Esta cirurgia ainda não tem boletim anestésico.';
+      return '';
+    }
+
+    /**
+     * O boletim já registra peso, ASA, técnica, horários e sinais vitais que a ficha
+     * pergunta de novo. Aqui a pessoa vê a comparação e escolhe o que copiar; nada
+     * é gravado sem o clique, e resposta Sim/Não nunca vem do boletim.
+     */
+    function puxarDoBoletim() {
+      var f = atual(), bol = boletimDaFicha();
+      if (!f || !bol || fechado()) return;
+      var todas = sugestoesDoBoletim(f, bol);
+      var novas = todas.filter(function (s) { return s.situacao !== 'igual'; });
+      var iguais = todas.length - novas.length;
+      var rascunho = bol.status !== BOLETIM_FINALIZADO;
+      var marcas = {};
+      var primario = el('button', { class: 'btn btn-primario', type: 'button', onclick: copiar });
+
+      function marcadas() { return novas.filter(function (s) { return marcas[s.campo].checked; }); }
+      function atualizarBotao() {
+        var n = marcadas().length;
+        primario.disabled = !n;
+        UI.preencher(primario, [icone('check'), n ? 'Copiar ' + n + ' campo(s)' : 'Nada marcado']);
+      }
+
+      function copiar() {
+        var chaves = marcadas().map(function (s) { return s.campo; });
+        if (!chaves.length) return;
+        var r = store.preencherFichaDoBoletim(id, chaves);
+        if (!r.ok) { UI.resultado(r); return; }
+        UI.fecharModal();
+        app.salvar();
+        (r.avisos || []).forEach(function (a) { UI.atencao('Atenção', a.msg); });
+        UI.ok('Ficha preenchida com o boletim ' + bol.id,
+          r.preenchidos.length + ' campo(s) copiado(s). Cada um ficou no histórico da ficha.');
+        trocar(aba);
+      }
+
+      var corpo = [el('div', { class: 'aviso aviso-' + (rascunho ? 'atencao' : 'info') }, [
+        icone(rascunho ? 'alerta' : 'info'),
+        el('div', { class: 'aviso-corpo' }, [
+          el('strong', null, 'Boletim ' + bol.id + (rascunho ? ' · em preenchimento' : ' · finalizado e assinado')),
+          el('div', { class: 't-pq' }, rascunho
+            ? 'O boletim ainda pode mudar, e o que for copiado agora não acompanha uma correção depois. Se der, copie de um boletim finalizado.'
+            : 'Marque o que copiar para a ficha. O que a ficha já tem só troca se você marcar.')
+        ])
+      ])];
+
+      if (!novas.length) {
+        corpo.push(el('p', { class: 't-medio' }, todas.length
+          ? 'A ficha já tem os mesmos valores do boletim (' + iguais + ' campo(s)). Nada a copiar.'
+          : 'O boletim ainda não tem valor que a ficha peça: idade, peso, ASA, técnica, horários ou sinais vitais.'));
+      } else {
+        corpo.push(UI.tabela({
+          colunas: [{ rotulo: '' }, { rotulo: 'Campo' }, { rotulo: 'Na ficha' }, { rotulo: 'No boletim' }],
+          linhas: novas.map(function (s) {
+            var c = el('input', { type: 'checkbox', 'aria-label': 'Copiar ' + s.rotulo, onchange: atualizarBotao });
+            c.checked = s.situacao === 'vazio';
+            marcas[s.campo] = c;
+            return [
+              c,
+              el('span', { class: 'celula-principal' }, s.rotulo),
+              s.situacao === 'vazio'
+                ? el('span', { class: 't-suave' }, '—')
+                : el('span', { class: 't-alerta' }, s.atualTexto + ' (já preenchido)'),
+              el('strong', null, s.novoTexto)
+            ];
+          })
+        }));
+        var notas = [];
+        if (novas.some(function (s) { return s.secao === 'intra'; })) {
+          notas.push('SpO₂, PAM e PA sistólica são o menor e o maior valor REGISTRADO nos sinais vitais do boletim; ' +
+            'PAM = (PAS + 2 × PAD) ÷ 3. Valor que ninguém registrou no boletim não é copiado.');
+        }
+        notas.push('Ficam com quem preenche a ficha: respostas Sim/Não (eventos, checklist, indicações), o tempo abaixo do ' +
+          'limiar de SpO₂ e de PAM (o boletim só tem amostras) e a dor da recuperação.');
+        if (iguais) notas.push(iguais + ' campo(s) já iguais ao boletim não aparecem na lista.');
+        corpo.push(el('div', { class: 'mt-3 t-mpq t-suave' }, notas.map(function (t) { return el('p', { class: 'sem-margem' }, t); })));
+      }
+
+      UI.abrirModal({
+        titulo: 'Copiar do boletim ' + bol.id,
+        sub: 'Ficha ' + id + (cir ? ' · ' + (cir.paciente || '') : ''),
+        tamanho: 'largo',
+        corpo: corpo,
+        acoes: [
+          el('div', { class: 'espaco' }),
+          el('button', { class: 'btn', type: 'button', onclick: function () { UI.fecharModal(); } }, novas.length ? 'Cancelar' : 'Fechar'),
+          novas.length ? primario : null
+        ]
+      });
+      if (novas.length) atualizarBotao();
+    }
+
     /* ---- montagem ------------------------------------------------------- */
 
     var ETAPAS_TELA = [
@@ -22064,6 +22891,16 @@ TELAS.qualidade = (function () {
 
     var raiz = el('div', { class: 'pilha' });
     var pendCaixa = el('div');
+    var botaoBoletim = el('button', { class: 'btn btn-pq', type: 'button', onclick: puxarDoBoletim }, [icone('nota'), 'Do boletim']);
+    // O número é o de campos que o boletim preenche e a ficha ainda não tem.
+    aoMudarFixo(function (f) {
+      var motivo = motivoSemBoletim(), bol = boletimDaFicha();
+      var vazias = !motivo && bol ? sugestoesDoBoletim(f, bol).filter(function (s) { return s.situacao === 'vazio'; }).length : 0;
+      botaoBoletim.disabled = !!motivo;
+      botaoBoletim.title = motivo || 'Copia para a ficha o que o boletim ' + bol.id +
+        ' já registrou: dados do paciente, ASA, técnica, horários e as piores medidas dos sinais vitais.';
+      UI.preencher(botaoBoletim, [icone('nota'), vazias ? 'Do boletim (' + vazias + ')' : 'Do boletim']);
+    });
 
     var topo = el('div', { class: 'cartao' }, [
       cab('Ficha ' + id + ' · ' + (cir ? cir.paciente : 'cirurgia removida'),
@@ -22072,6 +22909,7 @@ TELAS.qualidade = (function () {
             app.filtros.qualidade.id = ''; app.redesenhar();
           } }, [icone('voltar'), 'Lista']),
           el('button', { class: 'btn btn-pq', onclick: gerarPdf }, [icone('baixar'), 'PDF']),
+          botaoBoletim,
           fechado()
             ? el('button', { class: 'btn btn-pq', onclick: reabrir }, [icone('troca'), 'Reabrir'])
             : el('button', { class: 'btn btn-primario btn-pq', onclick: concluir }, [icone('check'), 'Concluir']),
@@ -22083,7 +22921,8 @@ TELAS.qualidade = (function () {
     ]);
     raiz.appendChild(topo);
 
-    aoMudar(function (f) {
+    // Registrado como fixo: trocar(aba) zera os atualizadores da etapa, e o chip do topo sumia junto.
+    aoMudarFixo(function (f) {
       var n = totalPendenciasFicha(f, hoje, cir);
       var seg = seguimentosPendentes(f, hoje, cir);
       UI.preencher(pendCaixa, [
