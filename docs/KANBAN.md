@@ -3,7 +3,7 @@
 Todas as 12 tarefas estão concluídas. Cada linha aponta onde a implementação
 mora e quais testes a cobrem.
 
-Rodar `node qa` executa os 675 testes.
+Rodar `node qa` executa os 711 testes.
 
 ---
 
@@ -282,5 +282,6 @@ Itens que não estavam no quadro, mas que o trabalho exigiu:
 | Repasse | `core/09b_repasse.js`, tela Repasse | divisão igual do resultado e registro dos pagamentos por PIX |
 | Clínica e termo | tela Clínica e termo | dados da clínica e texto do TCLE editáveis; assinatura na tela |
 | Versão online | `tools/gerar_versao_online.py` | página única com dados de EXEMPLO para mostrar o sistema |
-| Servidor da clínica | `server/`, `webapp/js/03g_servidor.js`, tela Usuários | vários computadores com os mesmos dados, login, papéis e sincronia na hora |
+| Servidor da clínica | `server/`, `webapp/js/03g_servidor.js`, tela Usuários | vários computadores com os mesmos dados, login, perfis e sincronia na hora |
+| Perfis de acesso (chefe, anestesista, secretária) | `core/12b_permissoes.js`, `server/servidor.js`, `server/contas.js`, telas | o servidor decide quem faz o quê e corta o dinheiro do que o anestesista recebe |
 | Boletim anestésico | `core/06b_boletim.js`, `webapp/js/03e_boletim_pdf.js`, tela Boletim | ficha da anestesia com gráfico, assinatura, código de conferência e PDF |

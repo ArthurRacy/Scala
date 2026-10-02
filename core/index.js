@@ -43,7 +43,8 @@ var ARQUIVOS = [
   '10_dashboard.js',
   '10b_retencao.js',
   '11_log.js',
-  '12_store.js'
+  '12_store.js',
+  '12b_permissoes.js'
 ];
 
 var api = {};

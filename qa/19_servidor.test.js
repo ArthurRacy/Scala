@@ -6,7 +6,7 @@
  *   - primeiro acesso, entrada, sessão, CSRF, trava por tentativas
  *   - comando reexecutado no servidor chega EXATAMENTE ao estado da tela
  *   - concorrência: criar é recusado se alguém gravou no meio; editar passa
- *   - papéis: equipe não mexe em cadastro nem em usuários
+ *   - perfis: o anestesista não mexe em cadastro nem em usuários (os três perfis em qa/26)
  *   - anexos: PDF de verdade, leitura, remoção, cascada com a avaliação
  *   - disco: reiniciar mantém tudo; o diário reaplica o que faltou
  *   - SSE, backup e importação
@@ -155,7 +155,7 @@ module.exports = function (t, core, dados) {
           falso(/senha-forte-1/.test(usuarios), 'senha nunca em texto');
           return cli.get('/api/eu');
         }).then(function (r) {
-          igual(r.corpo.usuario.papel, 'admin');
+          igual(r.corpo.usuario.papel, 'chefe');
           return cli.post('/api/sair', {});
         }).then(function () { return cli.get('/api/estado'); }).then(function (r) {
           igual(r.status, 401, 'depois de sair');
@@ -238,31 +238,31 @@ module.exports = function (t, core, dados) {
       });
     });
 
-    it('papéis: a equipe opera, mas não mexe no cadastro nem nos usuários', function () {
+    it('perfis: o anestesista opera, mas não mexe no cadastro nem nos usuários', function () {
       return comServidor(function (adm, srv, pasta, base) {
         var eq = cliente(base), req;
         return administrador(adm, pasta).then(function () {
-          return adm.post('/api/usuarios', { novo: true, login: 'secretaria', nome: 'Secretaria', papel: 'equipe', senha: 'secretaria-1' });
+          return adm.post('/api/usuarios', { novo: true, login: 'dra', nome: 'Doutora', papel: 'anestesista', senha: 'secretaria-1' });
         }).then(function (r) {
           igual(r.status, 200, JSON.stringify(r.corpo));
-          return eq.post('/api/entrar', { login: 'secretaria', senha: 'secretaria-1' });
+          return eq.post('/api/entrar', { login: 'dra', senha: 'secretaria-1' });
         }).then(function () { return replica(eq); }).then(function (r) {
           req = r;
           return req.comando('salvarAnestesista', { id: 'A01', pix: 'golpe@x.com' });
         }).then(function (x) {
-          igual(x.resp.status, 403, 'chave PIX só pelo administrador');
+          igual(x.resp.status, 403, 'cadastro e chave PIX não são do anestesista');
           return eq.get('/api/usuarios');
         }).then(function (r) {
           igual(r.status, 403);
           return req.comando('adicionarCirurgia', CIRURGIA);
         }).then(function (x) {
           verdadeiro(x.resp.corpo.ok, 'lançar cirurgia pode');
-          return adm.post('/api/usuarios', { login: 'secretaria', ativo: false });
+          return adm.post('/api/usuarios', { login: 'dra', ativo: false });
         }).then(function () { return eq.get('/api/estado'); }).then(function (r) {
           igual(r.status, 401, 'desativado perde a sessão na hora');
-          return adm.post('/api/usuarios', { login: 'admin', papel: 'equipe' });
+          return adm.post('/api/usuarios', { login: 'admin', papel: 'anestesista' });
         }).then(function (r) {
-          igual(r.status, 400, 'o único administrador não perde o papel');
+          igual(r.status, 400, 'o único chefe não perde o perfil');
         });
       });
     });
@@ -314,11 +314,11 @@ module.exports = function (t, core, dados) {
       });
     });
 
-    it('papéis: a equipe preenche a ficha; estrutura e configuração clínica são do administrador', function () {
+    it('perfis: o anestesista preenche a ficha; estrutura e configuração clínica são do chefe', function () {
       return comServidor(function (adm, srv, pasta, base) {
         var eq = cliente(base), req;
         return administrador(adm, pasta).then(function () {
-          return adm.post('/api/usuarios', { novo: true, login: 'anest', nome: 'Anestesista', papel: 'equipe', senha: 'anestesista-1' });
+          return adm.post('/api/usuarios', { novo: true, login: 'anest', nome: 'Anestesista', papel: 'anestesista', senha: 'anestesista-1' });
         }).then(function () { return eq.post('/api/entrar', { login: 'anest', senha: 'anestesista-1' }); })
           .then(function () { return replica(eq); }).then(function (r) {
             req = r;
@@ -331,10 +331,10 @@ module.exports = function (t, core, dados) {
             verdadeiro(x.resp.corpo.ok, 'preencher pode');
             return req.comando('salvarRegistroEstrutura', { data: '2026-10-05', turno: 'Manhã', unidade: 'CC' });
           }).then(function (x) {
-            igual(x.resp.status, 403, 'estrutura só pelo administrador');
+            igual(x.resp.status, 403, 'estrutura só pelo chefe');
             return req.comando('salvarConfigQualidade', { limiares: { spo2: 80 } });
           }).then(function (x) {
-            igual(x.resp.status, 403, 'configuração clínica só pelo administrador');
+            igual(x.resp.status, 403, 'configuração clínica só pelo chefe');
             return adm.get('/api/estado');
           }).then(function (r) {
             igual(r.corpo.estado.estrutura.length, 0, 'a recusa não deixou rastro');

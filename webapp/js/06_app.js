@@ -82,6 +82,17 @@ var APP = (function () {
     /** Outra aba gravou por cima: esta para de salvar até recarregar. */
     bloqueadaPorOutraAba: false,
 
+    /**
+     * O que esta pessoa pode (core/12b_permissoes.js: a mesma tabela que o servidor usa para decidir).
+     * Aqui só se esconde o que ela não pode usar; quem protege os dados é o servidor. Computador
+     * único e versão online não têm login: quem usa é o Anestesista chefe.
+     */
+    perfil: function () { return app.servidor ? SERVIDOR.perfil() : 'chefe'; },
+    podeVer: function (tela) { return perfilPodeVerTela(app.perfil(), tela); },
+    veFinanceiro: function () { return perfilVeFinanceiro(app.perfil()); },
+    ehCoordenacao: function () { return perfilEhCoordenacao(app.perfil()); },
+    podeFazer: function (operacao) { return perfilPodeExecutar(app.perfil(), operacao, []).ok; },
+
     filtros: {
       cirurgias:   { texto: '', status: '', anestesista: '', todosOsMeses: false },
       avaliacoes:  { texto: '', situacao: '', anestesista: '', todosOsMeses: false },
@@ -372,10 +383,10 @@ var APP = (function () {
           class: 'btn btn-primario',
           onclick: function () { TELAS.cirurgias.form(app, null); }
         }, [icone('mais'), el('span', { class: 'rotulo-botao' }, 'Nova cirurgia')]),
-        el('button', {
+        app.podeVer('dados') ? el('button', {
           class: 'btn btn-icone', title: 'Dados e backup', 'aria-label': 'Dados e backup',
           onclick: function () { TELAS.dados.abrir(app); }
-        }, icone('baixar')),
+        }, icone('baixar')) : null,
         el('button', {
           class: 'btn btn-icone', title: 'Alternar tema claro/escuro', 'aria-label': 'Alternar tema claro/escuro',
           onclick: function () { UI.alternarTema(); redesenhar(); }
@@ -448,9 +459,9 @@ var APP = (function () {
     montarNav();
   }
 
-  /** Telas que esta pessoa vê (Usuários: só administrador, só no servidor). */
+  /** Telas que esta pessoa vê: as do perfil dela (Usuários só existe no servidor da clínica). */
   function telasVisiveis() {
-    return TELAS_DEF.filter(function (t) { return !t.soAdminServidor || (app.servidor && SERVIDOR.ehAdmin()); });
+    return TELAS_DEF.filter(function (t) { return (!t.soAdminServidor || app.servidor) && app.podeVer(t.chave); });
   }
 
   function montarNav() {

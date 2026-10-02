@@ -68,15 +68,15 @@ TELAS.cirurgias = (function () {
         ]))));
 
     /* ---- Tabela ------------------------------------------------------ */
+    var veFin = app.veFinanceiro();   // Valor e Pago só para quem vê dinheiro
     raiz.appendChild(el('div', { class: 'cartao' }, [
       el('div', { class: 'cartao-corpo rente' }, UI.tabela({
         colunas: [
           { rotulo: 'ID' }, { rotulo: 'Data' }, { rotulo: 'Horário' },
           { rotulo: 'Paciente' }, { rotulo: 'Procedimento' },
           { rotulo: 'Anestesista' }, { rotulo: 'Pos.', dica: 'Posição no rodízio' },
-          { rotulo: 'Status' }, { rotulo: 'Aval. pré' },
-          { rotulo: 'Valor', num: true }, { rotulo: 'Pago' }, { rotulo: '', classe: 'acoes' }
-        ],
+          { rotulo: 'Status' }, { rotulo: 'Aval. pré' }
+        ].concat(veFin ? [{ rotulo: 'Valor', num: true }, { rotulo: 'Pago' }] : []).concat([{ rotulo: '', classe: 'acoes' }]),
         linhas: lista.slice(0, LIMITE_LINHAS).map(function (c) {
           var linha = [
             el('span', { class: 'mono t-suave' }, c.id),
@@ -99,11 +99,13 @@ TELAS.cirurgias = (function () {
             ]),
             UI.seloPosicao(c.posicao),
             UI.seloStatus(c.status),
-            UI.seloAvaliacao(c.statusAval),
+            UI.seloAvaliacao(c.statusAval)
+          ].concat(veFin ? [
             UI.moeda(c.valor),
             ehSim(c.pago)
               ? el('span', { class: 'selo selo-ok' }, 'Sim')
-              : el('span', { class: 'selo selo-pendente' }, 'Não'),
+              : el('span', { class: 'selo selo-pendente' }, 'Não')
+          ] : []).concat([
             el('div', { class: 'linha', style: 'justify-content:flex-end;flex-wrap:nowrap' }, [
               el('button', {
                 class: 'btn btn-plano btn-icone btn-pq' + (store.boletimDaCirurgia(c.id) ? ' com-boletim' : ''),
@@ -120,7 +122,7 @@ TELAS.cirurgias = (function () {
                 onclick: function (ev) { ev.stopPropagation(); excluirCirurgia(app, c); }
               }, icone('lixo'))
             ])
-          ];
+          ]);
           linha.__onclick = function () { formCirurgia(app, c); };
           if (ehPendenciaHorario(c)) linha.__classe = 'destaque-linha';
           return { celulas: linha, __onclick: linha.__onclick, __classe: linha.__classe };
@@ -293,11 +295,14 @@ TELAS.cirurgias = (function () {
         : 'O registro intraoperatório (técnica, fármacos, sinais vitais, intercorrências) fica no boletim anestésico. ' +
           'Use o botão "Criar boletim" abaixo.';
 
+    // Dinheiro (valor, pago, data do pagamento, nota fiscal) só para quem o vê: para os outros o campo nem
+    // existe no formulário, então nunca vai no pedido (o servidor também recusaria).
+    var veFin = app.veFinanceiro();
     var form = UI.formulario([
       fData, fStatus, fIniPrev, fFimPrev, fIniReal, fFimReal,
       fPaciente, fConvenio, fTelefone, fProc, fCirurgiao, fSala,
-      fAnest, fAvalNec, fValor, fPago, fDataPag, fNF, fObs
-    ]);
+      fAnest, fAvalNec
+    ].concat(veFin ? [fValor, fPago, fDataPag, fNF] : []).concat([fObs]));
 
     /**
      * Recalcula os campos automáticos a cada mudança relevante, usando o
@@ -460,10 +465,10 @@ TELAS.cirurgias = (function () {
         el('div', { class: 'campo-grupo' }, [fAvalNec.no])
       ]),
 
-      secao('Financeiro', [
+      veFin ? secao('Financeiro', [
         el('div', { class: 'campo-grupo' }, [fValor.no, fPago.no]),
         el('div', { class: 'campo-grupo mt-3' }, [fDataPag.no, fNF.no])
-      ]),
+      ]) : null,
 
       secao('Boletim anestésico', [
         el('div', { class: 'aviso aviso-info' }, [

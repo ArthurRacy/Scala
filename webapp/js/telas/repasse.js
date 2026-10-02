@@ -150,10 +150,9 @@ TELAS.repasse = (function () {
     return raiz;
   }
 
-  /** Só o administrador (no modo servidor) e só enquanto o mês está guardado e ninguém recebeu. */
+  /** Quem faz o repasse (chefe e secretária), e só enquanto o mês está guardado e ninguém recebeu. */
   function podeAtualizarGrupo(app, r) {
-    var admin = !app.servidor || (typeof SERVIDOR !== 'undefined' && SERVIDOR.ehAdmin());
-    return admin && r.participantesGuardados && !registroDoMes(app, r).pagamentos.length;
+    return app.podeFazer('atualizarParticipantesRepasse') && r.participantesGuardados && !registroDoMes(app, r).pagamentos.length;
   }
 
   function atualizarGrupo(app) {

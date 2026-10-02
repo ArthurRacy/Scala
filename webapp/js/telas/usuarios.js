@@ -1,12 +1,11 @@
 /**
  * ============================================================================
- * TELA — Usuários (modo servidor, só administrador)
+ * TELA — Usuários (modo servidor, só o Anestesista chefe)
  * ============================================================================
- * Quem entra no sistema da clínica e com que papel:
- *   - administrador: tudo, inclusive usuários, cadastro (e CHAVE PIX),
- *     escala-base, dados da clínica, repasse, backup e restauração;
- *   - equipe: a operação do dia a dia (cirurgias, avaliações, substituições
- *     na escala, boletins).
+ * Quem entra no sistema da clínica e com que perfil (core/12b_permissoes.js):
+ *   - Anestesista chefe: poder total, inclusive usuários, backup e restauração;
+ *   - Anestesista: painel de operação e painel de qualidade, sem dinheiro;
+ *   - Secretária: operação e gestão, sem painel de qualidade nem administração.
  * Ninguém é apagado: quem sai do grupo é desativado (o LOG continua com o
  * nome). Senha nova derruba as sessões abertas da pessoa.
  * ============================================================================
@@ -37,23 +36,22 @@ TELAS.usuarios = (function () {
     var eu = SERVIDOR.usuario();
     return el('div', { class: 'pilha' }, [
       el('div', { class: 'aviso aviso-info', style: 'margin:0' }, [icone('info'), el('div', { class: 'aviso-corpo' }, [
-        el('strong', null, 'Papéis'),
-        el('div', { class: 't-pq' }, 'Administrador: tudo, inclusive usuários, cadastro e CHAVE PIX, escala-base, dados da clínica, ' +
-          'repasse e backup. Equipe: cirurgias, avaliações, substituições na escala e boletins. Quem sai do grupo é ' +
-          'desativado — o nome continua no LOG.')
+        el('strong', null, 'Perfis de acesso'),
+        el('div', { class: 't-pq' }, core.ORDEM_DOS_PERFIS.map(function (p) { return core.PERFIS[p].rotulo + ': ' + core.PERFIS[p].resumo; }).join(' ') +
+          ' Quem sai do grupo é desativado — o nome continua no LOG. Mudar o perfil de alguém derruba as sessões dela: ela entra de novo com o perfil novo.')
       ])]),
       el('div', { class: 'cartao' }, [
         cab('Usuários do sistema', lista.length + ' cadastrado(s)', [
           el('button', { class: 'btn btn-primario btn-pq', onclick: function () { form(app, null); } }, [icone('mais'), 'Novo usuário'])
         ]),
         el('div', { class: 'cartao-corpo rente' }, UI.tabela({
-          colunas: [{ rotulo: 'Nome' }, { rotulo: 'Login' }, { rotulo: 'Papel' }, { rotulo: 'Situação' }, { rotulo: '', classe: 'acoes' }],
+          colunas: [{ rotulo: 'Nome' }, { rotulo: 'Login' }, { rotulo: 'Perfil' }, { rotulo: 'Situação' }, { rotulo: '', classe: 'acoes' }],
           linhas: lista.map(function (u) {
             return {
               celulas: [
                 el('span', { class: 'celula-principal' }, u.nome + (u.login === eu.login ? ' (você)' : '')),
                 el('span', { class: 'mono' }, u.login),
-                u.papel === 'admin' ? el('span', { class: 'selo selo-info' }, 'administrador') : el('span', { class: 'selo selo-na' }, 'equipe'),
+                el('span', { class: u.papel === 'chefe' ? 'selo selo-info' : 'selo selo-na' }, (core.PERFIS[u.papel] || { rotulo: u.papel }).rotulo),
                 u.ativo ? el('span', { class: 'selo selo-ok' }, 'ativo') : el('span', { class: 'selo selo-cancelada' }, 'desativado'),
                 el('button', { class: 'btn btn-plano btn-icone btn-pq', title: 'Editar', 'aria-label': 'Editar ' + u.nome,
                   onclick: function (ev) { ev.stopPropagation(); form(app, u); } }, icone('lapis'))
@@ -68,14 +66,15 @@ TELAS.usuarios = (function () {
 
   function form(app, u) {
     var novo = !u;
-    u = u || { papel: 'equipe', ativo: true };
+    u = u || { papel: 'anestesista', ativo: true };
     var campos = [
       UI.campo({ rotulo: 'Nome', nome: 'nome', valor: u.nome || '', obrigatorio: true, largo: true,
         dica: 'Como vai aparecer no LOG.' }),
       novo ? UI.campo({ rotulo: 'Login', nome: 'login', obrigatorio: true, exemplo: 'ex.: secretaria',
         dica: 'Letras minúsculas, números, ponto ou hífen. Não muda depois.' }) : null,
-      UI.campo({ rotulo: 'Papel', nome: 'papel', tipo: 'select', vazioPermitido: false, valor: u.papel,
-        opcoes: [{ valor: 'equipe', rotulo: 'Equipe' }, { valor: 'admin', rotulo: 'Administrador' }] }),
+      UI.campo({ rotulo: 'Perfil de acesso', nome: 'papel', tipo: 'select', vazioPermitido: false, valor: u.papel,
+        opcoes: core.ORDEM_DOS_PERFIS.map(function (p) { return { valor: p, rotulo: core.PERFIS[p].rotulo }; }),
+        dica: 'Mudar o perfil de quem já usa o sistema derruba as sessões abertas dela.' }),
       novo ? null : UI.campo({ rotulo: 'Situação', nome: 'ativo', tipo: 'select', vazioPermitido: false, valor: u.ativo ? 'sim' : 'nao',
         opcoes: [{ valor: 'sim', rotulo: 'Ativo' }, { valor: 'nao', rotulo: 'Desativado (não entra mais)' }] }),
       UI.campo({ rotulo: novo ? 'Senha inicial' : 'Nova senha (deixe em branco para manter)', nome: 'senha', tipo: 'password',

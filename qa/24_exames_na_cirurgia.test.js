@@ -258,8 +258,10 @@ module.exports = function (t, core, dados) {
 
   describe('Exames — ligações da tela de cirurgia', function () {
     // Sem DOM no Node, estas conferem o que o navegador não deve perder numa edição futura.
-    var tela = fs.readFileSync(path.join(RAIZ, 'webapp', 'js', 'telas', 'cirurgias.js'), 'utf8');
-    var css = fs.readFileSync(path.join(RAIZ, 'webapp', 'css', 'app.css'), 'utf8');
+    // Fim de linha normalizado: numa cópia nova no Windows (autocrlf) o arquivo vem com CRLF e os padrões abaixo falhavam à toa.
+    function lerFonte(rel) { return fs.readFileSync(path.join(RAIZ, rel), 'utf8').split('\r\n').join('\n'); }
+    var tela = lerFonte('webapp/js/telas/cirurgias.js');
+    var css = lerFonte('webapp/css/app.css');
     var salvar = (tela.match(/function salvar\(\) \{[\s\S]*?\n    \}\n/) || [''])[0];
 
     it('salvar() confere os exames ANTES de gravar e só manda a fila DEPOIS de fechar o modal', function () {
@@ -287,7 +289,8 @@ module.exports = function (t, core, dados) {
 
     it('a aba de exames não entra nos dados gravados da cirurgia', function () {
       // form.dados() só lê os campos do UI.formulario; a fila vive em abaExames.
-      var lista = (tela.match(/var form = UI\.formulario\(\[[\s\S]*?\]\);/) || [''])[0];
+      // Do início da lista até o fim da instrução (a lista pode ser filtrada por perfil, ver 06_app.js: veFinanceiro).
+      var lista = (tela.match(/var form = UI\.formulario\(\[[\s\S]*?\);/) || [''])[0];
       verdadeiro(lista.length > 20, 'lista de campos do formulário');
       falso(/exame/i.test(lista), 'nenhum campo de exame dentro do formulário');
     });

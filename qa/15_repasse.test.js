@@ -256,9 +256,11 @@ module.exports = function (t, core, dados) {
       verdadeiro(st2.repasse(2026, 10).participantesGuardados);
     });
 
-    it('a operação nova é só do administrador, vai ao servidor e não roda em concorrência', function () {
+    it('a operação nova é de gestão (chefe e secretária, nunca do anestesista), vai ao servidor e não roda em concorrência', function () {
       verdadeiro(core.MUTACOES_STORE.indexOf('atualizarParticipantesRepasse') >= 0);
-      verdadeiro(core.MUTACOES_SO_ADMIN.indexOf('atualizarParticipantesRepasse') >= 0);
+      verdadeiro(core.perfilPodeExecutar('chefe', 'atualizarParticipantesRepasse', []).ok);
+      verdadeiro(core.perfilPodeExecutar('secretaria', 'atualizarParticipantesRepasse', []).ok);
+      falso(core.perfilPodeExecutar('anestesista', 'atualizarParticipantesRepasse', []).ok);
       falso(core.MUTACOES_SEGURAS_EM_CONCORRENCIA.indexOf('atualizarParticipantesRepasse') >= 0);
     });
   });

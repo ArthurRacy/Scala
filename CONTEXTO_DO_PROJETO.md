@@ -4,7 +4,7 @@ Documento de passagem entre conversas. Diz o que o sistema é, como está
 montado, o que já foi feito, as regras que não podem ser quebradas e o que
 ainda falta. Atualizado em **01/10/2026**.
 
-- Estado atual: **675 testes, todos passando** (`node qa`).
+- Estado atual: **711 testes, todos passando** (`node qa`; a suíte inteira leva cerca de 1 minuto).
 - Versão online publicada: **versão 10** (com o módulo de qualidade e segurança).
 
 ---
@@ -93,9 +93,15 @@ docs/        REGRAS_DE_NEGOCIO.md, QA.md, KANBAN.md
    - Não introduzir `Date.now()` nem `Math.random()` novos dentro de operações
      do store sem passar pelo contexto.
 9. **Toda operação nova do store que muda dados** tem de entrar em
-   `MUTACOES_STORE`, e, se for o caso, em `MUTACOES_SO_ADMIN` e
-   `MUTACOES_SEGURAS_EM_CONCORRENCIA` (fim de `core/12_store.js`). Sem isso,
-   ela não chega ao servidor.
+   `MUTACOES_STORE` e `MUTACOES_SEGURAS_EM_CONCORRENCIA` (fim de `core/12_store.js`, esta
+   só se for o caso) **e ser classificada em `GRUPO_DA_MUTACAO` de `core/12b_permissoes.js`**
+   (quem faz). Sem classificação, só o chefe a faz; o teste 25 recusa operação nova que
+   não esteja na tabela dele. `MUTACOES_SO_ADMIN` agora sai dessa tabela (o que só o chefe
+   faz). Sem estar em `MUTACOES_STORE`, a operação não chega ao servidor.
+9b. **Perfis:** o corte do que cada perfil recebe (`projetarEstadoParaPerfil` e
+   `redigirComandoParaPerfil`) é parte do protocolo: operação nova que mexa em dinheiro ou
+   em dado de contato precisa entrar em `CAMPOS_FINANCEIROS` / `ARGUMENTO_RESTRITO`, e o
+   teste de réplica (qa/25) tem de continuar igual.
 10. **Downloads** passam por `UI.salvarArquivo(nome, dados)`. Na versão online,
     usa a capacidade `downloads` do Artifact.
 11. **Qualidade (regras que não se negociam):**
@@ -146,10 +152,14 @@ Regras de concorrência e de acesso:
   - trava após 5 senhas erradas;
   - cabeçalho `X-Anestesia` obrigatório contra CSRF;
   - primeiro acesso por código mostrado na janela do servidor.
-- **Papéis:**
-  - `admin` faz tudo: usuários, cadastro/PIX, escala-base, clínica, repasse,
-    backup e restauração;
-  - `equipe` faz a operação do dia a dia.
+- **Perfis** (decididos pelo servidor; tabela única em `core/12b_permissoes.js`):
+  - `chefe` (Anestesista chefe): poder total;
+  - `anestesista`: painel de operação e painel de qualidade, **sem dinheiro**
+    (o servidor corta valores, pagamentos, nota fiscal, repasses, LOG e PIX/telefone/e-mail
+    dos colegas do estado e dos comandos que ele recebe);
+  - `secretaria`: operação e gestão, sem painel de qualidade, sem criar/editar/assinar
+    boletim e sem as telas de administração.
+  - `admin` e `equipe` (nomes antigos) continuam entendidos: viram chefe e anestesista.
 - O marcador `webapp/js/00_modo.js` diz `false` no arquivo; o servidor Node
   responde `true` nesse mesmo endereço.
 
@@ -288,9 +298,8 @@ Regras de concorrência e de acesso:
     grave 180 mmHg, jejum 8 h (sólidos) e 2 h (líquidos), TOF ≥ 0,9, antibiótico
     0 a 60 min antes da incisão (SpO₂ < 90, PAM < 65, T < 36 e dor > 7 vêm do pedido);
   - nenhuma **meta** nem **fonte normativa** vem preenchida;
-  - só existem dois papéis (equipe e admin): "anestesista" usa equipe e
-    "coordenação" usa admin; um papel de coordenação de qualidade separado seria
-    extensão pequena;
+  - a coordenação de qualidade é o Anestesista chefe (o anestesista vê o painel, sem a
+    comparação entre profissionais; estrutura e configuração são só do chefe);
   - LGPD: base legal, prazo de guarda, controlador e encarregado são da
     instituição; a versão online é demonstração (não usar dado real);
   - a comparação por profissional é **estratificação por ASA**, não modelo de
@@ -320,13 +329,13 @@ Regras de concorrência e de acesso:
     8091). Não afeta o navegador da pessoa usuária;
   - a pasta de teste do servidor ficou no scratchpad.
 - **Documentação** atualizada: README (seções de boletim, qualidade, servidor e
-  segurança), docs/QA.md (tabela por arquivo, 675 testes), docs/KANBAN.md,
+  segurança), docs/QA.md (tabela por arquivo, 711 testes), docs/KANBAN.md,
   docs/QUALIDADE.md e docs/QUALIDADE_INDICADORES.md (este é **gerado**: rode
   `node tools/gerar_docs_qualidade.js` depois de mudar o catálogo).
 
 ## 10. Primeiros passos sugeridos para o próximo chat
 
-1. Rodar `node qa` e confirmar 675 de 675.
+1. Rodar `node qa` e confirmar 711 de 711.
 2. Ler `README.md` (visão de uso) e a seção 3 deste arquivo (invariantes).
 3. Antes de mexer no store, conferir as listas `MUTACOES_*` e o contexto de
    execução.

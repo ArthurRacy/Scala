@@ -239,12 +239,29 @@ Na primeira vez, o Windows pergunta sobre o firewall: permita só em
 - **Primeiro acesso**: sem nenhum usuário, a janela mostra um código de uso
   único (também em `dados_servidor/PRIMEIRO_ACESSO.txt`). Com ele, a tela de
   entrada cria o administrador.
-- **Usuários e papéis** (Cadastro › Usuários, só administrador):
-  *administrador* faz tudo, inclusive usuários, cadastro e CHAVE PIX,
-  escala-base, dados da clínica, repasse e backup; *equipe* faz a operação do
-  dia a dia (cirurgias, avaliações, substituições, boletins). Quem sai do
-  grupo é desativado — o nome continua no LOG. O LOG registra cada alteração
-  com o nome de quem entrou.
+- **Usuários e perfis de acesso** (Cadastro › Usuários, só o Anestesista chefe).
+  Três perfis; quem decide é o **servidor** (a tela só esconde o que a pessoa
+  não pode usar), pela tabela única de `core/12b_permissoes.js`:
+
+  | | Anestesista chefe | Anestesista | Secretária |
+  |---|---|---|---|
+  | Operação (escala, quadro do dia, cirurgias, avaliações pré, ficha de qualidade) | tudo | tudo, **sem dinheiro** | tudo |
+  | Boletim anestésico | cria, edita, assina, reabre | cria, edita, assina | **só vê e imprime** |
+  | Horas, financeiro, repasse, indicadores | tudo | — | tudo |
+  | Cadastro de anestesistas (com PIX), escala-base, clínica e termo | tudo | — | tudo |
+  | Painel de qualidade | tudo (inclusive a comparação entre profissionais) | vê, sem a comparação | — |
+  | Estrutura e configuração clínica da qualidade | tudo | — | — |
+  | Usuários, Auditoria, Integridade, Dados e backup | tudo | — | — |
+
+  O anestesista **nunca recebe dinheiro**: o servidor tira valor, pago, data do
+  pagamento e nota fiscal das cirurgias e das avaliações, os repasses, o LOG e a
+  chave PIX, o telefone e o e-mail dos colegas — do estado e dos comandos que
+  chegam a ele (a tela dele reexecuta os comandos dos outros já cortados; um teste
+  confere que o estado visível chega idêntico ao do servidor). Os nomes antigos
+  continuam entendidos: `admin` vira chefe e `equipe` vira anestesista (o arquivo
+  de usuários é regravado ao subir). Mudar o perfil de alguém derruba as sessões
+  dela. Quem sai do grupo é desativado — o nome continua no LOG. O LOG registra
+  cada alteração com o nome de quem entrou.
 - **Como fica tudo igual**: cada tela aplica a alteração na hora e manda o
   *comando* ao servidor, que o reexecuta com o mesmo core, a mesma hora e a
   mesma semente de identificadores — e chega ao mesmo estado; as outras telas
@@ -269,7 +286,7 @@ Na primeira vez, o Windows pergunta sobre o firewall: permita só em
 1. Abra a planilha no Google Sheets.
 2. **Extensões → Apps Script**.
 3. Copie, nesta ordem, cada arquivo de `core/` (`00_config.js` até
-   `12_store.js`, incluindo `02b_calendario.js`, `05b_procedimentos.js`,
+   `12b_permissoes.js`, incluindo `02b_calendario.js`, `05b_procedimentos.js`,
    `06b_boletim.js` e `09b_repasse.js`) e depois cada arquivo de `apps-script/` (`90_` a `92_`).
    A ordem importa: o Apps Script concatena os arquivos por nome.
 4. Salve, recarregue a planilha e use o menu **⚕ Anestesia →
@@ -324,6 +341,7 @@ core/                 Regras de negócio — roda em Node, navegador e Apps Scri
   10b_retencao.js       Quanto tempo cada cópia de segurança fica
   11_log.js             Trilha de auditoria
   12_store.js           Estado, transações e integridade
+  12b_permissoes.js     Os três perfis: quem vê e faz o quê, e o corte do que chega a cada um
   index.js              Carregador (só no Node)
 
 webapp/               Interface — sem framework, sem build, sem CDN
@@ -354,7 +372,7 @@ apps-script/          Camada Google Sheets
   92_gatilhos.gs        Menu, onEdit (criação automática), ações manuais
   appsscript.json
 
-qa/                   675 testes, sem dependência externa
+qa/                   711 testes, sem dependência externa
   index.js              Executor  —  node qa  |  node qa 05
   _runner.js            Arnês de testes
   _mock_sheets.js       Google Sheets de mentira, para testar a ponte
@@ -474,7 +492,8 @@ git add -A && git commit -m "Atualiza a página online" && git push
 - **Servidor da clínica**: login com senha (scrypt, sal por usuário), sessão
   em cookie HttpOnly + SameSite=Strict que cai após 12 h sem uso, trava de 15
   minutos depois de 5 senhas erradas, cabeçalho próprio + mesma origem em
-  toda gravação (CSRF), papéis admin/equipe conferidos no servidor, pasta de
+  toda gravação (CSRF), perfis (chefe, anestesista, secretária) conferidos no servidor — que
+  também corta o dinheiro do que o anestesista recebe —, pasta de
   dados nunca servida, registro de entradas em `acessos.log`. **Use só na
   rede interna** — nunca abra a porta para a internet. Para HTTPS, coloque
   `chave.pem` e `certificado.pem` em `dados_servidor/https/`.

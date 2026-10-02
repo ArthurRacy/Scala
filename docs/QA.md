@@ -1,7 +1,7 @@
 # QA — o que a bateria cobre
 
 ```bash
-node qa              # tudo (675 testes)
+node qa              # tudo (711 testes)
 node qa 05           # só o arquivo que começa com "05"
 node qa rodizio      # só os arquivos cujo nome contém "rodizio"
 ```
@@ -9,7 +9,7 @@ node qa rodizio      # só os arquivos cujo nome contém "rodizio"
 Sai com código 1 se qualquer teste falhar, então serve de porta de CI.
 Zero dependências: o arnês está em `qa/_runner.js`.
 
-**Resultado atual: 675 testes, 675 aprovados.**
+**Resultado atual: 711 testes, 711 aprovados.**
 
 ---
 
@@ -52,7 +52,7 @@ em [REGRAS_DE_NEGOCIO.md §1](REGRAS_DE_NEGOCIO.md).
 O bloco de fidelidade dos cabeçalhos (15 testes) roda em **toda** invocação,
 inclusive quando você filtra por um arquivo só — é a rede que protege contra
 desalinhamento com a planilha. Os números abaixo são os testes próprios de
-cada arquivo; somados aos 15, dão 514.
+cada arquivo; somados aos 15, dão 514 (mais os arquivos 25 e 26, que vieram depois).
 
 | Arquivo | Testes | O que cobre |
 |---|---|---|
@@ -80,6 +80,8 @@ cada arquivo; somados aos 15, dão 514.
 | `21_qualidade_prototipo.test.js` | 14 | Protótipo: a demonstração (18 atendimentos fictícios, estrutura, eventos, acompanhamentos, lacunas) monta sem erro e a integridade fecha; os números do painel batem com a recontagem independente das fichas; eventos + "não" + sem informação = elegíveis em todos os 36 indicadores; comparação por profissional soma o painel geral; exportação por atendimento sem nome, prontuário nem data exata; "Tirar exemplos" limpa tudo; cirurgia com ficha não se exclui |
 | `22_regressoes_qa.test.js` | 28 | Uma regressão por achado da rodada de QA de 29/09/2026: dose de fármaco, configuração clínica, conflito de horário, repasse, servidor (corpo `null`, sessões, trava da troca de senha), nomes acessíveis, partida com arquivo faltando e formato de telefone/PIX/CRM/CNPJ |
 | `23_ficha_do_boletim.test.js` | 20 | Ficha preenchida a partir do boletim: menor SpO₂, menor PAM (PAS + 2 × PAD ÷ 3) e maior PAS dos sinais vitais; o que é sugerido (vazio, igual, diferente); destino; valor fora da faixa da ficha não é sugerido; **resposta Sim/Não nunca é preenchida**; só o marcado é copiado, com origem no histórico e no LOG; recusa sem boletim, sem novidade e com ficha concluída; comando aceito no servidor; o painel enxerga o valor copiado (hipoxemia, hipotensão, "sem informação"); botão da tela |
+| `25_perfis.test.js` | 23 | Os três perfis do core: nomes antigos (`admin`, `equipe`), telas de cada perfil, quem faz cada operação (tabela conferida operação por operação; operação sem classificação nasce fechada), o anestesista não envia nem recebe dinheiro, estado e comandos cortados por perfil e **a tela do anestesista (reexecutando comandos já cortados) chega ao MESMO estado visível do servidor, sem nunca guardar dinheiro** (sabotado de propósito para provar que o teste pega vazamento) |
+| `26_perfis_servidor.test.js` | 13 | Os perfis no servidor de verdade (HTTP): primeiro acesso cria o chefe, arquivo de usuários antigo migrado, cada perfil recebe o estado do seu tamanho (nenhum dinheiro, PIX ou repasse ao anestesista), comandos cortados, SSE que não revela repasse, operações recusadas (403) por perfil e por campo de dinheiro, administração só do chefe, exames para os três, mudar o perfil derruba as sessões, o único chefe não se rebaixa |
 | `24_exames_na_cirurgia.test.js` | 22 | Exames do paciente na tela de cirurgia nova: a regra que diz se a cirurgia gera avaliação (onde os PDFs ficam) é a mesma da criação da linha e vem do core; `adicionarCirurgia` e `atualizarCirurgia` devolvem a avaliação criada (uid e `idCirurgia`) e a mesma semente dá o mesmo uid na tela e no servidor; conferência do arquivo (PDF de verdade com lixo antes do cabeçalho, texto com extensão `.pdf`, vazio, grande demais); fila de espera (aceitos, recusados com motivo, repetidos, duas levas quase juntas, remover); envio um a um preso ao uid, o que falha fica na fila e sai em `falhas`, avaliação sem uid não envia nada; ligações da tela (conferir os exames antes de gravar e enviar só depois de fechar, erro volta para a aba de dados, a regra vem do core, soltar fora da área é barrado) e o CSS que mantém o modal dentro do celular com nome de arquivo comprido e a altura fixa com abas |
 
 ---

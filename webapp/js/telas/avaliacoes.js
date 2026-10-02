@@ -102,15 +102,15 @@ TELAS.avaliacoes = (function () {
         ]))));
 
     /* ---- Tabela ------------------------------------------------------ */
+    var veFin = app.veFinanceiro();   // Valor e Pago só para quem vê dinheiro
     raiz.appendChild(el('div', { class: 'cartao' }, [
       el('div', { class: 'cartao-corpo rente' }, UI.tabela({
         colunas: [
           { rotulo: 'ID' }, { rotulo: 'Cirurgia' }, { rotulo: 'Paciente' },
           { rotulo: 'Procedimento' }, { rotulo: 'Quem avaliou' },
           { rotulo: 'Data / hora' }, { rotulo: 'Realizada' }, { rotulo: 'TCLE' },
-          { rotulo: 'Exames', dica: 'PDFs de exames anexados pela secretaria' },
-          { rotulo: 'Valor', num: true }, { rotulo: 'Pago' }, { rotulo: '', classe: 'acoes' }
-        ],
+          { rotulo: 'Exames', dica: 'PDFs de exames anexados pela secretaria' }
+        ].concat(veFin ? [{ rotulo: 'Valor', num: true }, { rotulo: 'Pago' }] : []).concat([{ rotulo: '', classe: 'acoes' }]),
         linhas: lista.slice(0, LIMITE_LINHAS).map(function (a) {
           var cir = porIdCirurgia[txt(a.idCirurgia)];
           var nExames = ANEXOS.contar(a.uid);
@@ -139,11 +139,13 @@ TELAS.avaliacoes = (function () {
             nExames
               ? el('span', { class: 'selo selo-info sem-ponto', title: nExames + ' PDF(s) anexado(s)' },
                   [icone('clipe', 'selo-icone'), String(nExames)])
-              : el('span', { class: 't-suave' }, '—'),
+              : el('span', { class: 't-suave' }, '—')
+          ].concat(veFin ? [
             UI.moeda(a.valor),
             ehSim(a.pago)
               ? el('span', { class: 'selo selo-ok' }, 'Sim')
-              : el('span', { class: 'selo selo-na' }, 'Não'),
+              : el('span', { class: 'selo selo-na' }, 'Não')
+          ] : []).concat([
             el('div', { class: 'linha', style: 'justify-content:flex-end;flex-wrap:nowrap' }, [
               cir ? el('button', {
                 class: 'btn btn-plano btn-icone btn-pq', title: 'Abrir a cirurgia', 'aria-label': 'Abrir a cirurgia',
@@ -154,7 +156,7 @@ TELAS.avaliacoes = (function () {
                 onclick: function (ev) { ev.stopPropagation(); formAvaliacao(app, a); }
               }, icone('lapis'))
             ])
-          ];
+          ]);
           return {
             celulas: linha,
             __onclick: function () { formAvaliacao(app, a); },
@@ -204,7 +206,10 @@ TELAS.avaliacoes = (function () {
     var fNF = UI.campo({ rotulo: 'Número da nota fiscal', nome: 'nf', valor: a.nf || '' });
     var fObs = UI.campo({ rotulo: 'Observações', nome: 'obs', tipo: 'textarea', valor: a.obs || '', largo: true, linhas: 2 });
 
-    var form = UI.formulario([fAnest, fData, fHora, fRealizada, fTcle, fValor, fPago, fDataPag, fNF, fObs]);
+    // Dinheiro só para quem o vê: para os outros o campo nem existe, então nunca vai no pedido.
+    var veFin = app.veFinanceiro();
+    var form = UI.formulario([fAnest, fData, fHora, fRealizada, fTcle]
+      .concat(veFin ? [fValor, fPago, fDataPag, fNF] : []).concat([fObs]));
 
     /* Bloco de dados espelhados: mostra o vínculo sem deixar editar. */
     var espelho = el('div', { class: 'aviso ' + (cir ? 'aviso-info' : 'aviso-erro') }, [
@@ -259,10 +264,10 @@ TELAS.avaliacoes = (function () {
         ]),
         secao('Exames do paciente', [blocoExames]),
         secao('Termo de consentimento (TCLE)', [blocoTcle]),
-        secao('Financeiro', [
+        veFin ? secao('Financeiro', [
           el('div', { class: 'campo-grupo' }, [fValor.no, fPago.no]),
           el('div', { class: 'campo-grupo mt-3' }, [fDataPag.no, fNF.no])
-        ]),
+        ]) : null,
         secao('Observações', [el('div', { class: 'campo-grupo' }, [fObs.no])])
       ],
       acoes: [

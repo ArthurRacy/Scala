@@ -26,7 +26,9 @@
  *   - chamada que muda dado exige o cabeçalho X-Anestesia e, quando o
  *     navegador manda Origin, a mesma origem (contra CSRF);
  *   - serve só webapp/ e core/: a pasta de dados nunca sai pela rede;
- *   - papel "admin" para usuários, cadastro, financeiro e backup;
+ *   - três perfis (core/12b_permissoes.js), decididos AQUI e nunca pela tela: o servidor recusa
+ *     a operação que o perfil não faz (403), corta o dinheiro do estado e dos comandos que o
+ *     anestesista recebe, e só o Anestesista chefe mexe em usuários, backup e restauração;
  *   - HTTPS: com <dados>/https/chave.pem e certificado.pem, sobe em https.
  *     Sem eles, use só em rede local confiável (Wi-Fi com senha).
  * ============================================================================
@@ -171,7 +173,7 @@ function criarServidor(opcoes) {
   };
   var DADOS = carregarDados();
   var armazem = criarArmazem(pastaDados, core);
-  var contas = criarContas(pastaDados);
+  var contas = criarContas(pastaDados, { custo: opcoes.custoSenhaParaTestes });
   var arqAcessos = path.join(pastaDados, 'acessos.log');
 
   function anotarAcesso(texto, req) {
@@ -249,6 +251,20 @@ function criarServidor(opcoes) {
     fluxos.forEach(function (f) { try { f.res.write(msg); } catch (e) { /* conexão caiu */ } });
   }
 
+  /**
+   * Aviso de comando novo. Quem não vê dinheiro não fica sabendo que houve repasse (nem de quem):
+   * recebe só o número da revisão, que a tela precisa para acompanhar.
+   */
+  function emitirComando(info) {
+    fluxos.forEach(function (f) {
+      var dados = info;
+      if (!core.perfilVeFinanceiro(f.papel) && core.GRUPO_DA_MUTACAO[info.nome] === 'financeiro') {
+        dados = { revisao: info.revisao, usuario: '', cliente: info.cliente, nome: '' };
+      }
+      try { f.res.write('event: comando\ndata: ' + JSON.stringify(dados) + '\n\n'); } catch (e) { /* conexão caiu */ }
+    });
+  }
+
   function fecharFluxosDe(login) {
     fluxos.forEach(function (f) { if (f.login === login) { try { f.res.end(); } catch (e) { /* ok */ } fluxos.delete(f); } });
   }
@@ -294,10 +310,9 @@ function criarServidor(opcoes) {
   function executarComando(c, eu) {
     var nome = String(c.nome || '');
     if (core.MUTACOES_STORE.indexOf(nome) < 0) return [400, { erro: 'Operação desconhecida.' }];
-    if (core.MUTACOES_SO_ADMIN.indexOf(nome) >= 0 && eu.papel !== 'admin') {
-      return [403, { erro: 'Só o administrador do sistema pode fazer isso.' }];
-    }
     if (!Array.isArray(c.args) || c.args.length > 6) return [400, { erro: 'Argumentos inválidos.' }];
+    var perm = core.perfilPodeExecutar(eu.papel, nome, c.args);
+    if (!perm.ok) return [403, { erro: perm.erro, motivo: perm.motivo }];
     var ctx = c.contexto || {};
     if (!AGORA_TEXTO.test(String(ctx.agora)) || !SEMENTE.test(String(ctx.semente))) return [400, { erro: 'Contexto inválido.' }];
     var desvio = Math.abs(new Date(String(ctx.agora).replace(' ', 'T')).getTime() - Date.now());
@@ -335,7 +350,7 @@ function criarServidor(opcoes) {
     ((r && r.removidas) || []).forEach(function (a) { if (a.uid) removidos += armazem.removerAnexosDaAvaliacao(a.uid); });
     if (removidos) emitir('anexos', { cliente: '' });
 
-    emitir('comando', { revisao: revisao, usuario: eu.nome, cliente: entrada.cliente, nome: nome });
+    emitirComando({ revisao: revisao, usuario: eu.nome, cliente: entrada.cliente, nome: nome });
     return [200, { ok: true, revisao: revisao, concorrente: concorrente, avisos: (r && r.avisos) || [] }];
   }
 
@@ -402,7 +417,7 @@ function criarServidor(opcoes) {
           anotarAcesso('primeiro acesso: código errado', req);
           return json(res, 403, { erro: 'Código de primeiro acesso não confere. Ele aparece na janela do servidor.' });
         }
-        var r = contas.criarUsuario({ login: c.login, nome: c.nome, senha: c.senha, papel: 'admin' });
+        var r = contas.criarUsuario({ login: c.login, nome: c.nome, senha: c.senha, papel: 'chefe' });
         if (!r.ok) return json(res, 400, { erros: r.erros });
         anotarAcesso('administrador criado: ' + r.usuario.login, req);
         json(res, 200, { usuario: r.usuario }, { 'Set-Cookie': cookie(contas.iniciarSessao(r.usuario.login)) });
@@ -415,13 +430,15 @@ function criarServidor(opcoes) {
     }
 
     if (!eu) return Promise.resolve(json(res, 401, { erro: 'Sessão encerrada. Entre de novo.' }));
-    var admin = eu.papel === 'admin';
-    function soAdmin() { if (!admin) json(res, 403, { erro: 'Só o administrador do sistema pode fazer isso.' }); return admin; }
+    var chefe = eu.papel === 'chefe';
+    function soChefe() { if (!chefe) json(res, 403, { erro: 'Só o Anestesista chefe pode fazer isso.' }); return chefe; }
 
     /* --- dados --- */
     if (caminho === '/api/estado' && metodo === 'GET') {
       return Promise.resolve(json(res, 200, {
-        revisao: revisao, hoje: hojeAtual, agora: Date.now(), usuario: eu, estado: DADOS.enxugar(store.estado)
+        revisao: revisao, hoje: hojeAtual, agora: Date.now(), usuario: eu,
+        // Cada perfil recebe só o que pode ver (o anestesista, nada de dinheiro): o corte é aqui.
+        estado: core.projetarEstadoParaPerfil(DADOS.enxugar(store.estado), eu.papel)
       }));
     }
     if (caminho === '/api/comando' && metodo === 'POST') {
@@ -433,13 +450,14 @@ function criarServidor(opcoes) {
       return Promise.resolve(json(res, 200, {
         revisao: revisao, hoje: hojeAtual,
         comandos: diario.filter(function (d) { return d.revisao > desde; })
+          .map(function (d) { return core.redigirComandoParaPerfil(d, eu.papel); })
       }));
     }
     if (caminho === '/api/eventos' && metodo === 'GET') {
       res.writeHead(200, cabecalhos({ 'Content-Type': 'text/event-stream; charset=utf-8', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' }));
       res.write('retry: 3000\n\n');
       res.write('event: ola\ndata: ' + JSON.stringify({ revisao: revisao, hoje: hojeAtual }) + '\n\n');
-      var f = { res: res, login: eu.login };
+      var f = { res: res, login: eu.login, papel: eu.papel };
       fluxos.add(f);
       req.on('close', function () { fluxos.delete(f); });
       return Promise.resolve();
@@ -482,22 +500,24 @@ function criarServidor(opcoes) {
 
     /* --- administração --- */
     if (caminho === '/api/usuarios' && metodo === 'GET') {
-      if (!soAdmin()) return Promise.resolve();
+      if (!soChefe()) return Promise.resolve();
       return Promise.resolve(json(res, 200, { usuarios: contas.listar() }));
     }
     if (caminho === '/api/usuarios' && metodo === 'POST') {
-      if (!soAdmin()) return Promise.resolve();
+      if (!soChefe()) return Promise.resolve();
       return lerJson(req, 16384).then(function (c) {
+        var antes = c.novo ? null : contas.usuario(c.login);
         var r = c.novo ? contas.criarUsuario(c) : contas.alterarUsuario(c.login, c);
         if (r.ok) {
-          anotarAcesso((c.novo ? 'usuário criado: ' : 'usuário alterado: ') + r.usuario.login + ' por ' + eu.login, req);
-          if (!r.usuario.ativo || c.senha) fecharFluxosDe(r.usuario.login);
+          anotarAcesso((c.novo ? 'usuário criado: ' : 'usuário alterado: ') + r.usuario.login + ' (' + r.usuario.papel + ') por ' + eu.login, req);
+          // Acesso cortado, senha nova ou perfil diferente: a conexão aberta tem os dados do perfil velho.
+          if (!r.usuario.ativo || c.senha || (antes && antes.papel !== r.usuario.papel)) fecharFluxosDe(r.usuario.login);
         }
         json(res, r.ok ? 200 : 400, r);
       });
     }
     if (caminho === '/api/backup' && metodo === 'GET') {
-      if (!soAdmin()) return Promise.resolve();
+      if (!soChefe()) return Promise.resolve();
       var comPdfs = busca.get('pdfs') === '1';
       var anexos = comPdfs ? armazem.metasAnexos().map(function (m) {
         var b = armazem.lerAnexo(m.id);
@@ -511,7 +531,7 @@ function criarServidor(opcoes) {
       return Promise.resolve();
     }
     if (caminho === '/api/importar' && metodo === 'POST') {
-      if (!soAdmin()) return Promise.resolve();
+      if (!soChefe()) return Promise.resolve();
       return lerCorpo(req, LIMITE_BACKUP).then(function (buf) {
         var r = DADOS.importarJSON(buf.toString('utf8'));
         if (!r.ok) return json(res, 400, { erro: r.erro });
@@ -531,7 +551,7 @@ function criarServidor(opcoes) {
       });
     }
     if (caminho === '/api/apagar-tudo' && metodo === 'POST') {
-      if (!soAdmin()) return Promise.resolve();
+      if (!soChefe()) return Promise.resolve();
       return lerJson(req, 1024).then(function (c) {
         if (c.confirmacao !== 'APAGAR') return json(res, 400, { erro: 'Confirmação ausente.' });
         trocarEstadoInteiro(DADOS.estadoDoSeed().estado, 'apagar-tudo', eu);
@@ -539,11 +559,11 @@ function criarServidor(opcoes) {
       });
     }
     if (caminho === '/api/copias' && metodo === 'GET') {
-      if (!soAdmin()) return Promise.resolve();
+      if (!soChefe()) return Promise.resolve();
       return Promise.resolve(json(res, 200, { copias: armazem.listarCopias() }));
     }
     if (caminho === '/api/copias/restaurar' && metodo === 'POST') {
-      if (!soAdmin()) return Promise.resolve();
+      if (!soChefe()) return Promise.resolve();
       return lerJson(req, 1024).then(function (c) {
         var copia;
         try { copia = armazem.lerCopia(c.id); } catch (e) { return json(res, 404, { erro: 'Cópia não encontrada.' }); }

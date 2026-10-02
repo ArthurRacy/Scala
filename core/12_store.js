@@ -2092,14 +2092,10 @@ var MUTACOES_SEGURAS_EM_CONCORRENCIA = ['atualizarCirurgia', 'atualizarAvaliacao
   'salvarFichaQualidade', 'preencherFichaDoBoletim', 'registrarSeguimentoQualidade', 'revisarFichaQualidade', 'reabrirFichaQualidade',
   'salvarConfigQualidade'];
 
-/**
- * No modo servidor, só o administrador: cadastro (inclusive CHAVE PIX),
- * escala-base, dados da clínica, financeiro do repasse e o reparo geral.
+/*
+ * Quem pode cada operação (os três perfis) está em core/12b_permissoes.js, a única tabela:
+ * ali também sai MUTACOES_SO_ADMIN, a lista do que só o Anestesista chefe faz.
  */
-var MUTACOES_SO_ADMIN = ['salvarAnestesista', 'definirEscalaBase', 'definirModoEscalaBase', 'salvarConfigClinica',
-  'salvarDespesasRepasse', 'registrarPagamentoRepasse', 'removerPagamentoRepasse', 'atualizarParticipantesRepasse',
-  // Estrutura e definições clínicas são da coordenação, não do dia a dia.
-  'salvarRegistroEstrutura', 'removerRegistroEstrutura', 'salvarConfigQualidade', 'reparar'];
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
@@ -2107,7 +2103,6 @@ if (typeof module !== 'undefined' && module.exports) {
     criarStore: criarStore,
     criarStoreComSeed: criarStoreComSeed,
     MUTACOES_STORE: MUTACOES_STORE,
-    MUTACOES_SO_ADMIN: MUTACOES_SO_ADMIN,
     MUTACOES_SEGURAS_EM_CONCORRENCIA: MUTACOES_SEGURAS_EM_CONCORRENCIA
   };
 }
