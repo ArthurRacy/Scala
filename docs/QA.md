@@ -1,7 +1,7 @@
 # QA — o que a bateria cobre
 
 ```bash
-node qa              # tudo (714 testes)
+node qa              # tudo (755 testes)
 node qa 05           # só o arquivo que começa com "05"
 node qa rodizio      # só os arquivos cujo nome contém "rodizio"
 ```
@@ -9,7 +9,7 @@ node qa rodizio      # só os arquivos cujo nome contém "rodizio"
 Sai com código 1 se qualquer teste falhar, então serve de porta de CI.
 Zero dependências: o arnês está em `qa/_runner.js`.
 
-**Resultado atual: 714 testes, 714 aprovados.**
+**Resultado atual: 755 testes, 755 aprovados.**
 
 ---
 
@@ -82,6 +82,8 @@ cada arquivo; somados aos 15, dão 514 (mais os arquivos 25 e 26, que vieram dep
 | `23_ficha_do_boletim.test.js` | 20 | Ficha preenchida a partir do boletim: menor SpO₂, menor PAM (PAS + 2 × PAD ÷ 3) e maior PAS dos sinais vitais; o que é sugerido (vazio, igual, diferente); destino; valor fora da faixa da ficha não é sugerido; **resposta Sim/Não nunca é preenchida**; só o marcado é copiado, com origem no histórico e no LOG; recusa sem boletim, sem novidade e com ficha concluída; comando aceito no servidor; o painel enxerga o valor copiado (hipoxemia, hipotensão, "sem informação"); botão da tela |
 | `25_perfis.test.js` | 23 | Os três perfis do core: nomes antigos (`admin`, `equipe`), telas de cada perfil, quem faz cada operação (tabela conferida operação por operação; operação sem classificação nasce fechada), o anestesista não envia nem recebe dinheiro, estado e comandos cortados por perfil e **a tela do anestesista (reexecutando comandos já cortados) chega ao MESMO estado visível do servidor, sem nunca guardar dinheiro** (sabotado de propósito para provar que o teste pega vazamento) |
 | `26_perfis_servidor.test.js` | 13 | Os perfis no servidor de verdade (HTTP): primeiro acesso cria o chefe, arquivo de usuários antigo migrado, cada perfil recebe o estado do seu tamanho (nenhum dinheiro, PIX ou repasse ao anestesista), comandos cortados, SSE que não revela repasse, operações recusadas (403) por perfil e por campo de dinheiro, administração só do chefe, exames para os três, mudar o perfil derruba as sessões, o único chefe não se rebaixa |
+| `28_log_core.test.js` | 23 | O LOG por usuário e o arquivo mensal no core: as contas (meses, corte da tela, prazo de guarda, texto canônico do arquivo, nome do arquivo sem caminho), o login em toda linha do LOG (inclusive a avaliação criada sozinha), filtrar por pessoa (a linha antiga pelo nome), a coluna LOGIN fora da conferência com a planilha, a configuração (só o chefe, dentro da faixa, vai para o LOG) e `arquivarLogAte` (tira só o anterior ao corte, deixa a linha "LOG ARQUIVADO", linha sem data nunca sai, corte inválido não muda nada, rollback não estraga o já arquivado, nenhum perfil a manda) |
+| `29_log_servidor.test.js` | 18 | No servidor de verdade: eventos de acesso por usuário (entrada, recusa sem guardar a senha, bloqueio, saída, senha, usuários, backup, exames, acesso negado), só o chefe os vê; o LOG de alterações leva o login; **o mês fechado vira arquivo com SHA-256 e nenhuma linha se perde nem é inventada**, rodar de novo não repete nada, mês aberto e primeiro dia do mês seguinte não arquivam, **falha ao gravar o arquivo não tira nada da tela**, arquivo existente nunca é reescrito (parte nova), arquivo adulterado é denunciado e não serve de desculpa, a tela (réplica) acompanha a limpeza e chega ao mesmo estado, reiniciar mantém tudo, prazo de guarda (e 0 = nunca), download em CSV e JSON com o login, índice estragado é refeito dos arquivos |
 | `27_fuso.test.js` | 3 | Hora de Brasília em qualquer fuso do computador (e o dia de Brasília quando o UTC já virou); **servidor de verdade num processo com `TZ=UTC` (como numa nuvem) aceita a hora de Brasília e recusa a de UTC** |
 | `24_exames_na_cirurgia.test.js` | 22 | Exames do paciente na tela de cirurgia nova: a regra que diz se a cirurgia gera avaliação (onde os PDFs ficam) é a mesma da criação da linha e vem do core; `adicionarCirurgia` e `atualizarCirurgia` devolvem a avaliação criada (uid e `idCirurgia`) e a mesma semente dá o mesmo uid na tela e no servidor; conferência do arquivo (PDF de verdade com lixo antes do cabeçalho, texto com extensão `.pdf`, vazio, grande demais); fila de espera (aceitos, recusados com motivo, repetidos, duas levas quase juntas, remover); envio um a um preso ao uid, o que falha fica na fila e sai em `falhas`, avaliação sem uid não envia nada; ligações da tela (conferir os exames antes de gravar e enviar só depois de fechar, erro volta para a aba de dados, a regra vem do core, soltar fora da área é barrado) e o CSS que mantém o modal dentro do celular com nome de arquivo comprido e a altura fixa com abas |
 

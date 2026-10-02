@@ -192,9 +192,35 @@ node qa
   da conferência de fidelidade com a planilha original, e a instalação do
   Apps Script cria os cabeçalhos no fim da aba, sem mexer no resto.
 
-### Auditoria
+### Auditoria (LOG por usuário)
 - Trilha **append-only** de alterações críticas: quem, quando, qual campo,
-  valor antes e depois. Observação e sala não poluem o log.
+  valor antes e depois. Observação e sala não poluem o log. Cada linha leva o
+  **login** de quem fez, além do nome (o nome pode mudar; o login não).
+- **No servidor da clínica** (só o Anestesista chefe, tela *Auditoria*), três visões:
+  - *Alterações*: o LOG, filtrável por **pessoa** e por período, com "quem mexeu"
+    (quantas alterações cada um fez) e exportação em CSV (com a coluna LOGIN);
+  - *Acessos e segurança*: entradas, saídas, senha errada, bloqueio por tentativas,
+    acesso negado (operação ou tela que o perfil não faz), criação e mudança de
+    usuário, troca de senha, backup, restauração, e quem anexou, abriu ou removeu
+    exame — com o endereço de onde veio (`logs/acessos.jsonl`). Nunca guarda senha
+    nem dado de paciente;
+  - *Arquivos e retenção*: o **arquivo mensal**.
+- **Arquivo mensal conferido e limpeza automática.** Todo mês fechado (a partir do
+  dia 2 do mês seguinte) o LOG de alterações e o de acessos viram um arquivo
+  comprimido em `logs/` (`alteracoes_AAAA-MM.jsonl.gz` e `acessos_AAAA-MM.jsonl.gz`),
+  com o **SHA-256** do conteúdo, **lido de volta e conferido** antes de valer. Só
+  depois disso o que passou de **6 meses** (ajustável, 1 a 36) sai da tela e da lista
+  de acessos, e fica no lugar uma linha "LOG ARQUIVADO" que diz onde estão as linhas.
+  Nenhuma linha sai sem estar num arquivo conferido; um arquivo existente nunca é
+  reescrito (linha nova de mês já arquivado vai para uma "parte" nova); se a gravação
+  do arquivo falhar, **nada** sai da tela. O arquivo é guardado por **5 anos**
+  (ajustável, 0 a 30; **0 = nunca apagar sozinho**) e depois é apagado, com o apagamento
+  anotado nos acessos. Os arquivos baixam em CSV (planilha) ou JSON por linha, e
+  *Conferir os arquivos* recalcula o SHA-256 de todos. O servidor faz tudo sozinho na
+  partida, a cada 6 horas e na virada do dia; há também o botão *Arquivar e limpar
+  agora*. **Prontuário e dinheiro podem ter prazo de guarda legal que não é do sistema
+  decidir: confirme com o jurídico antes de reduzir os prazos.** No computador único e
+  na versão online o LOG fica inteiro na tela (o arquivo mensal é do servidor).
 
 ---
 
@@ -280,7 +306,8 @@ Na primeira vez, o Windows pergunta sobre o firewall: permita só em
   (uma por dia por 35 dias, a primeira de cada mês por 24 meses, marcos de
   antes de importar/restaurar por 400 dias), `anexos/` (PDFs de exame;
   removidos ficam 400 dias em `removidos/`), `usuarios.json` (senhas em
-  scrypt), `acessos.log`. Copie essa pasta para fora do computador de tempos
+  scrypt), `logs/` (acessos por usuário e o arquivo mensal do LOG, ver *Auditoria*).
+  Copie essa pasta para fora do computador de tempos
   em tempos, ou use Dados e backup › Exportar com PDFs.
 - **Levar os dados de um navegador para o servidor**: no modo de um
   computador só, *Exportar com PDFs*; no servidor, o administrador usa
@@ -291,7 +318,7 @@ Na primeira vez, o Windows pergunta sobre o firewall: permita só em
 1. Abra a planilha no Google Sheets.
 2. **Extensões → Apps Script**.
 3. Copie, nesta ordem, cada arquivo de `core/` (`00_config.js` até
-   `12b_permissoes.js`, incluindo `02b_calendario.js`, `05b_procedimentos.js`,
+   `12b_permissoes.js`, incluindo `02b_calendario.js`, `05b_procedimentos.js`, `11b_log_arquivo.js`,
    `06b_boletim.js` e `09b_repasse.js`) e depois cada arquivo de `apps-script/` (`90_` a `92_`).
    A ordem importa: o Apps Script concatena os arquivos por nome.
 4. Salve, recarregue a planilha e use o menu **⚕ Anestesia →
@@ -345,6 +372,7 @@ core/                 Regras de negócio — roda em Node, navegador e Apps Scri
   10_dashboard.js       KPIs e séries de gráfico
   10b_retencao.js       Quanto tempo cada cópia de segurança fica
   11_log.js             Trilha de auditoria
+  11b_log_arquivo.js    Arquivo mensal e limpeza do LOG (as contas: meses, corte, prazo, texto)
   12_store.js           Estado, transações e integridade
   12b_permissoes.js     Os três perfis: quem vê e faz o quê, e o corte do que chega a cada um
   index.js              Carregador (só no Node)
@@ -377,7 +405,7 @@ apps-script/          Camada Google Sheets
   92_gatilhos.gs        Menu, onEdit (criação automática), ações manuais
   appsscript.json
 
-qa/                   714 testes, sem dependência externa
+qa/                   755 testes, sem dependência externa
   index.js              Executor  —  node qa  |  node qa 05
   _runner.js            Arnês de testes
   _mock_sheets.js       Google Sheets de mentira, para testar a ponte
@@ -387,6 +415,7 @@ server/               Modo servidor (Node puro, sem npm install)
   servidor.js           HTTP, login, comandos, SSE, anexos, backup
   armazem.js            Disco: estado atômico, diário, cópias, PDFs
   contas.js             Usuários (scrypt), sessões, trava por tentativas
+  auditoria.js          Acessos por usuário, arquivo mensal do LOG (SHA-256), limpeza e prazo de guarda
 
 tools/                Utilitários Python
   servir.py             Sobe o web app
@@ -499,7 +528,7 @@ git add -A && git commit -m "Atualiza a página online" && git push
   minutos depois de 5 senhas erradas, cabeçalho próprio + mesma origem em
   toda gravação (CSRF), perfis (chefe, anestesista, secretária) conferidos no servidor — que
   também corta o dinheiro do que o anestesista recebe —, pasta de
-  dados nunca servida, registro de entradas em `acessos.log`. **Use só na
+  dados nunca servida, registro de acessos por usuário em `logs/acessos.jsonl`. **Use só na
   rede interna** — nunca abra a porta para a internet. Para HTTPS, coloque
   `chave.pem` e `certificado.pem` em `dados_servidor/https/`.
 

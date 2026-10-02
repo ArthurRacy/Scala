@@ -237,6 +237,8 @@ var DADOS = (function () {
     // Definições clínicas do módulo de qualidade: o próprio core reconstrói
     // (limiares fora de faixa, metas estranhas e referências vazias somem).
     base.config.qualidade = lerConfigQualidade(cfg.qualidade);
+    // Arquivo mensal e limpeza do LOG: valor fora da faixa volta ao padrão.
+    base.config.log = lerConfigLog(cfg.log);
 
     base.anestesistas = sanearLista(o.anestesistas, 'ANESTESISTAS');
     base.escalaBase = sanearLista(o.escalaBase, 'ESCALA_BASE');

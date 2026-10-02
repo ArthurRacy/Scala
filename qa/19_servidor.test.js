@@ -86,7 +86,7 @@ module.exports = function (t, core, dados) {
   /** Réplica do estado do servidor + envio de comandos, como a tela faz. */
   function replica(cli) {
     return cli.get('/api/estado').then(function (r) {
-      var st = core.criarStore(DADOS.sanearEstado(r.corpo.estado), { usuario: r.corpo.usuario.nome, horizonte: 'movel', hoje: r.corpo.hoje });
+      var st = core.criarStore(DADOS.sanearEstado(r.corpo.estado), { usuario: r.corpo.usuario.nome, login: r.corpo.usuario.login, horizonte: 'movel', hoje: r.corpo.hoje });
       st.recalcular();
       var rep = { store: st, revisao: r.corpo.revisao, hoje: r.corpo.hoje };
       var n = 0;

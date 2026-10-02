@@ -95,7 +95,7 @@ module.exports = function (core) {
   function comando(cli, nome) {
     var args = Array.prototype.slice.call(arguments, 2);
     return cli.get('/api/estado').then(function (r) {
-      var st = core.criarStore(DADOS.sanearEstado(r.corpo.estado), { usuario: r.corpo.usuario.nome, horizonte: 'movel', hoje: r.corpo.hoje });
+      var st = core.criarStore(DADOS.sanearEstado(r.corpo.estado), { usuario: r.corpo.usuario.nome, login: r.corpo.usuario.login, horizonte: 'movel', hoje: r.corpo.hoje });
       st.recalcular();
       var ctx = { agora: core.agoraTexto(new Date()), semente: 'q' + (++contador) + 'x' + Math.random().toString(36).slice(2, 8) };
       var local = core.executarComContexto(ctx, function () { return st[nome].apply(st, JSON.parse(JSON.stringify(args))); });

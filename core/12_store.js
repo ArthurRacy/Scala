@@ -50,7 +50,9 @@ function estadoVazio() {
       escalaBaseAuto: false,
       sequencias: { cirurgia: 0, avaliacao: 0, boletim: 0, qualidade: 0, estrutura: 0 },
       clinica: {},
-      qualidade: configQualidadePadrao()
+      qualidade: configQualidadePadrao(),
+      // Arquivo mensal e limpeza do LOG (11b_log_arquivo.js).
+      log: lerConfigLog()
     },
     anestesistas: [],
     escalaBase: [],
@@ -81,6 +83,8 @@ function criarStore(estadoInicial, opcoes) {
 
   var estado = estadoInicial || estadoVazio();
   var usuario = opcoes.usuario || CONFIG.USUARIO_PADRAO;
+  // O login de quem está mexendo: vai em toda linha do LOG, ao lado do nome (que pode mudar).
+  var login = txt(opcoes.login);
   var ouvintes = [];
   if (typeof opcoes.aoMudar === 'function') ouvintes.push(opcoes.aoMudar);
 
@@ -365,6 +369,12 @@ function criarStore(estadoInicial, opcoes) {
     return saida;
   }
 
+  /** Põe o login de quem está mexendo na linha do LOG (se ela ainda não tiver o dela). */
+  function carimbarLogin(entrada) {
+    if (login && vazio(entrada.login)) entrada.login = login;
+    return entrada;
+  }
+
   /**
    * Executa uma mutação de forma atômica.
    *
@@ -387,7 +397,7 @@ function criarStore(estadoInicial, opcoes) {
         proximoIdCirurgia: proximoIdCirurgia,
         proximoIdAnestesista: proximoIdAnestesista,
         registrar: function (entradas) {
-          (entradas || []).forEach(function (e) { estado.log.push(e); });
+          (entradas || []).forEach(function (e) { estado.log.push(carimbarLogin(e)); });
         }
       }) || { ok: true };
     } catch (e) {
@@ -409,11 +419,11 @@ function criarStore(estadoInicial, opcoes) {
 
     // Avaliações criadas pela sincronização também entram no log.
     (sync.criadas || []).forEach(function (a) {
-      estado.log.push(logCriacao('AVALIACOES_PRE', a, {
+      estado.log.push(carimbarLogin(logCriacao('AVALIACOES_PRE', a, {
         usuario: usuario,
         idCirurgia: a.idCirurgia,
         campo: 'AVALIAÇÃO CRIADA AUTOMATICAMENTE'
-      }));
+      })));
     });
 
     var saida = {
@@ -432,7 +442,9 @@ function criarStore(estadoInicial, opcoes) {
       ficha: resultado.ficha || null,
       registro: resultado.registro || null,
       // Campos copiados de outro registro (ficha preenchida a partir do boletim).
-      preenchidos: resultado.preenchidos || []
+      preenchidos: resultado.preenchidos || [],
+      // Linhas que saíram do LOG (arquivarLogAte).
+      arquivadas: resultado.arquivadas || 0
     };
 
     ouvintes.forEach(function (f) {
@@ -847,6 +859,59 @@ function criarStore(estadoInicial, opcoes) {
         })]);
       });
       return { ok: true, avisos: avisosClinica };
+    });
+  }
+
+  /* ---------------------------------------------------------------- LOG */
+
+  /** Como o arquivo mensal e a limpeza do LOG estão configurados (a faixa e o padrão são do core/11b). */
+  function configLog() { return lerConfigLog(estado.config && estado.config.log); }
+
+  /** Quanto tempo o LOG fica na tela e quanto tempo o arquivo mensal é guardado. Só o chefe. */
+  function salvarConfigLog(mesesNaTela, anosDeGuarda) {
+    return transacao(function (st, api) {
+      var erros = [];
+      var m = inteiroNaFaixa(mesesNaTela, LOG_LIMITES.mesesNaTela);
+      var a = inteiroNaFaixa(anosDeGuarda, LOG_LIMITES.anosDeGuarda);
+      if (m === null) erros.push({ campo: 'mesesNaTela', msg: 'Meses de LOG na tela: um número inteiro de ' + LOG_LIMITES.mesesNaTela.min + ' a ' + LOG_LIMITES.mesesNaTela.max + '.' });
+      if (a === null) erros.push({ campo: 'anosDeGuarda', msg: 'Anos de guarda do arquivo: um número inteiro de ' + LOG_LIMITES.anosDeGuarda.min + ' a ' + LOG_LIMITES.anosDeGuarda.max + ' (0 = nunca apagar sozinho).' });
+      if (erros.length) return { ok: false, erros: erros };
+      var antes = lerConfigLog(st.config.log);
+      st.config.log = { mesesNaTela: m, anosDeGuarda: a };
+      var entradas = [];
+      function mudou(campo, de, para) {
+        entradas.push(novaEntradaLog({ usuario: usuario, aba: 'CONFIGURAÇÃO', idCirurgia: 'LOG', campo: campo, de: de, para: para }));
+      }
+      if (antes.mesesNaTela !== m) mudou('LOG: MESES NA TELA', antes.mesesNaTela, m);
+      if (antes.anosDeGuarda !== a) mudou('LOG: ANOS DE GUARDA DO ARQUIVO', antes.anosDeGuarda === 0 ? 'nunca apagar' : antes.anosDeGuarda, a === 0 ? 'nunca apagar' : a);
+      api.registrar(entradas);
+      return { ok: true, semRecalculo: true };
+    });
+  }
+
+  /**
+   * Tira do LOG as linhas anteriores a `corte` (ISO) e deixa uma linha "LOG ARQUIVADO" no lugar.
+   * É a ÚNICA operação que remove linha do LOG e só o servidor a aplica (rotação mensal), DEPOIS de
+   * o arquivo com essas linhas estar gravado e conferido (server/auditoria.js). `resumo` diz onde
+   * elas estão (arquivos e SHA-256). Linha sem carimbo de data válido nunca sai.
+   */
+  function arquivarLogAte(corte, resumo) {
+    return transacao(function (st, api) {
+      var c = paraData(corte);
+      if (!c || !dataValida(c)) return { ok: false, erros: [{ campo: 'corte', msg: 'Data de corte inválida: ' + corte + '.' }] };
+      var ficam = st.log.filter(function (e) {
+        var mes = mesDoLog(e.quando);
+        return !(mes && txt(e.quando).slice(0, 10) < c);
+      });
+      var saem = st.log.length - ficam.length;
+      if (!saem) return { ok: true, semRecalculo: true, arquivadas: 0 };
+      st.log.splice(0, st.log.length);
+      ficam.forEach(function (e) { st.log.push(e); });
+      api.registrar([novaEntradaLog({
+        usuario: 'Sistema', login: 'sistema', aba: 'SISTEMA', idCirurgia: '', campo: 'LOG ARQUIVADO',
+        de: saem + ' registro(s) anteriores a ' + dataBR(c), para: txt(resumo).slice(0, 400)
+      })]);
+      return { ok: true, semRecalculo: true, arquivadas: saem };
     });
   }
 
@@ -1946,6 +2011,11 @@ function criarStore(estadoInicial, opcoes) {
     estenderHorizonte: estenderHorizonte,
     get usuario() { return usuario; },
     set usuario(u) { usuario = txt(u) || CONFIG.USUARIO_PADRAO; },
+    get login() { return login; },
+    set login(v) { login = txt(v); },
+    configLog: configLog,
+    salvarConfigLog: salvarConfigLog,
+    arquivarLogAte: arquivarLogAte,
 
     aoMudar: function (fn) { if (typeof fn === 'function') ouvintes.push(fn); return store; },
 
@@ -2078,6 +2148,7 @@ var MUTACOES_STORE = ['adicionarCirurgia', 'atualizarCirurgia', 'removerCirurgia
   'criarFichaQualidade', 'salvarFichaQualidade', 'preencherFichaDoBoletim', 'alterarEventoQualidade', 'registrarSeguimentoQualidade',
   'revisarFichaQualidade', 'concluirFichaQualidade', 'reabrirFichaQualidade', 'descartarFichaQualidade',
   'salvarRegistroEstrutura', 'removerRegistroEstrutura', 'salvarConfigQualidade',
+  'salvarConfigLog', 'arquivarLogAte',
   'reparar'];
 
 /**
@@ -2090,7 +2161,7 @@ var MUTACOES_STORE = ['adicionarCirurgia', 'atualizarCirurgia', 'removerCirurgia
 var MUTACOES_SEGURAS_EM_CONCORRENCIA = ['atualizarCirurgia', 'atualizarAvaliacao', 'ajustarEscala', 'salvarConfigClinica',
   'salvarDespesasRepasse', 'salvarBoletim', 'alterarLinhaBoletim', 'reabrirBoletim',
   'salvarFichaQualidade', 'preencherFichaDoBoletim', 'registrarSeguimentoQualidade', 'revisarFichaQualidade', 'reabrirFichaQualidade',
-  'salvarConfigQualidade'];
+  'salvarConfigQualidade', 'salvarConfigLog'];
 
 /*
  * Quem pode cada operação (os três perfis) está em core/12b_permissoes.js, a única tabela:

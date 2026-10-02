@@ -4,7 +4,7 @@ Documento de passagem entre conversas. Diz o que o sistema é, como está
 montado, o que já foi feito, as regras que não podem ser quebradas e o que
 ainda falta. Atualizado em **01/10/2026**.
 
-- Estado atual: **714 testes, todos passando** (`node qa`; a suíte inteira leva cerca de 1 minuto).
+- Estado atual: **755 testes, todos passando** (`node qa`; a suíte inteira leva cerca de 1 minuto).
 - Versão online publicada: **versão 10** (com o módulo de qualidade e segurança).
 
 ---
@@ -105,6 +105,13 @@ docs/        REGRAS_DE_NEGOCIO.md, QA.md, KANBAN.md
    `redigirComandoParaPerfil`) é parte do protocolo: operação nova que mexa em dinheiro ou
    em dado de contato precisa entrar em `CAMPOS_FINANCEIROS` / `ARGUMENTO_RESTRITO`, e o
    teste de réplica (qa/25) tem de continuar igual.
+9c. **LOG:** só cresce (append-only), com **uma única exceção**: `arquivarLogAte` (store),
+   que o próprio servidor aplica depois de o arquivo mensal estar gravado e conferido
+   (SHA-256) em `server/auditoria.js`, e que deixa uma linha "LOG ARQUIVADO" no lugar.
+   Nenhuma linha sai sem estar num arquivo conferido; arquivo existente nunca é reescrito.
+   Toda linha leva o `login` (o store carimba em `api.registrar`; a tela e o servidor
+   precisam definir `store.login` para o estado ser idêntico). Operação interna: nenhum
+   perfil a manda pela rede (`GRUPO_DA_MUTACAO`: 'interna').
 10. **Downloads** passam por `UI.salvarArquivo(nome, dados)`. Na versão online,
     usa a capacidade `downloads` do Artifact.
 11. **Qualidade (regras que não se negociam):**
@@ -131,7 +138,7 @@ docs/        REGRAS_DE_NEGOCIO.md, QA.md, KANBAN.md
 | Modo | Como | Dados |
 |---|---|---|
 | **Um computador** | `Abrir sistema.bat` ou `python tools/servir.py` → http://localhost:8080/webapp/ | IndexedDB do navegador (GUARDA, `03d_guarda.js`): cópias diárias/mensais/marcos, backup numa pasta, lembrete de backup |
-| **Servidor da clínica** | `Abrir servidor da clínica.bat` ou `node server/servidor.js [--porta 8080] [--dados pasta]` | `dados_servidor/`: estado.json atômico, diario.jsonl, copias/*.json.gz, anexos/, usuarios.json (scrypt), sessoes.json, acessos.log |
+| **Servidor da clínica** | `Abrir servidor da clínica.bat` ou `node server/servidor.js [--porta 8080] [--dados pasta]` | `dados_servidor/`: estado.json atômico, diario.jsonl, copias/*.json.gz, anexos/, usuarios.json (scrypt), sessoes.json, logs/ (acessos por usuário e arquivo mensal do LOG) |
 | **Online (demonstração)** | Artifact publicado (seção 7) | No navegador de quem visita; cirurgias e boletins de EXEMPLO |
 
 Mais o **Google Apps Script** (copiar `core/` + `apps-script/` para a
@@ -277,6 +284,17 @@ Regras de concorrência e de acesso:
     `min-width: 0` (nome de arquivo comprido empurrava o modal para fora de uma
     tela de 375 px). Validado em navegador (computador, 375 px, tema claro e
     escuro, teclado) e no servidor da clínica. Testes em `qa/24_*`.
+11. **Auditoria para produção** (02/10/2026, `docs/AUDITORIA_PRODUCAO.md`): relatório
+    das fases 0 a 3 e correções. Feito: grupo do repasse por mês (F02), **três perfis**
+    (chefe, anestesista, secretária; o servidor corta o dinheiro do que o anestesista
+    recebe, F08), **fuso horário** (F01: servidor sempre em Brasília), **LOG por
+    usuário** com arquivo mensal conferido e limpeza, e a intermitência do `qa/19`.
+    Decisões do dono do produto: cada clínica terá o **seu próprio sistema** (um por
+    clínica, sem multi-clínica); repasse sempre **igual**; hospedagem escolhida:
+    **Supabase Pro por clínica** (a partir de US$ 25/mês por projeto, mais o servidor
+    Node, que o Supabase não hospeda); dado real de paciente na nuvem **bloqueado até o
+    jurídico** (LGPD, guarda de prontuário). Não migrado ainda: a persistência para o
+    Supabase (ver auditoria, "Próximos passos").
 
 ## 9. Pendências e ideias (nada bloqueando)
 
@@ -333,13 +351,13 @@ Regras de concorrência e de acesso:
     8091). Não afeta o navegador da pessoa usuária;
   - a pasta de teste do servidor ficou no scratchpad.
 - **Documentação** atualizada: README (seções de boletim, qualidade, servidor e
-  segurança), docs/QA.md (tabela por arquivo, 714 testes), docs/KANBAN.md,
+  segurança), docs/QA.md (tabela por arquivo, 755 testes), docs/KANBAN.md,
   docs/QUALIDADE.md e docs/QUALIDADE_INDICADORES.md (este é **gerado**: rode
   `node tools/gerar_docs_qualidade.js` depois de mudar o catálogo).
 
 ## 10. Primeiros passos sugeridos para o próximo chat
 
-1. Rodar `node qa` e confirmar 714 de 714.
+1. Rodar `node qa` e confirmar 755 de 755.
 2. Ler `README.md` (visão de uso) e a seção 3 deste arquivo (invariantes).
 3. Antes de mexer no store, conferir as listas `MUTACOES_*` e o contexto de
    execução.

@@ -88,7 +88,8 @@ module.exports = function (t, core, dados) {
       registrarSeguimentoQualidade: 'cas', revisarFichaQualidade: 'cas', concluirFichaQualidade: 'cas',
       reabrirFichaQualidade: 'cas', descartarFichaQualidade: 'cas',
       salvarRegistroEstrutura: 'c', removerRegistroEstrutura: 'c', salvarConfigQualidade: 'c',
-      reparar: 'c'
+      reparar: 'c', salvarConfigLog: 'c',
+      arquivarLogAte: ''   // só o próprio servidor (rotação mensal do LOG); nenhum perfil
     };
     var PERFIL_DA_LETRA = { c: 'chefe', a: 'anestesista', s: 'secretaria' };
 

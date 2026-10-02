@@ -62,11 +62,12 @@ module.exports = function (t, core, dados) {
       contem(rot, 'CHAVE DATA+ANESTESISTA');
     });
 
-    it('LOG tem as 7 colunas do audit trail', function () {
-      igualProfundo(core.schemaCabecalho('LOG'), [
+    it('LOG tem as 7 colunas do audit trail da planilha, mais o LOGIN (coluna extra do sistema)', function () {
+      igualProfundo(core.schemaCabecalhoPlanilha('LOG'), [
         'DATA/HORA', 'USUÁRIO', 'ABA', 'ID_CIRURGIA',
         'CAMPO ALTERADO', 'VALOR ANTERIOR', 'NOVO VALOR'
       ]);
+      igualProfundo(core.schemaCabecalho('LOG').slice(7), ['LOGIN']);
     });
 
     it('todo campo calculado está marcado como AUTO (não digitável)', function () {

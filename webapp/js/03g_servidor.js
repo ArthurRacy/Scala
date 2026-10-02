@@ -48,7 +48,7 @@ var SERVIDOR = (function () {
     atualizarParticipantesRepasse: 'grupo do repasse',
     criarBoletim: 'criar boletim', salvarBoletim: 'campo do boletim', alterarLinhaBoletim: 'registro do boletim',
     finalizarBoletim: 'assinatura do boletim', reabrirBoletim: 'reabertura do boletim', descartarBoletim: 'descartar boletim',
-    reparar: 'reparo dos dados'
+    reparar: 'reparo dos dados', salvarConfigLog: 'ajuste do LOG', arquivarLogAte: 'arquivo do LOG'
   };
 
   /* =============================================================== rede */
@@ -125,6 +125,7 @@ var SERVIDOR = (function () {
   function envolver(store) {
     originais = {};
     store.usuario = usuario.nome;
+    store.login = usuario.login;
     MUTACOES_STORE.forEach(function (nome) {
       var original = store[nome];
       originais[nome] = original;
@@ -146,6 +147,7 @@ var SERVIDOR = (function () {
         var copia = JSON.parse(JSON.stringify(args));
         var ctx = { agora: agoraDoServidor(), semente: semente() };
         store.usuario = usuario.nome;
+        store.login = usuario.login;
         var r = executarComContexto(ctx, function () { return original.apply(store, args); });
         if (nome === 'reparar' || (r && r.ok)) {
           fila.push({ nome: nome, args: copia, contexto: ctx, hoje: hoje });
@@ -268,11 +270,13 @@ var SERVIDOR = (function () {
         }
         if (!originais[c.nome]) { recarregar(); return; }
         st.usuario = c.usuario;
+        st.login = c.login || '';
         var res = null;
         try {
           res = executarComContexto(c.contexto, function () { return originais[c.nome].apply(st, c.args); });
         } catch (e) { res = null; }
         st.usuario = usuario.nome;
+        st.login = usuario.login;
         if (!(c.nome === 'reparar' || (res && res.ok))) { recarregar(); return; }
         confirmada = c.revisao;
         quem[c.usuario] = true;
@@ -553,6 +557,21 @@ var SERVIDOR = (function () {
     },
     apagarTudo: function () {
       return pedir('POST', '/api/apagar-tudo', { confirmacao: 'APAGAR' }).then(function (r) { return exigirOk(r, 'Não foi apagado.'); });
+    },
+    // Auditoria por usuário e arquivo mensal do LOG (só o chefe; ver server/auditoria.js).
+    acessos: function (filtro) {
+      var q = Object.keys(filtro || {}).filter(function (k) { return filtro[k]; })
+        .map(function (k) { return k + '=' + encodeURIComponent(filtro[k]); }).join('&');
+      return pedir('GET', '/api/auditoria/acessos' + (q ? '?' + q : '')).then(function (r) { return exigirOk(r, 'Sem acesso.'); });
+    },
+    arquivosDeLog: function () { return pedir('GET', '/api/auditoria/arquivos').then(function (r) { return exigirOk(r, 'Sem acesso.'); }); },
+    rotacionarLogs: function () { return pedir('POST', '/api/auditoria/rotacionar', {}).then(function (r) { return exigirOk(r, 'Rotação não feita.'); }); },
+    conferirArquivosDeLog: function () { return pedir('POST', '/api/auditoria/conferir', {}).then(function (r) { return exigirOk(r, 'Conferência não feita.'); }); },
+    baixarArquivoDeLog: function (id, formato) {
+      return pedir('GET', '/api/auditoria/arquivos/' + encodeURIComponent(id) + (formato === 'jsonl' ? '?formato=jsonl' : '')).then(function (r) {
+        if (!r.ok) exigirOk(r, 'Arquivo não encontrado.');
+        return r.corpo instanceof Blob ? r.corpo : new Blob([JSON.stringify(r.corpo)], { type: 'application/json' });
+      });
     }
   };
 

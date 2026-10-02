@@ -1,10 +1,12 @@
 # Auditoria para produção (com Supabase) — fases 0 a 3
 
-Data: 02/10/2026. Estado verificado: `main`, commit `0f14429`, **667 testes passando**
-(rodados também com o relógio do computador em UTC e na Nova Zelândia: continuam 667).
+Data: 02/10/2026. A auditoria (fases 0 a 3) foi feita sobre o commit `0f14429`, com **667 testes
+passando** (rodados também com o relógio do computador em UTC e na Nova Zelândia). Depois dela,
+na mesma data, o projeto recebeu as correções listadas em "Atualização" logo abaixo e passou a ter
+**755 testes, todos passando**.
 
-**Nada do projeto foi alterado** nesta rodada. Só leitura, mais scripts de teste que
-ficaram fora do repositório. Este arquivo é o único acréscimo.
+> **Leia primeiro a seção "Atualização de 02/10/2026".** O resto do documento é o relatório
+> original; onde ele diz "CONFIRMADO" de um defeito que já foi corrigido, está marcado.
 
 ## Como ler as marcas
 
@@ -13,6 +15,93 @@ ficaram fora do repositório. Este arquivo é o único acréscimo.
 | **CONFIRMADO (rodei)** | Eu executei e vi o resultado. Está descrito como repetir. |
 | **CONFIRMADO NO CÓDIGO** | Li o trecho e o comportamento é inequívoco, mas não executei. |
 | **HIPÓTESE** | Suspeita razoável, sem prova. Diz o que falta para provar. |
+
+---
+
+## Atualização de 02/10/2026 (fim do dia)
+
+### O que mudou desde o relatório
+
+| Achado | Situação | Commit |
+|---|---|---|
+| **F01** fuso/UTC recusa toda gravação | **CORRIGIDO**: o servidor trabalha sempre em Brasília e a tela manda a hora de Brasília. Teste com servidor de verdade em `TZ=UTC` | `c534b0f` |
+| **F02** repasse muda ao desativar alguém | **CORRIGIDO**: o grupo do mês fica guardado | `8fc5e70` |
+| **F08** equipe lê todo o financeiro e edita valor/pago | **CORRIGIDO**: três perfis; o servidor corta o dinheiro do que o anestesista recebe e recusa a operação fora do perfil | `2b5ea16` |
+| **F05** assinatura do boletim | **PARCIAL**: a secretária não cria, edita, assina nem reabre boletim. **Continua aberto**: anestesista e chefe ainda digitam o nome e o CRM de quem assina; falta ligar cada login a um anestesista | `2b5ea16` |
+| **F15** PDFs sem registro | **PARCIAL**: anexar, abrir e remover exame agora ficam no registro de acessos, por usuário. Continua: sem limite de quantidade por usuário | log por usuário |
+| LOG por usuário (pedido novo) | **FEITO**: login em toda linha, acessos por usuário, arquivo mensal conferido (SHA-256) e limpeza automática | log por usuário |
+| Intermitência do `qa/19` ("fetch failed") | **CORRIGIDA** na raiz (conexões fechadas a cada pedido nos testes) | `c534b0f` |
+
+Em aberto e **sem decisão minha**: F03 (risco aceito por você), F05 (parte que falta), F09 (LGPD, jurídico),
+F11, F12.
+
+### O que você decidiu hoje
+
+| Tema | Decisão | Consequência |
+|---|---|---|
+| Quantas clínicas | **Cada clínica terá o seu próprio sistema** (um por clínica; nada de várias clínicas no mesmo sistema) | A recomendação que eu dei antes (banco relacional multi-clínica, opção B) **perdeu a razão de ser**. O isolamento entre clínicas passa a ser **físico** (um projeto e um servidor por clínica). |
+| Repasse | Sempre **igual** | Confirma a regra atual; o grupo por mês (F02) continua válido. |
+| Perfis | Anestesista chefe, Anestesista, Secretária (matriz ao lado) | Feito, com testes. |
+| Log | Por usuário, com arquivo mensal automático e que se limpa | Feito. Valores que **você aprovou**: 6 meses na tela, arquivo guardado 5 anos, ajustáveis pelo chefe. |
+| Hospedagem | **Supabase Pro por clínica** | Ver custos abaixo: **passa dos US$ 20 por mês**. |
+| Dado real de paciente na nuvem | "Sim, mas ainda não definido" | **Bloqueado** até o jurídico decidir (F09). |
+
+### Os US$ 20 por mês dão certo?
+
+Preços conferidos hoje nas páginas oficiais. **Não dão** com o caminho escolhido (Supabase Pro por clínica):
+
+| Item | Preço | Fonte |
+|---|---|---|
+| Supabase **Free** | US$ 0, 500 MB de banco, 1 GB de arquivos, **sem backup**, projeto **pausa após 1 semana sem uso** | [supabase.com/pricing](https://supabase.com/pricing) |
+| Supabase **Pro** | **a partir de US$ 25/mês** (inclui US$ 10 de computação, que cobrem 1 projeto "Micro"; 8 GB de banco, 100 GB de arquivos, backup de 7 dias; recuperar a qualquer ponto custa +US$ 100/mês). **Projeto extra: de US$ 10/mês** (computação Micro) | [supabase.com/pricing](https://supabase.com/pricing) |
+| Servidor do sistema (o Supabase **não hospeda** o servidor Node) | AWS Lightsail em São Paulo: **US$ 5** (0,5 GB), **US$ 7** (1 GB), **US$ 12** (2 GB). Provedores brasileiros: cerca de R$ 24 a R$ 60 por mês | [aws.amazon.com/lightsail/pricing](https://aws.amazon.com/lightsail/pricing/) |
+| Cópia externa dos arquivos | Backblaze B2: US$ 6,95 por TB/mês (10 GB grátis). Cloudflare R2: US$ 0,015 por GB/mês (10 GB grátis, sem taxa de saída) | [backblaze.com](https://www.backblaze.com/cloud-storage/pricing), [cloudflare r2](https://developers.cloudflare.com/r2/pricing/) |
+
+Conta por clínica, **estimativa** (preços de hoje; câmbio e impostos fora): **US$ 25 (Supabase Pro) + US$ 7 a 12
+(servidor) ≈ US$ 32 a 37 por mês**. Se todos os projetos ficarem numa só organização Supabase paga por você, a
+partir da 2ª clínica o Supabase custa cerca de **US$ 10 a mais por clínica** em vez de US$ 25 (**HIPÓTESE** a conferir na
+conta; a regra da organização é do Supabase). Supabase Free serve só para **testes**, nunca para produção (pausa e não faz
+backup). A região **São Paulo (sa-east-1)** existe, o que ajuda na LGPD.
+
+Para caber em US$ 20, o caminho seria o servidor no Brasil com cópia externa (cerca de US$ 8 a 13), sem Supabase.
+Você escolheu Supabase sabendo disso; registro aqui para ninguém ser surpreendido pela fatura.
+
+### Matriz de acesso (como implementada)
+
+| | Anestesista chefe | Anestesista | Secretária |
+|---|---|---|---|
+| Escala, quadro do dia, cirurgias, avaliações pré, ficha de qualidade | tudo | tudo, **sem dinheiro** | tudo |
+| Boletim anestésico | cria, edita, assina, reabre | cria, edita, assina | **só vê e imprime** |
+| Horas, financeiro, repasse, indicadores | tudo | — | tudo |
+| Cadastro de anestesistas (com PIX), escala-base, clínica e termo | tudo | — | tudo |
+| Painel de qualidade | tudo (com a comparação entre profissionais) | vê, sem a comparação | — |
+| Estrutura, configuração clínica da qualidade | tudo | — | — |
+| Usuários, Auditoria, Integridade, Dados e backup | tudo | — | — |
+
+**Confirme (decisões minhas que você pode querer mudar; cada uma é uma linha na tabela do `core/12b_permissoes.js`):**
+(1) o anestesista **não vê Horas nem Indicadores** (eu li "painel de operação" como só as telas de Operação mais o painel de
+qualidade); (2) a secretária **faz tudo da ficha de qualidade**, inclusive a "revisão clínica", porque você não a fechou;
+(3) a secretária edita o **cadastro e a escala-base** porque você não fechou; (4) "equipe", do sistema antigo, virou
+**anestesista** (o perfil que menos vê).
+
+### Próximos passos para o Supabase (nada disto foi feito; precisa da sua aprovação do desenho)
+
+O motor atual guarda tudo em memória e em arquivos do disco. Com Supabase Pro por clínica, o desenho mais seguro é
+**manter o servidor Node e as regras (os 755 testes continuam valendo)** e trocar só **onde os dados ficam**:
+
+1. **Armazenamento no Supabase**, sem biblioteca nova: o servidor fala com o Supabase por HTTPS (`fetch`, que já vem no Node).
+   Tabelas para estado, diário de comandos, usuários, sessões, metadados de PDF e logs; PDFs e cópias no Storage (buckets
+   **privados**). Todas as tabelas com **RLS ligado e nenhuma política**: ninguém de fora lê nada; só o servidor, com a chave
+   `service_role`, que fica **só no servidor** (variável de ambiente), nunca no navegador nem no repositório.
+2. **Servidor** numa VPS em São Paulo, com HTTPS automático (Caddy), serviço que reinicia sozinho, `FUSO_DO_SERVIDOR`, e
+   confiança no proxy para o bloqueio de senha por IP e o cookie `Secure` (F06, F17).
+3. **Backups**: o do Supabase (7 dias) **mais** cópia externa dos PDFs (o backup do banco não inclui os arquivos do Storage, pelo
+   que conheço da documentação: **conferir**), e os arquivos mensais do LOG enviados para fora (F04, F07).
+4. **Um roteiro de implantação por clínica** (criar projeto, tabelas, bucket, servidor, primeiro chefe) e um RUNBOOK em português.
+5. **Monitoramento** (alerta se o servidor cair) e **revisão de segurança por engenheiro humano** antes do primeiro dado real.
+
+Estimativa minha, **HIPÓTESE**: 2 a 4 semanas de trabalho para os itens 1 a 4. Precisa de um **projeto Supabase de teste**
+(o plano Free serve) para eu validar de verdade; **as chaves nunca vão para o chat nem para o repositório**.
 
 ---
 
@@ -70,7 +159,7 @@ aparece e o impacto.
 ### Críticos
 
 **F01 — Hospedar o servidor na nuvem (relógio em UTC) faz toda gravação da clínica ser recusada.**
-*CONFIRMADO (rodei).*
+***CORRIGIDO em 02/10/2026 (commit `c534b0f`)*** *— estava CONFIRMADO (rodei).* O texto abaixo descreve o defeito original.
 - **O que é:** o computador da clínica manda a hora como texto local ("14:15:23") e o servidor
   confere se está dentro de 5 minutos da sua própria hora, lendo o texto no **fuso do servidor**.
   Servidor em UTC (o padrão de qualquer nuvem) enxerga 3 horas de diferença.
@@ -158,7 +247,7 @@ ser guardado; 8 testes novos (7 falhavam antes); conferido no navegador. O texto
 - **Correção:** PDFs sempre copiados como arquivos (e no Supabase Storage), nunca embutidos.
 
 **F08 — Qualquer usuário da equipe lê o financeiro inteiro e edita valor e "pago" de qualquer cirurgia.**
-*CONFIRMADO NO CÓDIGO (`servidor.js` linha 422 devolve o estado completo a qualquer sessão;
+***CORRIGIDO em 02/10/2026 (commit `2b5ea16`)*** *— estava* *CONFIRMADO NO CÓDIGO (`servidor.js` linha 422 devolve o estado completo a qualquer sessão;
 `atualizarCirurgia` não está em `MUTACOES_SO_ADMIN`).*
 - A tela esconde partes, mas **os dados chegam ao navegador**: chave PIX de todos, repasses,
   valores. Dá para ver pelo "inspecionar" do navegador.
@@ -313,20 +402,20 @@ boletins nem repasse. *CONFIRMADO (documentado pelo projeto).* Decidir se aposen
 
 | # | Problema | Gravidade | Esforço | Status | Prazo | Precisa de decisão sua? |
 |---|---|---|---|---|---|---|
-| F01 | Fuso/UTC recusa todas as gravações na nuvem | **Crítico** (se for à nuvem) | Pequeno | CONFIRMADO (rodei) | Antes do lançamento | Não |
+| F01 | Fuso/UTC recusa todas as gravações na nuvem | ~~Crítico~~ | Pequeno | **CORRIGIDO** (`c534b0f`) | Feito | Não |
 | F02 | Repasse passado muda ao desativar anestesista; repasse pago some | ~~Crítico~~ | Médio | **CORRIGIDO** (`8fc5e70`) | Feito | Decidido |
 | F03 | Sem fechamento de mês (edição tardia muda o repasse) | Alto (era Crítico) | Médio | CONFIRMADO (rodei) | **Risco aceito por você**; reabrir quando quiser | Decidido: não travar por enquanto |
 | F04 | Cópias no mesmo disco / PDFs fora do backup do banco | **Crítico** | Médio | CONFIRMADO NO CÓDIGO | Antes do lançamento | Parcial (onde guardar) |
-| F05 | Assinatura do boletim não ligada ao login | Alto | Médio | CONFIRMADO NO CÓDIGO | Antes do lançamento | **Sim** |
+| F05 | Assinatura do boletim não ligada ao login | Alto | Médio | **PARCIAL** (secretária não assina; falta ligar login ao anestesista) | Antes do lançamento | **Sim** |
 | F06 | Sem HTTPS por padrão | Alto | Pequeno | CONFIRMADO NO CÓDIGO | Antes do lançamento | Não |
 | F07 | Backup com PDFs não restaura acima de 200 MB | Alto | Médio | CONFIRMADO NO CÓDIGO | Antes do lançamento | Não |
-| F08 | Equipe lê todo o financeiro e edita valor/pago | Alto | Médio | CONFIRMADO NO CÓDIGO | Antes do lançamento | **Sim** (quem vê o quê) |
+| F08 | Equipe lê todo o financeiro e edita valor/pago | ~~Alto~~ | Médio | **CORRIGIDO** (`2b5ea16`) | Feito | Decidido |
 | F09 | LGPD: retenção, exclusão, documentos, termo | Alto | Médio (fora do código) | CONFIRMADO NO CÓDIGO + HIPÓTESE jurídica | Antes do lançamento | **Sim** (advogado) |
 | F11 | Dinheiro: teto, 2 casas, centavos inteiros | Médio | Médio | CONFIRMADO (rodei) | 30 dias (antes, se o valor real for alto) | Sim (o que recusar) |
 | F12 | Déficit de despesas some | Médio | Pequeno | CONFIRMADO (rodei) | 30 dias | **Sim** |
 | F13 | Conflito de horário na virada do dia | Médio | Pequeno | CONFIRMADO (rodei) | 30 dias | Não |
 | F14 | Trava de instância única | Médio | Pequeno | CONFIRMADO NO CÓDIGO | Antes do lançamento (se for à nuvem) | Não |
-| F15 | PDFs: apagar sem registro, sem limite | Médio | Pequeno | CONFIRMADO NO CÓDIGO | 30 dias | Não |
+| F15 | PDFs: apagar sem registro, sem limite | Médio | Pequeno | **PARCIAL** (anexar, abrir e remover agora ficam registrados por usuário; falta o limite) | 30 dias | Não |
 | F16 | Monitoramento, CI, serviço do Windows | Médio-alto | Médio | CONFIRMADO | Antes do lançamento (mínimo: alerta + CI) | Não |
 | F10 | Estado inteiro por tela, escala no tempo | Médio | Grande | CONFIRMADO (medi) / HIPÓTESE (extrapolação) | Depois (medir aos 6 meses) | Depende do volume |
 | F17 | Trava por IP atrás de proxy | Médio | Pequeno | HIPÓTESE | Antes do lançamento (se houver proxy) | Não |

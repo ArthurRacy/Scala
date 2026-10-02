@@ -62,7 +62,7 @@ var APP = (function () {
     anestesistas: 'Cadastro mestre da equipe',
     clinica: 'Identificação da clínica e texto do termo de consentimento',
     integridade: 'Verificação de consistência dos dados',
-    log: 'Trilha de auditoria das alterações críticas',
+    log: 'LOG por usuário: alterações, acessos e o arquivo mensal conferido',
     usuarios: 'Quem entra no sistema da clínica, com que papel'
   };
 
@@ -105,7 +105,7 @@ var APP = (function () {
       estrutura:   { texto: '', todosOsMeses: false },
       financeiro:  { texto: '', situacao: '', tipo: '', todosOsMeses: false },
       repasse:     { base: 'caixa' },
-      log:         { texto: '', aba: '' }
+      log:         { texto: '', aba: '', visao: 'alteracoes', usuario: '', de: '', ate: '', evento: '' }
     }
   };
 

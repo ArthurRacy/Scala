@@ -113,7 +113,10 @@ var GRUPO_DA_MUTACAO = {
 
   salvarRegistroEstrutura: 'coordenacao', removerRegistroEstrutura: 'coordenacao', salvarConfigQualidade: 'coordenacao',
 
-  reparar: 'sistema'
+  reparar: 'sistema', salvarConfigLog: 'sistema',
+
+  // Só o próprio servidor aplica (rotação mensal do LOG): nenhum perfil manda isto pela rede.
+  arquivarLogAte: 'interna'
 };
 
 var PERFIS_DO_GRUPO = {
