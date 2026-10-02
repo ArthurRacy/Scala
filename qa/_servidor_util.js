@@ -39,7 +39,8 @@ module.exports = function (core) {
   function cliente(base) {
     var cookie = '';
     function pedir(metodo, caminho, corpo, extra) {
-      var h = Object.assign({ 'X-Anestesia': '1' }, extra || {});
+      // Connection: close — cada pedido abre a sua conexão. Sem isto, uma conexão parada que o servidor fecha no mesmo instante em que o cliente a reaproveita (o que acontece quando um teste pesado trava o processo por segundos) vira "fetch failed" à toa.
+      var h = Object.assign({ 'X-Anestesia': '1', Connection: 'close' }, extra || {});
       if (cookie) h.Cookie = cookie;
       var body;
       if (corpo !== undefined) {
@@ -109,7 +110,7 @@ module.exports = function (core) {
     var eventos = [];
     // O tempo é só a rede de segurança; o normal é parar assim que o evento esperado chega.
     var temporizador = setTimeout(function () { controle.abort(); }, ms || 30000);
-    return fetch(base + '/api/eventos', { headers: { Cookie: cookie }, signal: controle.signal }).then(function (r) {
+    return fetch(base + '/api/eventos', { headers: { Cookie: cookie, Connection: 'close' }, signal: controle.signal }).then(function (r) {
       var leitor = r.body.getReader(), texto = '';
       function ler() {
         return leitor.read().then(function (p) {

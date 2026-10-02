@@ -47,7 +47,8 @@ module.exports = function (t, core, dados) {
   function cliente(base) {
     var cookie = '';
     function pedir(metodo, caminho, corpo, extra) {
-      var h = Object.assign({ 'X-Anestesia': '1' }, extra || {});
+      // Connection: close: cada pedido abre a sua conexão (ver qa/_servidor_util.js).
+      var h = Object.assign({ 'X-Anestesia': '1', Connection: 'close' }, extra || {});
       if (cookie) h.Cookie = cookie;
       var body;
       if (corpo !== undefined) {
@@ -67,7 +68,7 @@ module.exports = function (t, core, dados) {
       post: function (c, corpo, h) { return pedir('POST', c, corpo, h); },
       del: function (c, h) { return pedir('DELETE', c, undefined, h); },
       semCabecalho: function (c, corpo) {
-        return fetch(base + c, { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie }, body: JSON.stringify(corpo) })
+        return fetch(base + c, { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie, Connection: 'close' }, body: JSON.stringify(corpo) })
           .then(function (r) { return r.status; });
       }
     };
@@ -427,11 +428,11 @@ module.exports = function (t, core, dados) {
           var cookie;
           return cli.get('/api/eu').then(function () {
             // O cliente guarda o cookie internamente: pega-o de novo pelo login.
-            return fetch(base + '/api/entrar', { method: 'POST', headers: { 'X-Anestesia': '1', 'Content-Type': 'application/json' },
+            return fetch(base + '/api/entrar', { method: 'POST', headers: { 'X-Anestesia': '1', 'Content-Type': 'application/json', Connection: 'close' },
               body: JSON.stringify({ login: 'admin', senha: 'senha-forte-1' }) });
           }).then(function (r) {
             cookie = r.headers.get('set-cookie').split(';')[0];
-            return fetch(base + '/api/eventos', { headers: { Cookie: cookie }, signal: controle.signal });
+            return fetch(base + '/api/eventos', { headers: { Cookie: cookie, Connection: 'close' }, signal: controle.signal });
           }).then(function (r) {
             var leitor = r.body.getReader(), texto = '';
             function ler() {

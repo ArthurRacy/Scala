@@ -4,7 +4,7 @@ Documento de passagem entre conversas. Diz o que o sistema é, como está
 montado, o que já foi feito, as regras que não podem ser quebradas e o que
 ainda falta. Atualizado em **01/10/2026**.
 
-- Estado atual: **711 testes, todos passando** (`node qa`; a suíte inteira leva cerca de 1 minuto).
+- Estado atual: **714 testes, todos passando** (`node qa`; a suíte inteira leva cerca de 1 minuto).
 - Versão online publicada: **versão 10** (com o módulo de qualidade e segurança).
 
 ---
@@ -90,6 +90,9 @@ docs/        REGRAS_DE_NEGOCIO.md, QA.md, KANBAN.md
    - `agoraTexto()` e `novoUid()` respeitam o `CONTEXTO_EXECUCAO` de
      `executarComContexto(ctx, fn)`, em `core/02_util.js`.
    - O "hoje" do store vem por opção (`hoje`).
+   - **Fuso:** o servidor trabalha sempre em Brasília (`process.env.TZ` no `server/servidor.js`)
+     e a tela manda `agora` em Brasília (`agoraTextoBrasilia`); nunca ler a hora de um comando
+     no fuso de quem a lê.
    - Não introduzir `Date.now()` nem `Math.random()` novos dentro de operações
      do store sem passar pelo contexto.
 9. **Toda operação nova do store que muda dados** tem de entrar em
@@ -286,8 +289,9 @@ Regras de concorrência e de acesso:
   servidor (`receberAnexo`), no backup e na abertura em outra aba. Fechar o
   formulário de cirurgia sem lançar descarta os PDFs que ainda esperavam na fila,
   como já descarta os campos.
-- **`qa/19_servidor.test.js`** continua falhando de vez em quando com
-  "fetch failed" (já registrado em `docs/QA.md`): nada a ver com as regras.
+- **Testes de servidor**: a intermitência antiga do `qa/19` ("fetch failed") foi
+  corrigida (`Connection: close` nos auxiliares, `docs/QA.md`). Os testes que sobem
+  servidor devem usar `qa/_servidor_util.js`.
 
 - **Qualidade — decisões da instituição, não do sistema** (detalhe em
   `docs/QUALIDADE.md`, seção *Decisões em aberto*):
@@ -329,13 +333,13 @@ Regras de concorrência e de acesso:
     8091). Não afeta o navegador da pessoa usuária;
   - a pasta de teste do servidor ficou no scratchpad.
 - **Documentação** atualizada: README (seções de boletim, qualidade, servidor e
-  segurança), docs/QA.md (tabela por arquivo, 711 testes), docs/KANBAN.md,
+  segurança), docs/QA.md (tabela por arquivo, 714 testes), docs/KANBAN.md,
   docs/QUALIDADE.md e docs/QUALIDADE_INDICADORES.md (este é **gerado**: rode
   `node tools/gerar_docs_qualidade.js` depois de mudar o catálogo).
 
 ## 10. Primeiros passos sugeridos para o próximo chat
 
-1. Rodar `node qa` e confirmar 711 de 711.
+1. Rodar `node qa` e confirmar 714 de 714.
 2. Ler `README.md` (visão de uso) e a seção 3 deste arquivo (invariantes).
 3. Antes de mexer no store, conferir as listas `MUTACOES_*` e o contexto de
    execução.

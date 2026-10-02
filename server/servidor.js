@@ -35,6 +35,12 @@
  */
 'use strict';
 
+// A clínica trabalha em Brasília. Uma nuvem nasce em UTC: sem isto o servidor leria a hora que a tela
+// manda 3 horas fora do lugar (e recusaria toda gravação) e viraria o dia às 21h. Só no servidor de
+// verdade (os testes, que o carregam dentro do próprio processo, não mexem no fuso de ninguém).
+// FUSO_DO_SERVIDOR existe para quem precisar de outro fuso (clínica fora do horário de Brasília).
+if (require.main === module) process.env.TZ = process.env.FUSO_DO_SERVIDOR || 'America/Sao_Paulo';
+
 var http = require('http');
 var https = require('https');
 var fs = require('fs');
@@ -636,6 +642,7 @@ function criarServidor(opcoes) {
         var esquema = usaHttps ? 'https' : 'http';
         var codigo = contas.codigoPrimeiroAcesso();
         registrar('Sistema de anestesia no ar — revisão ' + revisao + ', dados em ' + pastaDados);
+        registrar('  Fuso do servidor: ' + (process.env.TZ || Intl.DateTimeFormat().resolvedOptions().timeZone) + ' — hoje é ' + hojeAtual);
         registrar('  Neste computador:  ' + esquema + '://localhost:' + porta + '/');
         if ((opcoes.host || '0.0.0.0') === '0.0.0.0') {
           enderecosDaRede().forEach(function (ip) { registrar('  Na rede da clínica: ' + esquema + '://' + ip + ':' + porta + '/'); });

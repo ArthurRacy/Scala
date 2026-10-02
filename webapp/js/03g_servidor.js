@@ -67,7 +67,8 @@ var SERVIDOR = (function () {
   }
 
   function semente() { return (Date.now().toString(36) + Math.random().toString(36).slice(2, 10)).slice(0, 20); }
-  function agoraDoServidor() { return agoraTexto(new Date(Date.now() + desvio)); }
+  // Hora de BRASÍLIA (não a do fuso deste computador): é assim que o servidor a lê.
+  function agoraDoServidor() { return agoraTextoBrasilia(new Date(Date.now() + desvio)); }
 
   /* ============================================================ partida */
 

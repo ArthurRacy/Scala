@@ -236,6 +236,11 @@ computadores entram. Deixe a janela aberta; Ctrl+C grava tudo e desliga.
 Na primeira vez, o Windows pergunta sobre o firewall: permita só em
 **redes privadas**.
 
+- **Fuso horário**: o servidor trabalha sempre no **horário de Brasília**
+  (`America/Sao_Paulo`), mesmo que o computador ou a nuvem esteja em UTC, e a
+  tela manda a hora de Brasília em cada comando, qualquer que seja o fuso do
+  computador dela. A janela do servidor mostra o fuso e o dia em uso. Para outro
+  fuso, defina `FUSO_DO_SERVIDOR` (ex.: `America/Manaus`) antes de ligar.
 - **Primeiro acesso**: sem nenhum usuário, a janela mostra um código de uso
   único (também em `dados_servidor/PRIMEIRO_ACESSO.txt`). Com ele, a tela de
   entrada cria o administrador.
@@ -372,7 +377,7 @@ apps-script/          Camada Google Sheets
   92_gatilhos.gs        Menu, onEdit (criação automática), ações manuais
   appsscript.json
 
-qa/                   711 testes, sem dependência externa
+qa/                   714 testes, sem dependência externa
   index.js              Executor  —  node qa  |  node qa 05
   _runner.js            Arnês de testes
   _mock_sheets.js       Google Sheets de mentira, para testar a ponte

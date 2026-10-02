@@ -462,6 +462,29 @@ function executarComContexto(ctx, fn) {
   }
 }
 
+/** Fuso em que a clínica trabalha e em que o servidor conta o dia (Brasília, sem horário de verão desde 2019). */
+var FUSO_DA_CLINICA = 'America/Sao_Paulo';
+
+/**
+ * 'YYYY-MM-DD HH:MM:SS' no relógio de Brasília, não importa o fuso do computador. É a hora que a tela manda
+ * ao servidor em cada comando: o servidor trabalha sempre em Brasília (server/servidor.js), e um
+ * computador com o relógio noutro fuso (viagem, nuvem em UTC) não pode fazer toda gravação ser recusada.
+ */
+function agoraTextoBrasilia(d) {
+  d = d || new Date();
+  var partes = {};
+  new Intl.DateTimeFormat('en-CA', {
+    timeZone: FUSO_DA_CLINICA, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit'
+  }).formatToParts(d).forEach(function (p) { partes[p.type] = p.value; });
+  return partes.year + '-' + partes.month + '-' + partes.day + ' ' + partes.hour + ':' + partes.minute + ':' + partes.second;
+}
+
+/** O dia ('YYYY-MM-DD') em Brasília para um instante. */
+function hojeBrasilia(d) {
+  return agoraTextoBrasilia(d).slice(0, 10);
+}
+
 /** Timestamp 'YYYY-MM-DD HH:MM:SS' para a aba LOG (o do contexto, se houver). */
 function agoraTexto(d) {
   if (!d && CONTEXTO_EXECUCAO.agora) return CONTEXTO_EXECUCAO.agora;
@@ -645,6 +668,7 @@ if (typeof module !== 'undefined' && module.exports) {
     cnpjValido: cnpjValido, cpfValido: cpfValido, chavePixValida: chavePixValida, crmValido: crmValido,
     chaveDataPosicao: chaveDataPosicao, chaveDataAnestesista: chaveDataAnestesista,
     chaveCompetencia: chaveCompetencia,
-    proximoId: proximoId, agoraTexto: agoraTexto
+    proximoId: proximoId, agoraTexto: agoraTexto,
+    FUSO_DA_CLINICA: FUSO_DA_CLINICA, agoraTextoBrasilia: agoraTextoBrasilia, hojeBrasilia: hojeBrasilia
   };
 }
