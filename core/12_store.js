@@ -852,14 +852,49 @@ function criarStore(estadoInicial, opcoes) {
 
   /* ------------------------------------------------------------ repasse */
 
-  function registroDoMes(st, chave) {
+  /**
+   * Registro do mês; se ainda não existe, cria e GUARDA o grupo que divide aquele mês
+   * (os ativos de agora), com uma linha no LOG. É o que impede o repasse de meses
+   * passados de mudar quando alguém é desativado depois (core/09b_repasse.js).
+   */
+  function registroDoMes(st, chave, api) {
     var reg = st.repasses.filter(function (r) { return r.mes === chave; })[0];
-    if (!reg) { reg = { mes: chave, despesas: null, obs: '', pagamentos: [] }; st.repasses.push(reg); }
+    if (!reg) {
+      reg = { mes: chave, despesas: null, obs: '', pagamentos: [], participantes: participantesAtivosDoRepasse(st.anestesistas) };
+      st.repasses.push(reg);
+      if (api) api.registrar([entradaLogRepasse(chave, 'GRUPO DO REPASSE', '', textoDoGrupo(reg.participantes))]);
+    }
     return reg;
+  }
+
+  function textoDoGrupo(grupo) {
+    return grupo.length + ' participante(s): ' + grupo.map(function (g) { return g.nome; }).join(', ');
   }
 
   function entradaLogRepasse(chave, campo, de, para, id) {
     return novaEntradaLog({ usuario: usuario, aba: 'REPASSE ' + chave, idCirurgia: id || chave, campo: campo, de: de, para: para });
+  }
+
+  /**
+   * Refaz o grupo do mês pelo cadastro de hoje (quem entrou ou foi reativado depois da
+   * primeira gravação). Só enquanto NINGUÉM recebeu: com repasse registrado, mudar o
+   * grupo mudaria a cota de quem já foi pago.
+   */
+  function atualizarParticipantesRepasse(ano, mes) {
+    return transacao(function (st, api) {
+      var info = infoMes(ano, mes);
+      if (!info) return { ok: false, erros: [{ campo: 'mes', msg: 'Mês inválido.' }] };
+      var reg = st.repasses.filter(function (r) { return r.mes === info.chave; })[0];
+      if (!reg) return { ok: false, erros: [{ campo: 'mes', msg: 'Este mês ainda não tem grupo guardado: ele é guardado ao salvar despesas ou registrar o primeiro repasse.' }] };
+      if (reg.pagamentos.length) {
+        return { ok: false, erros: [{ campo: 'pagamentos', msg: 'Já há repasse registrado neste mês: o grupo não pode mudar sem mexer na cota de quem já recebeu. Desfaça os registros primeiro, se for o caso.' }] };
+      }
+      var antes = Array.isArray(reg.participantes) ? textoDoGrupo(reg.participantes) : '(grupo ativo do dia)';
+      reg.participantes = participantesAtivosDoRepasse(st.anestesistas);
+      var depois = textoDoGrupo(reg.participantes);
+      if (antes !== depois) api.registrar([entradaLogRepasse(info.chave, 'GRUPO DO REPASSE', antes, depois)]);
+      return { ok: true };
+    });
   }
 
   /** Despesas do mês (descontadas antes da divisão) e observação. */
@@ -870,7 +905,7 @@ function criarStore(estadoInicial, opcoes) {
       var v = vazio(despesas) ? null : paraNumero(despesas);
       if (!vazio(despesas) && v === null) return { ok: false, erros: [{ campo: 'despesas', msg: 'Despesas: valor inválido.' }] };
       if (v !== null && v < 0) return { ok: false, erros: [{ campo: 'despesas', msg: 'Despesas não podem ser negativas.' }] };
-      var reg = registroDoMes(st, info.chave);
+      var reg = registroDoMes(st, info.chave, api);
       var antes = reg.despesas;
       reg.despesas = v;
       reg.obs = txt(obs).slice(0, 500);
@@ -898,7 +933,7 @@ function criarStore(estadoInicial, opcoes) {
       if (!dataValida(data)) erros.push({ campo: 'data', msg: 'Informe a data do repasse.' });
       if (erros.length) return { ok: false, erros: erros };
 
-      var reg = registroDoMes(st, info.chave);
+      var reg = registroDoMes(st, info.chave, api);
       reg.pagamentos.push({
         idAnestesista: txt(a.id), nome: txt(a.nome), pix: txt(a.pix),
         valor: arredondar2(v), data: paraData(data),
@@ -1982,6 +2017,7 @@ function criarStore(estadoInicial, opcoes) {
 
     salvarDespesasRepasse: salvarDespesasRepasse,
     registrarPagamentoRepasse: registrarPagamentoRepasse,
+    atualizarParticipantesRepasse: atualizarParticipantesRepasse,
     removerPagamentoRepasse: removerPagamentoRepasse,
     repasse: repasse,
 
@@ -2037,6 +2073,7 @@ function criarStoreComSeed(seed, opcoes) {
 var MUTACOES_STORE = ['adicionarCirurgia', 'atualizarCirurgia', 'removerCirurgia', 'atualizarAvaliacao',
   'salvarAnestesista', 'ajustarEscala', 'definirEscalaBase', 'definirModoEscalaBase', 'aplicarRemanejamento',
   'salvarConfigClinica', 'salvarDespesasRepasse', 'registrarPagamentoRepasse', 'removerPagamentoRepasse',
+  'atualizarParticipantesRepasse',
   'criarBoletim', 'salvarBoletim', 'alterarLinhaBoletim', 'finalizarBoletim', 'reabrirBoletim', 'descartarBoletim',
   'criarFichaQualidade', 'salvarFichaQualidade', 'preencherFichaDoBoletim', 'alterarEventoQualidade', 'registrarSeguimentoQualidade',
   'revisarFichaQualidade', 'concluirFichaQualidade', 'reabrirFichaQualidade', 'descartarFichaQualidade',
@@ -2060,7 +2097,7 @@ var MUTACOES_SEGURAS_EM_CONCORRENCIA = ['atualizarCirurgia', 'atualizarAvaliacao
  * escala-base, dados da clínica, financeiro do repasse e o reparo geral.
  */
 var MUTACOES_SO_ADMIN = ['salvarAnestesista', 'definirEscalaBase', 'definirModoEscalaBase', 'salvarConfigClinica',
-  'salvarDespesasRepasse', 'registrarPagamentoRepasse', 'removerPagamentoRepasse',
+  'salvarDespesasRepasse', 'registrarPagamentoRepasse', 'removerPagamentoRepasse', 'atualizarParticipantesRepasse',
   // Estrutura e definições clínicas são da coordenação, não do dia a dia.
   'salvarRegistroEstrutura', 'removerRegistroEstrutura', 'salvarConfigQualidade', 'reparar'];
 

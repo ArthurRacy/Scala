@@ -4,7 +4,7 @@ Documento de passagem entre conversas. Diz o que o sistema é, como está
 montado, o que já foi feito, as regras que não podem ser quebradas e o que
 ainda falta. Atualizado em **01/10/2026**.
 
-- Estado atual: **667 testes, todos passando** (`node qa`).
+- Estado atual: **675 testes, todos passando** (`node qa`).
 - Versão online publicada: **versão 10** (com o módulo de qualidade e segurança).
 
 ---
@@ -320,13 +320,13 @@ Regras de concorrência e de acesso:
     8091). Não afeta o navegador da pessoa usuária;
   - a pasta de teste do servidor ficou no scratchpad.
 - **Documentação** atualizada: README (seções de boletim, qualidade, servidor e
-  segurança), docs/QA.md (tabela por arquivo, 667 testes), docs/KANBAN.md,
+  segurança), docs/QA.md (tabela por arquivo, 675 testes), docs/KANBAN.md,
   docs/QUALIDADE.md e docs/QUALIDADE_INDICADORES.md (este é **gerado**: rode
   `node tools/gerar_docs_qualidade.js` depois de mudar o catálogo).
 
 ## 10. Primeiros passos sugeridos para o próximo chat
 
-1. Rodar `node qa` e confirmar 667 de 667.
+1. Rodar `node qa` e confirmar 675 de 675.
 2. Ler `README.md` (visão de uso) e a seção 3 deste arquivo (invariantes).
 3. Antes de mexer no store, conferir as listas `MUTACOES_*` e o contexto de
    execução.

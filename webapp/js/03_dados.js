@@ -187,7 +187,7 @@ var DADOS = (function () {
     return (Array.isArray(lista) ? lista : []).filter(function (r) {
       return r && typeof r === 'object' && /^\d{4}-\d{2}$/.test(String(r.mes));
     }).map(function (r) {
-      return {
+      var limpo = {
         mes: String(r.mes),
         despesas: typeof r.despesas === 'number' && isFinite(r.despesas) ? r.despesas : null,
         obs: valorSimples(r.obs),
@@ -197,6 +197,14 @@ var DADOS = (function () {
           return sanearRegistro(p, ['idAnestesista', 'nome', 'pix', 'valor', 'data', 'registradoPor', 'registradoEm']);
         })
       };
+      // Grupo que divide o mês (core/09b_repasse.js). Ausente em registro antigo: continua ausente,
+      // senão um backup velho passaria a "ter grupo guardado" vazio e dividiria por zero.
+      if (Array.isArray(r.participantes)) {
+        limpo.participantes = r.participantes.filter(function (g) {
+          return g && typeof g === 'object' && !Array.isArray(g);
+        }).map(function (g) { return sanearRegistro(g, ['id', 'nome']); });
+      }
+      return limpo;
     });
   }
 

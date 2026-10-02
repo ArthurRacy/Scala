@@ -24,7 +24,10 @@ TELAS.repasse = (function () {
     raiz.appendChild(el('div', { class: 'aviso aviso-info', style: 'margin:0' }, [
       icone('dinheiro'),
       el('div', { class: 'aviso-corpo' }, [
-        el('strong', null, 'Divisão igual entre os ' + r.participantes + ' anestesistas ativos'),
+        el('strong', null, 'Divisão igual entre os ' + r.participantes + (r.participantesGuardados ? ' participantes do mês' : ' anestesistas ativos')),
+        el('div', { class: 't-pq' }, r.participantesGuardados
+          ? 'Grupo guardado quando o mês foi mexido pela primeira vez (despesas ou repasse): quem sair ou entrar depois não muda esta divisão.'
+          : 'Este mês ainda segue o cadastro de hoje. O grupo fica guardado ao salvar as despesas ou registrar o primeiro repasse.'),
         el('div', { class: 't-pq' }, f.base === 'competencia'
           ? 'Base: o que já foi recebido da produção de ' + nomeMes(app.mes) + ' (data da cirurgia), menos as despesas.'
           : 'Base: o dinheiro que entrou em ' + nomeMes(app.mes) + ' (data do pagamento), menos as despesas. ' +
@@ -41,7 +44,7 @@ TELAS.repasse = (function () {
             nota: r.obs || 'informe abaixo, se houver' }),
       kpi({ rotulo: 'Líquido a dividir', valor: UI.moedaZero(r.liquido), valorPq: true, tom: 'acento' }),
       kpi({ rotulo: 'Cota de cada um', valor: UI.moedaZero(cotaTipica), valorPq: true,
-            nota: r.participantes + ' ativo(s)', tom: 'ok' })
+            nota: r.participantes + (r.participantesGuardados ? ' participante(s)' : ' ativo(s)'), tom: 'ok' })
     ]));
 
     /* ---- Quitado: só quando há o que repartir e todos receberam a cota ---- */
@@ -50,7 +53,7 @@ TELAS.repasse = (function () {
         UI.visto(false),
         el('div', { class: 'aviso-corpo' }, [
           el('strong', null, 'Repasse de ' + nomeMes(app.mes) + ' quitado'),
-          el('div', { class: 't-pq' }, 'Os ' + r.linhas.length + ' anestesistas ativos já receberam a cota de ' +
+          el('div', { class: 't-pq' }, 'Os ' + r.linhas.length + ' anestesistas do mês já receberam a cota de ' +
             UI.moedaZero(cotaTipica) + '.')
         ])
       ]));
@@ -97,6 +100,10 @@ TELAS.repasse = (function () {
     /* ---- Tabela ------------------------------------------------------- */
     raiz.appendChild(el('div', { class: 'cartao' }, [
       cab('Repasse por anestesista', nomeMes(app.mes) + ' de ' + app.ano, [
+        podeAtualizarGrupo(app, r) ? el('button', {
+          class: 'btn btn-pq', title: 'Refaz o grupo do mês pelo cadastro de hoje (só enquanto ninguém recebeu)',
+          onclick: function () { atualizarGrupo(app); }
+        }, [icone('pessoas'), 'Atualizar grupo']) : null,
         el('button', { class: 'btn btn-pq', onclick: function () { baixarCSV(app, r); } }, [icone('baixar'), 'CSV'])
       ]),
       el('div', { class: 'cartao-corpo rente' }, UI.tabela({
@@ -107,7 +114,10 @@ TELAS.repasse = (function () {
         ],
         linhas: r.linhas.map(function (l) {
           return [
-            el('span', { class: 'celula-principal' }, l.nome),
+            el('div', { class: 'linha', style: 'gap:6px;flex-wrap:wrap' }, [
+              el('span', { class: 'celula-principal' }, l.nome),
+              l.foraDoGrupo ? el('span', { class: 'selo selo-na', title: 'Recebeu, mas não é do grupo que divide este mês' }, 'fora do grupo') : null
+            ]),
             vazio(l.pix)
               ? el('span', { class: 't-alerta t-pq', title: 'Cadastre em Anestesistas' }, 'sem chave PIX')
               : el('div', { class: 'linha', style: 'gap:4px;flex-wrap:nowrap' }, [
@@ -117,7 +127,7 @@ TELAS.repasse = (function () {
                     onclick: function () { copiar(l.pix); }
                   }, icone('nota'))
                 ]),
-            el('strong', null, UI.moedaZero(l.cota)),
+            l.foraDoGrupo ? el('span', { class: 't-suave' }, '—') : el('strong', null, UI.moedaZero(l.cota)),
             l.repassado ? el('span', { class: 't-ok' }, UI.moedaZero(l.repassado)) : el('span', { class: 't-suave' }, '—'),
             Math.abs(l.diferenca) < 0.005
               ? el('span', { class: 'selo selo-ok sem-ponto' }, 'quitado')
@@ -133,11 +143,31 @@ TELAS.repasse = (function () {
           return ['Total (' + r.linhas.length + ')', '', UI.moedaZero(cota / 100), UI.moedaZero(rep / 100),
             UI.moedaZero((cota - rep) / 100), ''];
         })(),
-        vazio: { icone: 'pessoas', titulo: 'Nenhum anestesista ativo', texto: 'Cadastre a equipe em Anestesistas.' }
+        vazio: { icone: 'pessoas', titulo: 'Nenhum anestesista no grupo', texto: 'Cadastre a equipe em Anestesistas.' }
       }))
     ]));
 
     return raiz;
+  }
+
+  /** Só o administrador (no modo servidor) e só enquanto o mês está guardado e ninguém recebeu. */
+  function podeAtualizarGrupo(app, r) {
+    var admin = !app.servidor || (typeof SERVIDOR !== 'undefined' && SERVIDOR.ehAdmin());
+    return admin && r.participantesGuardados && !registroDoMes(app, r).pagamentos.length;
+  }
+
+  function atualizarGrupo(app) {
+    UI.confirmar({
+      titulo: 'Atualizar o grupo de ' + nomeMes(app.mes),
+      aviso: 'O grupo deste mês será refeito pelo cadastro de hoje: quem está ativo agora passa a dividir o mês.',
+      texto: 'Só é possível enquanto nenhum repasse foi registrado. A mudança fica no LOG.',
+      rotulo: 'Atualizar grupo'
+    }, function () {
+      var res = app.store.atualizarParticipantesRepasse(app.ano, app.mes);
+      if (!res.ok) { UI.erro('Não foi possível atualizar', res.erros[0].msg); return; }
+      app.salvarEredesenhar();
+      UI.ok('Grupo do mês atualizado', 'Anotado no LOG.');
+    });
   }
 
   /** Há valor a dividir e ninguém tem diferença a receber. */

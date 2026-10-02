@@ -45,6 +45,7 @@ var SERVIDOR = (function () {
     definirEscalaBase: 'escala-base', definirModoEscalaBase: 'modo da escala-base', aplicarRemanejamento: 'remanejamento',
     salvarConfigClinica: 'dados da clínica', salvarDespesasRepasse: 'despesas do repasse',
     registrarPagamentoRepasse: 'registro de repasse', removerPagamentoRepasse: 'desfazer repasse',
+    atualizarParticipantesRepasse: 'grupo do repasse',
     criarBoletim: 'criar boletim', salvarBoletim: 'campo do boletim', alterarLinhaBoletim: 'registro do boletim',
     finalizarBoletim: 'assinatura do boletim', reabrirBoletim: 'reabertura do boletim', descartarBoletim: 'descartar boletim',
     reparar: 'reparo dos dados'

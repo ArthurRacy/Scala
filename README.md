@@ -176,6 +176,13 @@ node qa
 - Divisão igual do resultado do mês entre os participantes, pela base de
   **caixa** (o que entrou) ou **competência** (o que foi produzido), com
   despesas do mês descontadas e centavos distribuídos sem sobra.
+- **O grupo que divide o mês fica guardado** na primeira vez que o mês é mexido
+  (despesas ou primeiro repasse): desativar ou cadastrar alguém depois não muda a
+  cota de meses já mexidos, e o repasse já pago a quem saiu continua na tela. Quem
+  recebeu sem ser do grupo aparece numa linha à parte ("fora do grupo"). O
+  administrador pode refazer o grupo pelo cadastro de hoje ("Atualizar grupo"),
+  mas só enquanto ninguém recebeu naquele mês. Mês ainda sem gravação segue o
+  cadastro de hoje.
 - Registro de cada pagamento feito (PIX do cadastro ao lado) e a diferença
   que falta repassar a cada um.
 
@@ -347,7 +354,7 @@ apps-script/          Camada Google Sheets
   92_gatilhos.gs        Menu, onEdit (criação automática), ações manuais
   appsscript.json
 
-qa/                   667 testes, sem dependência externa
+qa/                   675 testes, sem dependência externa
   index.js              Executor  —  node qa  |  node qa 05
   _runner.js            Arnês de testes
   _mock_sheets.js       Google Sheets de mentira, para testar a ponte

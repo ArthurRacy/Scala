@@ -1,7 +1,7 @@
 # QA — o que a bateria cobre
 
 ```bash
-node qa              # tudo (667 testes)
+node qa              # tudo (675 testes)
 node qa 05           # só o arquivo que começa com "05"
 node qa rodizio      # só os arquivos cujo nome contém "rodizio"
 ```
@@ -9,7 +9,7 @@ node qa rodizio      # só os arquivos cujo nome contém "rodizio"
 Sai com código 1 se qualquer teste falhar, então serve de porta de CI.
 Zero dependências: o arnês está em `qa/_runner.js`.
 
-**Resultado atual: 667 testes, 667 aprovados.**
+**Resultado atual: 675 testes, 675 aprovados.**
 
 ---
 
@@ -71,7 +71,7 @@ cada arquivo; somados aos 15, dão 514.
 | `12_calendario.test.js` | 22 | Horizonte móvel além de dez/2026, rodízio sem salto na virada do ano, mês encerrado preservado, navegação do calendário (faixa de 24 meses, mês distante montado na hora, ajuste que sobrevive à recarga), migração de estado antigo |
 | `13_revisao_logica.test.js` | 18 | Centavos e milhar em dinheiro, horas negativas, nome canônico, horário de duração zero, avisos de validação, avaliação cancelada fora do faturamento, histórico preservado na exclusão, renomeação em cascata, mesma pessoa em dois postos |
 | `14_guarda.test.js` | 9 | Retenção das cópias automáticas (diárias, mensais, marcos de 400 dias), backup completo com PDFs, partida |
-| `15_repasse.test.js` | 11 | Divisão igual com centavos sem sobra, base caixa × competência, despesas, registro do que foi repassado |
+| `15_repasse.test.js` | 19 | Divisão igual com centavos sem sobra, base caixa × competência, despesas, registro do que foi repassado, e o grupo do mês guardado (desativar alguém não muda meses passados nem apaga repasse pago) |
 | `16_tcle_clinica.test.js` | 9 | Dados da clínica (CNPJ, LOG, backup saneado), texto próprio do termo, PDF válido com assinatura em vetor e código, link de WhatsApp do paciente |
 | `17_boletim.test.js` | 30 | Boletim anestésico: SHA-256 contra vetores oficiais e o Node, leitura estrita x tolerante, horários atravessando a meia-noite, validação (PA, fármaco sem via), checklist, ciclo de vida (criar, finalizar, reabrir com motivo, descartar), horário real e CRM levados na assinatura, cirurgia com boletim não se exclui, congelamento e rollback, integridade (adulteração, órfão, duplicado), backup, CSV e PDF com xref conferida |
 | `18_downloads.test.js` | 4 | Planilhas num .zip (CRC-32 igual ao do zlib, nomes com acento em UTF-8, conteúdo intacto); versão online entregando pela capacidade "downloads" (nome, bytes com BOM, recusa sem erro) |
