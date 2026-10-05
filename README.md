@@ -405,11 +405,11 @@ apps-script/          Camada Google Sheets
   92_gatilhos.gs        Menu, onEdit (criação automática), ações manuais
   appsscript.json
 
-qa/                   755 testes, sem dependência externa
+qa/                   800 testes, sem dependência externa
   index.js              Executor  —  node qa  |  node qa 05
   _runner.js            Arnês de testes
   _mock_sheets.js       Google Sheets de mentira, para testar a ponte
-  01..24_*.test.js
+  01..34_*.test.js
 
 server/               Modo servidor (Node puro, sem npm install)
   servidor.js           HTTP, login, comandos, SSE, anexos, backup
@@ -426,6 +426,8 @@ tools/                Utilitários Python
   verificar_schema.js   Confere o schema contra a planilha
   gerar_exemplos_qualidade.js  Ficha, relatório, planilhas e PPTX de exemplo (saida/exemplos_qualidade/)
   gerar_docs_qualidade.js      Catálogo de indicadores para a aprovação clínica
+  verificar_nomes.js    Acusa nome usado sem existir (navegador, Node, servidor, Apps Script); roda no qa/30
+  aleatorio_store.js    Sorteia operações com dado normal e absurdo e confere o que nunca pode acontecer (o qa/33 roda a versão curta)
   corrigir_planilha.py  Aplica as correções no .xlsx
 
 data/                 Dados extraídos da planilha (gerados)
@@ -486,6 +488,9 @@ git add -A && git commit -m "Atualiza a página online" && git push
   funciona de verdade, e as divergências encontradas na planilha
 - [docs/KANBAN.md](docs/KANBAN.md) — situação de cada tarefa e onde ela mora
 - [docs/QA.md](docs/QA.md) — o que a bateria de testes cobre
+- [docs/QA_GERAL.md](docs/QA_GERAL.md) — QA geral de 05/10/2026: contas conferidas por fora, achados, arquitetura, retenção de um ano
+- [docs/COLOCAR_NO_AR.md](docs/COLOCAR_NO_AR.md) — lista do que fazer para colocar no ar (decisões, contas, desenvolvimento, testes, virada, 30 dias)
+- [docs/AUDITORIA_PRODUCAO.md](docs/AUDITORIA_PRODUCAO.md) — auditoria para produção com Supabase (fases 0 a 3) e decisões
 - [docs/QUALIDADE.md](docs/QUALIDADE.md) — módulo de qualidade e segurança:
   regras, permissões, proteção de dados, checklist de aprovação
 - [docs/QUALIDADE_INDICADORES.md](docs/QUALIDADE_INDICADORES.md) — definição,

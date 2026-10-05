@@ -2,9 +2,9 @@
 
 Documento de passagem entre conversas. Diz o que o sistema é, como está
 montado, o que já foi feito, as regras que não podem ser quebradas e o que
-ainda falta. Atualizado em **01/10/2026**.
+ainda falta. Atualizado em **05/10/2026**.
 
-- Estado atual: **755 testes, todos passando** (`node qa`; a suíte inteira leva cerca de 1 minuto).
+- Estado atual: **800 testes, todos passando** (`node qa`; a suíte inteira leva alguns minutos).
 - Versão online publicada: **versão 10** (com o módulo de qualidade e segurança).
 
 ---
@@ -295,6 +295,21 @@ Regras de concorrência e de acesso:
     Node, que o Supabase não hospeda); dado real de paciente na nuvem **bloqueado até o
     jurídico** (LGPD, guarda de prontuário). Não migrado ainda: a persistência para o
     Supabase (ver auditoria, "Próximos passos").
+12. **QA geral e revisão de arquitetura** (05/10/2026, `docs/QA_GERAL.md` e
+    `docs/COLOCAR_NO_AR.md`): contas de dinheiro, repasse, rodízio e datas refeitas por
+    um caminho independente (`qa/32`); sorteio de mais de 31 mil operações com dado
+    absurdo (`tools/aleatorio_store.js`, `qa/33`); conferência de nomes indefinidos
+    (`tools/verificar_nomes.js`, `qa/30`). Corrigido: dado com nome `constructor` /
+    `__proto__` derrubava o recálculo (mapas sem prototype); disco cheio ou sem permissão
+    (o comando é desfeito com erro 503, importar sem gravar é desfeito, o diário não fica
+    com linha pela metade, a gravação falhando não derruba o servidor); **freios** contra
+    relógio errado (não apaga cópias nem arquivos de LOG de uma vez); **LOG na tela
+    com mínimo de 12 meses** (padrão 12, de 12 a 60) a pedido de "pelo menos um ano";
+    aviso quando mudar a escala-base deixa a mesma pessoa em duas posições; trocar a
+    escala-base deixa linha no LOG; `GET /api/saude` para monitoramento. Testes em
+    `qa/31` (núcleo) e `qa/34` (disco e freios). **Regra para o futuro:** o laço de eventos
+    do `node qa` fica preso durante os testes síncronos; teste que espera um processo filho
+    deve contar só o tempo em que o laço esteve livre (ver `qa/27`).
 
 ## 9. Pendências e ideias (nada bloqueando)
 
@@ -351,13 +366,13 @@ Regras de concorrência e de acesso:
     8091). Não afeta o navegador da pessoa usuária;
   - a pasta de teste do servidor ficou no scratchpad.
 - **Documentação** atualizada: README (seções de boletim, qualidade, servidor e
-  segurança), docs/QA.md (tabela por arquivo, 755 testes), docs/KANBAN.md,
+  segurança), docs/QA.md (tabela por arquivo, 800 testes), docs/KANBAN.md,
   docs/QUALIDADE.md e docs/QUALIDADE_INDICADORES.md (este é **gerado**: rode
   `node tools/gerar_docs_qualidade.js` depois de mudar o catálogo).
 
 ## 10. Primeiros passos sugeridos para o próximo chat
 
-1. Rodar `node qa` e confirmar 755 de 755.
+1. Rodar `node qa` e confirmar 800 de 800.
 2. Ler `README.md` (visão de uso) e a seção 3 deste arquivo (invariantes).
 3. Antes de mexer no store, conferir as listas `MUTACOES_*` e o contexto de
    execução.

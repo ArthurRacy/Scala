@@ -7,6 +7,13 @@ na mesma data, o projeto recebeu as correções listadas em "Atualização" logo
 
 > **Leia primeiro a seção "Atualização de 02/10/2026".** O resto do documento é o relatório
 > original; onde ele diz "CONFIRMADO" de um defeito que já foi corrigido, está marcado.
+>
+> **Atualização de 05/10/2026 (QA geral):** o projeto está em **800 testes, todos passando**. Veja
+> [`QA_GERAL.md`](QA_GERAL.md) (o que foi conferido, 8 achados corrigidos, arquitetura, retenção de
+> um ano) e [`COLOCAR_NO_AR.md`](COLOCAR_NO_AR.md) (a lista do que falta). Situação dos itens abertos
+> daqui: **F04** (cópia fora da máquina) e **F07** (backup com PDFs) seguem abertos; **F06**, **F14**
+> e **F17** seguem na etapa 3 do COLOCAR_NO_AR; **F16** ganhou a rota `/api/saude` (faltam serviço,
+> monitor e CI); **F10** foi medido de novo (tabela no QA_GERAL).
 
 ## Como ler as marcas
 
@@ -87,7 +94,7 @@ qualidade); (2) a secretária **faz tudo da ficha de qualidade**, inclusive a "r
 ### Próximos passos para o Supabase (nada disto foi feito; precisa da sua aprovação do desenho)
 
 O motor atual guarda tudo em memória e em arquivos do disco. Com Supabase Pro por clínica, o desenho mais seguro é
-**manter o servidor Node e as regras (os 755 testes continuam valendo)** e trocar só **onde os dados ficam**:
+**manter o servidor Node e as regras (os 800 testes continuam valendo)** e trocar só **onde os dados ficam**:
 
 1. **Armazenamento no Supabase**, sem biblioteca nova: o servidor fala com o Supabase por HTTPS (`fetch`, que já vem no Node).
    Tabelas para estado, diário de comandos, usuários, sessões, metadados de PDF e logs; PDFs e cópias no Storage (buckets
