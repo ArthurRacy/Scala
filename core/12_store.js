@@ -681,7 +681,9 @@ function criarStore(estadoInicial, opcoes) {
         api.registrar([logCriacao('ANESTESISTAS', candidato, { usuario: usuario, idCirurgia: candidato.id })]);
       }
 
-      return { ok: true, avisos: rel.avisos };
+      // Com a escala-base automática, mexer no cadastro reescreve a base: avisa se uma substituição antiga passou a duplicar alguém.
+      var avisosDaEscala = st.config && st.config.escalaBaseAuto ? avisosDeSubstituicaoEmConflito(st) : [];
+      return { ok: true, avisos: (rel.avisos || []).concat(avisosDaEscala) };
     });
   }
 
@@ -770,12 +772,55 @@ function criarStore(estadoInicial, opcoes) {
   }
 
   /** Substitui a ESCALA_BASE inteira (as 30 linhas) de uma vez. */
+  /**
+   * A base mudou, mas as substituições já registradas continuam valendo (por desenho: a tela diz isso). Se uma
+   * delas põe numa posição quem a nova base já escala naquele dia, a pessoa fica em duas posições. A mudança
+   * vale (a regra de negócio não muda), mas o aviso diz quais dias revisar — antes só a tela Integridade acusava.
+   */
+  function avisosDeSubstituicaoEmConflito(st) {
+    recalcular();   // só para olhar o resultado; a transação recalcula de novo ao terminar (dá o mesmo)
+    var vistos = Object.create(null), dias = [];
+    (st.consolidada || []).forEach(function (l) {
+      var k = l.chaveNome;
+      if (!k) return;
+      if (vistos[k]) {
+        if (vistos[k] === 1) dias.push(String(l.data).slice(8, 10) + '/' + String(l.data).slice(5, 7) + ' (' + txt(l.efetivo) + ')');
+        vistos[k]++;
+      } else vistos[k] = 1;
+    });
+    if (!dias.length) return [];
+    return [{ campo: 'substituicao', msg: 'Com a nova base, a mesma pessoa ficou em duas posições no mesmo dia: ' +
+      dias.slice(0, 5).join(', ') + (dias.length > 5 ? ' e mais ' + (dias.length - 5) : '') +
+      '. É uma substituição registrada antes da mudança; revise a escala desses dias.' }];
+  }
+
+  /** Os postos (dia + posição) cujo nome mudou entre duas escalas-base: { de: [...], para: [...] } para o LOG. */
+  function postosMudadosDaBase(antes, depois) {
+    var a = indexarEscalaBase(antes), b = indexarEscalaBase(depois), de = [], para = [];
+    CONFIG.DIAS_ESCALA.forEach(function (dia) {
+      CONFIG.POSICOES.forEach(function (pos) {
+        var x = txt(((a[dia] || {})[pos] || {}).nome), y = txt(((b[dia] || {})[pos] || {}).nome);
+        if (x === y) return;
+        var rotulo = dia.slice(0, 3) + ' ' + pos;
+        de.push(rotulo + ': ' + (x || '—'));
+        para.push(rotulo + ': ' + (y || '—'));
+      });
+    });
+    return { de: de, para: para };
+  }
+
   function definirEscalaBase(linhas) {
-    return transacao(function (st) {
+    return transacao(function (st, api) {
       var rel = validarEscalaBase(linhas, st.anestesistas);
       if (!rel.ok) return { ok: false, erros: rel.erros, avisos: rel.avisos };
+      var anterior = st.escalaBase;
       st.escalaBase = JSON.parse(JSON.stringify(linhas));
-      return { ok: true, avisos: rel.avisos };
+      var mudou = postosMudadosDaBase(anterior, st.escalaBase);
+      if (mudou.de.length) {
+        api.registrar([novaEntradaLog({ usuario: usuario, aba: 'CONFIGURAÇÃO', idCirurgia: 'ESCALA_BASE', campo: 'ESCALA-BASE',
+          de: mudou.de.join(' | ').slice(0, 400), para: mudou.para.join(' | ').slice(0, 400) })]);
+      }
+      return { ok: true, avisos: (rel.avisos || []).concat(avisosDeSubstituicaoEmConflito(st)) };
     });
   }
 
@@ -812,7 +857,7 @@ function criarStore(estadoInicial, opcoes) {
         de: antes ? 'Sim' : 'Não',
         para: depois ? 'Sim' : 'Não'
       })]);
-      return { ok: true };
+      return { ok: true, avisos: depois ? avisosDeSubstituicaoEmConflito(st) : [] };
     });
   }
 
@@ -1669,7 +1714,7 @@ function criarStore(estadoInicial, opcoes) {
    */
   function aplicarRemanejamento(movimentos) {
     return transacao(function (st, api) {
-      var lista = movimentos || [];
+      var lista = Array.isArray(movimentos) ? movimentos : [];
       if (!lista.length) {
         return { ok: false, erros: [{ campo: 'movimentos', msg: 'Nada a remanejar.' }] };
       }
@@ -1679,6 +1724,7 @@ function criarStore(estadoInicial, opcoes) {
 
       for (var i = 0; i < lista.length; i++) {
         var mov = lista[i];
+        if (!mov || typeof mov !== 'object') return { ok: false, erros: [{ campo: 'movimentos', msg: 'Movimento inválido (esperado: cirurgia e anestesista).' }] };
         var alvo = st.cirurgias.filter(function (c) { return txt(c.id) === txt(mov.id); })[0];
         if (!alvo) {
           return { ok: false, erros: [{ campo: 'id', msg: 'Cirurgia ' + mov.id + ' não encontrada.' }] };
@@ -1953,7 +1999,7 @@ function criarStore(estadoInicial, opcoes) {
 
   /** Visões calculadas, sempre a partir do estado atual. */
   /** Balanço de horas; `meses` padrão = o horizonte inteiro. */
-  function horas(meses) { return calcularHoras(estado.anestesistas, estado.cirurgias, meses || horizonteAtual()); }
+  function horas(meses) { return calcularHoras(estado.anestesistas, estado.cirurgias, Array.isArray(meses) ? meses : horizonteAtual()); }
 
   function financeiro(mes, ano) {
     return calcularFinanceiro(estado.cirurgias, estado.avaliacoes, mes, ano || CONFIG.ANO_REFERENCIA);

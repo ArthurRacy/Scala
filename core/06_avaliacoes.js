@@ -22,7 +22,7 @@
 
 /** Índice { ID_CIRURGIA: [avaliações...] }, preservando a ordem de entrada. */
 function indexarAvaliacoesPorCirurgia(avaliacoes) {
-  var idx = {};
+  var idx = Object.create(null);
   (avaliacoes || []).forEach(function (a) {
     var k = txt(a.idCirurgia);
     if (!k) return;
