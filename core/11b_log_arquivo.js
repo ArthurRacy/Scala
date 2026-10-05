@@ -8,7 +8,8 @@
  *
  *   1. TODO MÊS, o mês fechado vira um ARQUIVO (JSON por linha, comprimido), com o
  *      código SHA-256 do conteúdo. É o backup mensal do log.
- *   2. A TELA guarda só os últimos `mesesNaTela` meses (padrão 6). O que é mais
+ *   2. A TELA guarda só os últimos `mesesNaTela` meses (padrão 12, e nunca menos que 12: a clínica
+ *      exige que a informação fique no sistema por pelo menos um ano). O que é mais
  *      antigo sai da tela, e SÓ DEPOIS de o arquivo estar gravado e conferido.
  *   3. O ARQUIVO é guardado por `anosDeGuarda` anos (padrão 5; 0 = nunca apagar sozinho).
  *      Prontuário e dinheiro têm prazo de guarda legal que não é do sistema decidir:
@@ -23,9 +24,9 @@
  * ============================================================================
  */
 
-var LOG_PADRAO = { mesesNaTela: 6, anosDeGuarda: 5 };
+var LOG_PADRAO = { mesesNaTela: 12, anosDeGuarda: 5 };
 var LOG_LIMITES = {
-  mesesNaTela: { min: 1, max: 36 },
+  mesesNaTela: { min: 12, max: 60 },
   anosDeGuarda: { min: 0, max: 30 }
 };
 var TIPOS_DE_LOG = ['alteracoes', 'acessos'];

@@ -27,14 +27,22 @@ module.exports = function (t, core, dados) {
 
   describe('Arquivo mensal do LOG: as contas (core/11b)', function () {
 
-    it('configuração: padrão de 6 meses na tela e 5 anos de guarda; valor fora da faixa volta ao padrão', function () {
-      igualProfundo(core.lerConfigLog(), { mesesNaTela: 6, anosDeGuarda: 5 });
-      igualProfundo(core.lerConfigLog({ mesesNaTela: 12, anosDeGuarda: 10 }), { mesesNaTela: 12, anosDeGuarda: 10 });
-      igualProfundo(core.lerConfigLog({ mesesNaTela: 0, anosDeGuarda: 99 }), { mesesNaTela: 6, anosDeGuarda: 5 });
-      igualProfundo(core.lerConfigLog({ mesesNaTela: '8', anosDeGuarda: 0 }), { mesesNaTela: 8, anosDeGuarda: 0 }, '0 = nunca apagar sozinho');
-      igualProfundo(core.lerConfigLog({ mesesNaTela: 3.5, anosDeGuarda: '' }), { mesesNaTela: 6, anosDeGuarda: 5 }, 'fração e vazio não valem');
-      igualProfundo(core.lerConfigLog({ mesesNaTela: true, anosDeGuarda: null }), { mesesNaTela: 6, anosDeGuarda: 5 });
-      igualProfundo(core.lerConfigLog('lixo'), { mesesNaTela: 6, anosDeGuarda: 5 });
+    it('configuração: padrão de 12 meses na tela e 5 anos de guarda; valor fora da faixa volta ao padrão', function () {
+      igualProfundo(core.lerConfigLog(), { mesesNaTela: 12, anosDeGuarda: 5 });
+      igualProfundo(core.lerConfigLog({ mesesNaTela: 24, anosDeGuarda: 10 }), { mesesNaTela: 24, anosDeGuarda: 10 });
+      igualProfundo(core.lerConfigLog({ mesesNaTela: 0, anosDeGuarda: 99 }), { mesesNaTela: 12, anosDeGuarda: 5 });
+      igualProfundo(core.lerConfigLog({ mesesNaTela: '18', anosDeGuarda: 0 }), { mesesNaTela: 18, anosDeGuarda: 0 }, '0 = nunca apagar sozinho');
+      igualProfundo(core.lerConfigLog({ mesesNaTela: 3.5, anosDeGuarda: '' }), { mesesNaTela: 12, anosDeGuarda: 5 }, 'fração e vazio não valem');
+      igualProfundo(core.lerConfigLog({ mesesNaTela: true, anosDeGuarda: null }), { mesesNaTela: 12, anosDeGuarda: 5 });
+      igualProfundo(core.lerConfigLog('lixo'), { mesesNaTela: 12, anosDeGuarda: 5 });
+    });
+
+    it('nada sai da tela antes de um ano: menos de 12 meses volta ao padrão', function () {
+      igual(core.LOG_LIMITES.mesesNaTela.min, 12);
+      [1, 3, 6, 11].forEach(function (m) {
+        igual(core.lerConfigLog({ mesesNaTela: m, anosDeGuarda: 5 }).mesesNaTela, 12, m + ' meses não vale');
+      });
+      igual(core.lerConfigLog({ mesesNaTela: 12, anosDeGuarda: 5 }).mesesNaTela, 12);
     });
 
     it('soma de meses atravessa o ano nos dois sentidos', function () {
@@ -179,38 +187,39 @@ module.exports = function (t, core, dados) {
 
     it('a configuração nasce com o padrão e só aceita valor dentro da faixa', function () {
       var st = novoStore({ login: 'chefe' });
-      igualProfundo(st.configLog(), { mesesNaTela: 6, anosDeGuarda: 5 });
+      igualProfundo(st.configLog(), { mesesNaTela: 12, anosDeGuarda: 5 });
       falso(st.salvarConfigLog(0, 5).ok);
-      falso(st.salvarConfigLog(37, 5).ok);
-      falso(st.salvarConfigLog(6, 31).ok);
-      falso(st.salvarConfigLog(6, -1).ok);
+      falso(st.salvarConfigLog(11, 5).ok, 'menos de um ano na tela não vale');
+      falso(st.salvarConfigLog(61, 5).ok);
+      falso(st.salvarConfigLog(12, 31).ok);
+      falso(st.salvarConfigLog(12, -1).ok);
       falso(st.salvarConfigLog('abc', 5).ok);
-      falso(st.salvarConfigLog(2.5, 5).ok);
-      igualProfundo(st.configLog(), { mesesNaTela: 6, anosDeGuarda: 5 }, 'recusa não muda nada');
+      falso(st.salvarConfigLog(12.5, 5).ok);
+      igualProfundo(st.configLog(), { mesesNaTela: 12, anosDeGuarda: 5 }, 'recusa não muda nada');
     });
 
     it('mudar a configuração entra no LOG, com o login de quem mudou', function () {
       var st = novoStore({ usuario: 'Chefe', login: 'chefe' });
-      var r = st.salvarConfigLog(12, 0);
+      var r = st.salvarConfigLog(18, 0);
       verdadeiro(r.ok, JSON.stringify(r.erros));
-      igualProfundo(st.configLog(), { mesesNaTela: 12, anosDeGuarda: 0 });
+      igualProfundo(st.configLog(), { mesesNaTela: 18, anosDeGuarda: 0 });
       var l = st.estado.log.filter(function (x) { return x.campo === 'LOG: ANOS DE GUARDA DO ARQUIVO'; })[0];
       igual(l.de, '5'); igual(l.para, 'nunca apagar'); igual(l.login, 'chefe');
       verdadeiro(st.estado.log.some(function (x) { return x.campo === 'LOG: MESES NA TELA'; }));
       var antes = st.estado.log.length;
-      st.salvarConfigLog(12, 0);
+      st.salvarConfigLog(18, 0);
       igual(st.estado.log.length, antes, 'sem mudança, sem linha nova');
     });
 
     it('a configuração sobrevive a salvar e recarregar, e valor estranho num backup volta ao padrão', function () {
       var st = novoStore();
-      st.salvarConfigLog(9, 3);
+      st.salvarConfigLog(15, 3);
       var enxuto = JSON.parse(JSON.stringify(DADOS.enxugar(st.estado)));
-      igualProfundo(DADOS.sanearEstado(enxuto).config.log, { mesesNaTela: 9, anosDeGuarda: 3 });
+      igualProfundo(DADOS.sanearEstado(enxuto).config.log, { mesesNaTela: 15, anosDeGuarda: 3 });
       enxuto.config.log = { mesesNaTela: -4, anosDeGuarda: 'muito' };
-      igualProfundo(DADOS.sanearEstado(enxuto).config.log, { mesesNaTela: 6, anosDeGuarda: 5 });
+      igualProfundo(DADOS.sanearEstado(enxuto).config.log, { mesesNaTela: 12, anosDeGuarda: 5 });
       delete enxuto.config.log;
-      igualProfundo(DADOS.sanearEstado(enxuto).config.log, { mesesNaTela: 6, anosDeGuarda: 5 }, 'backup antigo, sem a configuração');
+      igualProfundo(DADOS.sanearEstado(enxuto).config.log, { mesesNaTela: 12, anosDeGuarda: 5 }, 'backup antigo, sem a configuração');
     });
 
     function storeComLog() {

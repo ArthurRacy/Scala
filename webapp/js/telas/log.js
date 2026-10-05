@@ -280,7 +280,7 @@ TELAS.log = (function () {
 
   function formConfig(app, cfg) {
     var fMeses = UI.campo({ rotulo: 'Meses de LOG na tela', nome: 'mesesNaTela', tipo: 'number', passo: '1', min: String(core.LOG_LIMITES.mesesNaTela.min),
-      valor: cfg.mesesNaTela, dica: 'O que for mais antigo sai da tela, depois de virar arquivo conferido (1 a 36).' });
+      valor: cfg.mesesNaTela, dica: 'O que for mais antigo sai da tela, depois de virar arquivo conferido (12 a 60: nunca menos de um ano).' });
     var fAnos = UI.campo({ rotulo: 'Anos de guarda do arquivo', nome: 'anosDeGuarda', tipo: 'number', passo: '1', min: '0',
       valor: cfg.anosDeGuarda, dica: '0 = nunca apagar sozinho. Prontuário e dinheiro podem ter prazo legal: confirme com o jurídico antes de reduzir.' });
     var form = UI.formulario([fMeses, fAnos]);

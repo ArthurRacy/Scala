@@ -18,7 +18,7 @@ module.exports = function (t, core) {
   var DADOS = U.DADOS;
 
   var MES_REAL = core.hojeISO().slice(0, 7);                          // o mês em que os testes gravam (o relógio local, o mesmo dos carimbos)
-  var NO_FUTURO = core.somarMesesAoMes(MES_REAL, 8) + '-10';         // "hoje" forçado: o mês real já fechou e passou do corte
+  var NO_FUTURO = core.somarMesesAoMes(MES_REAL, 14) + '-10';        // "hoje" forçado: o mês real já fechou e passou do corte (de 12 meses)
 
   function comTres(fn, pasta) {
     return U.comServidor(function (chefe, srv, p, base) {
@@ -213,7 +213,7 @@ module.exports = function (t, core) {
           verdadeiro(/^[0-9a-f]{64}$/.test(a.sha256), 'SHA-256 completo');
           verdadeiro(a.verificadoOk);
           verdadeiro(r.corpo.ultimaRotacao.ok);
-          igual(r.corpo.config.mesesNaTela, 6);
+          igual(r.corpo.config.mesesNaTela, 12);
           return c.chefe.get('/api/auditoria/acessos');
         }).then(function (r) {
           var vivos = r.corpo.eventos.map(function (e) { return e.evento; });
@@ -377,13 +377,13 @@ module.exports = function (t, core) {
         return U.comando(c.chefe, 'adicionarCirurgia', U.CIRURGIA).then(function () {
           srv.rotacionarLogs('teste', NO_FUTURO);
           verdadeiro(fs.existsSync(path.join(pasta, 'logs', 'alteracoes_' + MES_REAL + '.jsonl.gz')));
-          return U.comando(c.chefe, 'salvarConfigLog', 6, 0);
+          return U.comando(c.chefe, 'salvarConfigLog', 12, 0);
         }).then(function (x) {
           verdadeiro(x.resp.corpo.ok, JSON.stringify(x.resp.corpo));
           var r = srv.rotacionarLogs('teste', longe);
           igual(r.apagados, 0, '0 anos = nunca apagar sozinho');
           verdadeiro(fs.existsSync(path.join(pasta, 'logs', 'alteracoes_' + MES_REAL + '.jsonl.gz')));
-          return U.comando(c.chefe, 'salvarConfigLog', 6, 5);
+          return U.comando(c.chefe, 'salvarConfigLog', 12, 5);
         }).then(function () {
           var r = srv.rotacionarLogs('teste', longe);
           verdadeiro(r.apagados >= 2, 'os dois arquivos do mês passaram de 5 anos');
@@ -393,26 +393,26 @@ module.exports = function (t, core) {
           verdadeiro(r.corpo.eventos.length >= 2, 'quem apagou o quê, e por quê, ficou registrado');
           verdadeiro(/passou de 5 ano/.test(r.corpo.eventos[0].detalhe));
           return c.chefe.get('/api/auditoria/arquivos');
-        }).then(function (r) { igual(r.corpo.arquivos.length, 0); });
+        }).then(function (r) { igual(r.corpo.arquivos.filter(function (a) { return a.mes === MES_REAL; }).length, 0, 'os arquivos do mês real passaram do prazo e saíram'); });
       });
     });
 
     it('só o chefe muda a configuração, e a faixa é respeitada', function () {
       return comTres(function (c) {
-        return U.comando(c.secretaria, 'salvarConfigLog', 3, 2).then(function (x) {
+        return U.comando(c.secretaria, 'salvarConfigLog', 18, 2).then(function (x) {
           igual(x.resp.status, 403);
-          return U.comando(c.anestesista, 'salvarConfigLog', 3, 2);
+          return U.comando(c.anestesista, 'salvarConfigLog', 18, 2);
         }).then(function (x) {
           igual(x.resp.status, 403);
           return U.comando(c.chefe, 'salvarConfigLog', 99, 2);
         }).then(function (x) {
           falso(x.resp.corpo.ok, 'fora da faixa');
-          return U.comando(c.chefe, 'salvarConfigLog', 3, 2);
+          return U.comando(c.chefe, 'salvarConfigLog', 18, 2);
         }).then(function (x) {
           verdadeiro(x.resp.corpo.ok);
           return c.chefe.get('/api/auditoria/arquivos');
         }).then(function (r) {
-          igual(r.corpo.config.mesesNaTela, 3); igual(r.corpo.config.anosDeGuarda, 2);
+          igual(r.corpo.config.mesesNaTela, 18); igual(r.corpo.config.anosDeGuarda, 2);
         });
       });
     });
