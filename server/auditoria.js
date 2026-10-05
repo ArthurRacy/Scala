@@ -237,13 +237,20 @@ function criarAuditoria(pasta, core) {
 
     // Prazo de guarda dos arquivos.
     var meses = idx.arquivos.map(function (a) { return a.mes; }).filter(function (m, i, l) { return l.indexOf(m) === i; });
-    core.mesesDeArquivoParaApagar(meses, args.hoje, args.config.anosDeGuarda).forEach(function (mes) {
-      idx.arquivos.filter(function (a) { return a.mes === mes; }).forEach(function (a) {
-        try { fs.unlinkSync(caminhoDe(a.arquivo)); } catch (e) { /* já não existia */ }
-        res.apagados.push(a.arquivo);
+    var vencidos = core.mesesDeArquivoParaApagar(meses, args.hoje, args.config.anosDeGuarda);
+    var qtdVencidos = idx.arquivos.filter(function (a) { return vencidos.indexOf(a.mes) >= 0; }).length;
+    if (qtdVencidos > 4) {
+      // Freio: por mês vencem 2 arquivos (alterações e acessos). Quatro ou mais de uma vez só = relógio errado.
+      res.problemas.push('A limpeza quis apagar ' + qtdVencidos + ' arquivos de LOG de uma vez — isso só acontece com a data do computador errada. Nada foi apagado; confira o relógio.');
+    } else {
+      vencidos.forEach(function (mes) {
+        idx.arquivos.filter(function (a) { return a.mes === mes; }).forEach(function (a) {
+          try { fs.unlinkSync(caminhoDe(a.arquivo)); } catch (e) { /* já não existia */ }
+          res.apagados.push(a.arquivo);
+        });
+        idx.arquivos = idx.arquivos.filter(function (a) { return a.mes !== mes; });
       });
-      idx.arquivos = idx.arquivos.filter(function (a) { return a.mes !== mes; });
-    });
+    }
 
     idx.ultimaRotacao = { quando: agora(), hoje: args.hoje, ok: !res.erros.length, criados: res.criados.length,
       podarAlteracoesAte: res.podarAlteracoesAte, acessosRemovidos: res.acessosRemovidos, apagados: res.apagados.length,

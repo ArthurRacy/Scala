@@ -248,15 +248,36 @@ function criarServidor(opcoes) {
   /* -------------------------------------------------------- gravação */
 
   var gravacaoAgendada = null;
-  function gravarAgora() {
+  var gravacaoEhRetentativa = false;
+  var falhasDeGravacao = 0;        // gravações seguidas que o disco recusou
+  var ultimoFreioAvisado = null;
+  /**
+   * Grava o estado inteiro. Falha de disco (cheio, sem permissão) NÃO derruba o servidor: o diário já guarda cada
+   * comando, e a gravação é tentada de novo em 30 s. `estrito`: quem troca o estado inteiro quer saber da falha.
+   */
+  function gravarAgora(estrito) {
     if (gravacaoAgendada) { clearTimeout(gravacaoAgendada); gravacaoAgendada = null; }
-    var enxuto = DADOS.enxugar(store.estado);
-    armazem.gravarEstado(revisao, enxuto);
-    armazem.podarDiario(revisao);
-    if (armazem.copiaDoDia(revisao, enxuto)) registrar('Cópia do dia gravada.');
+    gravacaoEhRetentativa = false;
+    try {
+      var enxuto = DADOS.enxugar(store.estado);
+      armazem.gravarEstado(revisao, enxuto);
+      armazem.podarDiario(revisao);
+      if (armazem.copiaDoDia(revisao, enxuto)) registrar('Cópia do dia gravada.');
+      var freio = armazem.freioDaRetencao();
+      if (freio && freio !== ultimoFreioAvisado) { registrar('ATENÇÃO: ' + freio); evento('copias_retencao_freada', SISTEMA, freio); }
+      ultimoFreioAvisado = freio;
+      if (falhasDeGravacao) { registrar('A gravação do estado voltou ao normal.'); falhasDeGravacao = 0; }
+    } catch (e) {
+      falhasDeGravacao++;
+      registrar('ATENÇÃO: não consegui gravar o estado no disco (' + (e && e.message) + '). Cada comando continua indo para o diário; tento de novo em 10 s.');
+      if (!gravacaoAgendada) { gravacaoEhRetentativa = true; gravacaoAgendada = setTimeout(gravarAgora, 10000); }
+      if (estrito) throw e;
+    }
   }
   function agendarGravacao() {
-    if (gravacaoAgendada) return;
+    if (gravacaoAgendada && !gravacaoEhRetentativa) return;
+    if (gravacaoAgendada) clearTimeout(gravacaoAgendada);   // havia uma nova tentativa esperando: um comando novo adianta
+    gravacaoEhRetentativa = false;
     gravacaoAgendada = setTimeout(gravarAgora, 1500);
   }
 
@@ -293,6 +314,7 @@ function criarServidor(opcoes) {
   /** Troca o estado inteiro (importar, apagar tudo, restaurar cópia): marco antes, telas recarregam. */
   function trocarEstadoInteiro(novoEstado, motivo, quem) {
     armazem.marco('antes-de-' + motivo, revisao, DADOS.enxugar(store.estado));
+    var anterior = { store: store, revisao: revisao, diario: diario, inicio: revisaoInicioDiario };
     store = montarStore(novoEstado);
     store.transacao(function (st, api) {
       api.registrar([core.novaEntradaLog({ usuario: quem.nome, aba: 'SISTEMA', idCirurgia: '', campo: 'ESTADO SUBSTITUÍDO', de: '', para: motivo })]);
@@ -301,7 +323,13 @@ function criarServidor(opcoes) {
     revisao++;
     diario = [];
     revisaoInicioDiario = revisao;
-    gravarAgora();
+    try {
+      gravarAgora(true);
+    } catch (e) {
+      // Não gravou no disco: a troca não vale (senão voltaria o estado velho na próxima partida, sem ninguém saber).
+      store = anterior.store; revisao = anterior.revisao; diario = anterior.diario; revisaoInicioDiario = anterior.inicio;
+      throw e;
+    }
     emitir('recarregar', { revisao: revisao, motivo: motivo, usuario: quem.nome });
     evento('estado_substituido', quem, motivo);
   }
@@ -413,6 +441,7 @@ function criarServidor(opcoes) {
     var entrada = { revisao: revisao + 1, nome: nome, args: c.args, contexto: { agora: ctx.agora, semente: ctx.semente },
       usuario: eu.nome, login: eu.login, hoje: hojeAtual, cliente: String(c.cliente || '').slice(0, 40) };
     var r;
+    var antesDoComando = store.snapshot(true), revisaoAntes = revisao;
     try {
       r = aplicar(entrada);
     } catch (e) {
@@ -422,7 +451,17 @@ function criarServidor(opcoes) {
       return [200, { ok: false, erros: (r && r.erros) || [{ msg: 'Operação recusada.' }], revisao: revisao }];
     }
 
-    gravarNoDiario(entrada);                 // no disco antes de responder
+    try {
+      gravarNoDiario(entrada);               // no disco antes de responder
+    } catch (e) {
+      // Sem o diário o comando não vale: desfaz na memória e devolve o número da revisão. Quem digitou vê o erro e
+      // refaz depois; nada fica pela metade (nem duplicado, se tentar de novo).
+      store.restaurar(antesDoComando);
+      store.recalcular();
+      revisao = revisaoAntes;
+      registrar('ATENÇÃO: não consegui gravar o comando ' + nome + ' no diário (' + (e && e.message) + '); foi desfeito.');
+      return [503, { erro: 'Não consegui gravar no disco do servidor (cheio ou sem permissão). Nada foi alterado: tente de novo depois que quem cuida do computador resolver.' }];
+    }
 
     // Avaliações apagadas em cascata levam os PDFs de exame junto (vão para removidos/).
     var removidos = 0;
@@ -471,6 +510,11 @@ function criarServidor(opcoes) {
     }
 
     /* --- sem sessão --- */
+    if (caminho === '/api/saude' && metodo === 'GET') {
+      // Para um monitor externo (avisa se cair). Não mostra dado nenhum: só se está de pé e se o disco está aceitando gravação.
+      var bem = !falhasDeGravacao;
+      return Promise.resolve(json(res, bem ? 200 : 503, { ok: bem, gravacao: bem ? 'ok' : 'falhando' }));
+    }
     if (caminho === '/api/eu' && metodo === 'GET') {
       if (!eu) return Promise.resolve(json(res, 401, { primeiroAcesso: !contas.temUsuarios() }));
       return Promise.resolve(json(res, 200, { usuario: eu, hoje: hojeAtual, revisao: revisao }));

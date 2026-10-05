@@ -84,9 +84,18 @@ function criarArmazem(pasta, core) {
   /** Anota um comando, forçado para o disco antes de voltar. */
   function anotarComando(entrada) {
     var fd = fs.openSync(arqDiario, 'a');
+    var tamanhoAntes = fs.fstatSync(fd).size;
     try {
       fs.writeSync(fd, JSON.stringify(entrada) + '\n');
       fs.fsyncSync(fd);
+    } catch (e) {
+      // Disco cheio no meio da linha: sem isto, a próxima linha grudaria nesta e as duas se perderiam na recuperação.
+      // (Reabre para escrita comum: no Windows o arquivo aberto só para acrescentar não pode ser cortado.)
+      try {
+        var corte = fs.openSync(arqDiario, 'r+');
+        try { fs.ftruncateSync(corte, tamanhoAntes); } finally { fs.closeSync(corte); }
+      } catch (e2) { /* melhor esforço */ }
+      throw e;
     } finally {
       fs.closeSync(fd);
     }
@@ -145,8 +154,20 @@ function criarArmazem(pasta, core) {
     return JSON.parse(zlib.gunzipSync(fs.readFileSync(path.join(dirCopias, id))).toString('utf8'));
   }
 
+  var ultimoFreio = null;
+
   function aplicarRetencao() {
-    core.copiasParaApagar(listarCopias(), hoje()).forEach(function (id) {
+    var copias = listarCopias();
+    var apagar = core.copiasParaApagar(copias, hoje());
+    // Freio: uma rodada normal apaga 1 ou 2 cópias (depois de uma parada longa, as diárias antigas; as mensais ficam).
+    // Querer apagar quase tudo de uma vez é o sinal de um relógio errado (data muito à frente): não apaga nada.
+    if (apagar.length > 10 && apagar.length > copias.length * 0.75) {
+      ultimoFreio = 'A limpeza de cópias antigas quis apagar ' + apagar.length + ' de ' + copias.length +
+        ' cópias de uma vez — isso só acontece com a data do computador errada. Nada foi apagado; confira o relógio.';
+      return;
+    }
+    ultimoFreio = null;
+    apagar.forEach(function (id) {
       try { fs.unlinkSync(path.join(dirCopias, id)); } catch (e) { /* já saiu */ }
     });
     // PDFs removidos há mais de 400 dias saem de vez.
@@ -220,6 +241,7 @@ function criarArmazem(pasta, core) {
     listarCopias: listarCopias,
     lerCopia: lerCopia,
     aplicarRetencao: aplicarRetencao,
+    freioDaRetencao: function () { return ultimoFreio; },
     metasAnexos: metasAnexos,
     salvarAnexo: salvarAnexo,
     lerAnexo: lerAnexo,
