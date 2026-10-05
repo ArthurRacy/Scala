@@ -42,14 +42,23 @@ module.exports = function (t, core) {
         var filho = cp.spawn(process.execPath, [path.join(RAIZ, 'server', 'servidor.js'), '--porta', '0', '--host', '127.0.0.1', '--dados', pasta],
           { env: Object.assign({}, process.env, { TZ: 'UTC' }), stdio: ['ignore', 'pipe', 'pipe'] });
         var texto = '';
-        var prazo = setTimeout(function () { filho.kill(); rejeitar(new Error('o servidor não subiu a tempo: ' + texto)); }, 15000);
+        // O prazo só conta o tempo em que o laço de eventos esteve LIVRE: os testes pesados e síncronos que vêm depois
+        // deste seguram o laço por muitos segundos, e o filho não consegue ser lido enquanto isso. Cada batida
+        // do vigia vale no máximo 1,5 s, por mais que o laço tenha ficado parado.
+        var ultimo = Date.now(), gasto = 0;
+        var prazo = setInterval(function () {
+          var agora = Date.now();
+          gasto += Math.min(agora - ultimo, 1500);
+          ultimo = agora;
+          if (gasto >= 15000) { clearInterval(prazo); filho.kill(); rejeitar(new Error('o servidor não subiu a tempo: ' + texto)); }
+        }, 500);
         filho.stdout.on('data', function (d) {
           texto += d.toString();
           var m = /localhost:(\d+)\//.exec(texto);
-          if (m) { clearTimeout(prazo); resolver({ filho: filho, pasta: pasta, base: 'http://127.0.0.1:' + m[1], saida: function () { return texto; } }); }
+          if (m) { clearInterval(prazo); resolver({ filho: filho, pasta: pasta, base: 'http://127.0.0.1:' + m[1], saida: function () { return texto; } }); }
         });
         filho.stderr.on('data', function (d) { texto += d.toString(); });
-        filho.on('error', rejeitar);
+        filho.on('error', function (e) { clearInterval(prazo); rejeitar(e); });
       });
     }
 
