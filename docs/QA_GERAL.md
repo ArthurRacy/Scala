@@ -78,7 +78,7 @@ Tudo isso está em `docs/COLOCAR_NO_AR.md`.
 | Q9 | Restaurar um backup transforma `null` em `""` em campos de texto livre. | As contas ficam iguais (conferido). Só a representação difere. | **Aceito (baixo).** |
 | Q10 | O cadastro aceita, **só por chamada direta à rede**, nomes absurdos (objeto vira `[object Object]`, `__proto__` como nome). A tela só manda texto. | Exige alguém já logado como chefe/secretária. | **Aberto (baixo).** Recomendo validar tipos no servidor junto com o endurecimento de segurança. |
 | Q11 | Editar o **rascunho** do boletim não escreve no LOG a cada edição (criar, assinar, reabrir e descartar escrevem). | Possivelmente por desenho: o documento assinado é protegido por código de conferência. | **Confirmar com você** se quer registro de cada edição de rascunho. |
-| Q12 | Cada gravação fica mais lenta com o volume (tabela abaixo). | Sem problema por 1 a 3 anos; pesa depois. | **Acompanhar** (F10). |
+| Q12 | Cada gravação fica mais lenta com o volume (tabela abaixo). | Sem problema até uns 3.000 cirurgias no sistema; quanto tempo isso dura depende do volume (100 por mês ≈ 2,7 anos; 400 por mês ≈ 8 meses). | **Acompanhar** (F10). |
 
 **Desempenho medido (CONFIRMADO, rodei, 15 gravações, com 1 avaliação por cirurgia):**
 
@@ -87,8 +87,13 @@ Tudo isso está em `docs/COLOCAR_NO_AR.md`.
 | Uma gravação demora | 17 ms | 22 ms | 58 ms | 89 ms | 191 ms |
 | Tamanho do estado | 261 KB | 393 KB | 923 KB | 1,6 MB | 3 MB |
 
-Aceitável. Se o volume for de muitos milhares por ano, vale otimizar antes (o mais pesado é recalcular
-tudo a cada gravação). Pergunta pendente: quantas cirurgias por mês?
+"Gravação" é cada vez que alguém salva algo (cirurgia nova, avaliação, boletim…): o sistema recalcula
+escala, posições, avaliações e financeiro de tudo, e esse recálculo cresce com o volume. Até uns
+3.000 cirurgias leva cerca de 0,2 s, que a pessoa não sente; depois disso fica mais lento. Quanto tempo
+isso dura depende do volume, que eu não sei: 100 por mês ≈ 2,7 anos; 400 por mês ≈ 8 meses. Esta medida
+**não inclui boletins nem fichas de qualidade**: com ~1.500 atendimentos completos (boletim + ficha) o
+estado chega a dezenas de MB, e cada tela baixa tudo (F10). Se o volume for alto, vale otimizar antes
+(o mais pesado é recalcular tudo a cada gravação). Pergunta pendente: quantas cirurgias por mês?
 
 ---
 
@@ -101,7 +106,7 @@ tudo a cada gravação). Pergunta pendente: quantas cirurgias por mês?
 | **Servidor (Node)** | Estado em memória + diário (cada comando vai ao disco antes de responder) + cópias; o servidor **refaz** o comando de forma determinística; números de revisão e erro 409 para base velha; perfis decididos no servidor; dinheiro cortado do que o anestesista recebe | **Bom, e agora à prova de disco cheio.** Faltam: HTTPS, serviço que reabre sozinho, trava de instância única, monitor e backup fora da máquina (lista em `COLOCAR_NO_AR.md`). |
 | **Fronteira de confiança** | O "saneador" de tudo que entra de fora (`DADOS.sanearEstado`) mora em `webapp/js/03_dados.js`, e o servidor o carrega de lá | **Dívida técnica, sem risco hoje.** A regra de segurança está numa pasta de tela. O certo é morar no `core/`. Mudança média, sem mudar comportamento; recomendo fazer junto com a persistência no Supabase. |
 | **Persistência** | Disco do servidor. Supabase **não foi construído** | **Pendente** e depende da sua aprovação do desenho. |
-| **Escala de volume** | Cada tela baixa o estado inteiro; cada gravação recalcula tudo | **Aceitável por 1 a 3 anos** (tabela acima). |
+| **Escala de volume** | Cada tela baixa o estado inteiro; cada gravação recalcula tudo | **Aceitável até ~3.000 cirurgias** (tabela acima); quanto tempo dura depende do volume. |
 | **Observabilidade** | LOG por usuário, eventos de acesso, arquivo mensal conferido, `/api/saude` | **Bom para começar**; falta o monitor externo e o aviso por e-mail/WhatsApp. |
 | **Testes** | Suíte própria sem dependências, mais conferência de nomes, contas independentes e sorteio | **Muito bom** para um projeto sem CI. Falta rodar sozinho a cada alteração no GitHub. |
 
