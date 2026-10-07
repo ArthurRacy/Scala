@@ -567,13 +567,22 @@ TELAS.boletim = (function () {
       if (pend.length) { UI.atencao('Ainda falta preencher', pend.join(' · ') + '.'); return; }
       var quadro = COMP.quadroAssinatura({ rotulo: 'Área para o anestesiologista assinar' });
       var crm = crmDoCadastro(app, c.anestesista);
-      var fNome = UI.campo({ rotulo: 'Anestesiologista', nome: 'nome', valor: c.anestesista, obrigatorio: true });
-      var fCrm = UI.campo({ rotulo: 'CRM', nome: 'crm', valor: crm, obrigatorio: true, exemplo: '12345-DF',
+      // No servidor da clínica, quem assina é quem entrou: o boletim sai no nome e no CRM do anestesista ligado ao login.
+      var eu = app.servidor ? contextoDeAssinatura(SERVIDOR.usuario().anestesistaId, store.estado.anestesistas).anestesista : null;
+      var travado = !!(app.servidor && eu);
+      if (travado) crm = eu.crm || crm;
+      var fNome = UI.campo({ rotulo: 'Anestesiologista', nome: 'nome', valor: travado ? eu.nome : c.anestesista, obrigatorio: true, calculado: travado,
+        dica: travado ? 'Quem assina é quem entrou no sistema.' : null });
+      var fCrm = UI.campo({ rotulo: 'CRM', nome: 'crm', valor: crm, obrigatorio: true, exemplo: '12345-DF', calculado: travado && !!(eu && eu.crm),
         dica: crm ? null : 'Vai também para o cadastro do anestesista.' });
       var form = UI.formulario([fNome, fCrm]);
 
       function confirmar(botao) {
         var d = form.dados();
+        if (app.servidor && !eu) {
+          UI.erro('Seu usuário não assina', 'Ele não está ligado a um anestesista do cadastro. Peça ao Anestesista chefe para ligar (tela Usuários).');
+          return;
+        }
         var tracos = quadro.tracos();
         if (!tracos.length) { UI.atencao('Falta a assinatura', 'Assine no quadro acima da linha.'); return; }
         botao.disabled = true;

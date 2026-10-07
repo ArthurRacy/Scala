@@ -167,10 +167,36 @@ function camposRestritosEnviados(nome, args) {
 }
 
 /**
- * O perfil pode mandar esta operação com estes argumentos?
- * Devolve { ok: true } ou { ok: false, motivo: 'perfil'|'campo'|'interna', erro }.
+ * Quem assina o boletim é quem entrou no sistema: cada login de anestesista ou de chefe é ligado a um anestesista
+ * do cadastro, e o boletim sai no nome e no CRM dele. Devolve { anestesista: { id, nome, crm } | null }.
  */
-function perfilPodeExecutar(perfil, nome, args) {
+function contextoDeAssinatura(anestesistaId, anestesistas) {
+  var id = txt(anestesistaId);
+  var a = id ? (anestesistas || []).filter(function (x) { return txt(x.id) === id; })[0] : null;
+  return { anestesista: a ? { id: txt(a.id), nome: txt(a.nome), crm: txt(a.crm) } : null };
+}
+
+function assinaturaConfere(contexto, args) {
+  var eu = contexto && contexto.anestesista;
+  if (!eu) {
+    return { ok: false, motivo: 'vinculo', erro: 'O seu usuário não está ligado a um anestesista do cadastro. Peça ao Anestesista chefe para ligar (tela Usuários) antes de assinar um boletim.' };
+  }
+  var a = (Array.isArray(args) && args[1] && typeof args[1] === 'object') ? args[1] : {};
+  if (!mesmoTexto(a.nome, eu.nome)) {
+    return { ok: false, motivo: 'vinculo', erro: 'O boletim só pode ser assinado por quem entrou no sistema: ele sai em nome de ' + eu.nome + '.' };
+  }
+  if (!vazio(eu.crm) && !mesmoTexto(a.crm, eu.crm)) {
+    return { ok: false, motivo: 'vinculo', erro: 'O CRM da assinatura tem de ser o do seu cadastro (' + eu.crm + ').' };
+  }
+  return { ok: true };
+}
+
+/**
+ * O perfil pode mandar esta operação com estes argumentos?
+ * `contexto` (só no modo servidor) vem de contextoDeAssinatura: sem ele (um computador só, sem login) a assinatura é livre.
+ * Devolve { ok: true } ou { ok: false, motivo: 'perfil'|'campo'|'interna'|'vinculo', erro }.
+ */
+function perfilPodeExecutar(perfil, nome, args, contexto) {
   var p = perfilCanonico(perfil);
   var grupo = GRUPO_DA_MUTACAO[nome];
   if (grupo === 'interna') {
@@ -188,6 +214,7 @@ function perfilPodeExecutar(perfil, nome, args) {
         proibidos.join(', ') + ').' };
     }
   }
+  if (nome === 'finalizarBoletim' && contexto) return assinaturaConfere(contexto, args);
   return { ok: true };
 }
 
@@ -258,6 +285,7 @@ if (typeof module !== 'undefined' && module.exports) {
     perfilVeFinanceiro: perfilVeFinanceiro,
     perfilEhCoordenacao: perfilEhCoordenacao,
     perfilPodeExecutar: perfilPodeExecutar,
+    contextoDeAssinatura: contextoDeAssinatura,
     projetarEstadoParaPerfil: projetarEstadoParaPerfil,
     redigirComandoParaPerfil: redigirComandoParaPerfil
   };

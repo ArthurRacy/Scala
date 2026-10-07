@@ -78,7 +78,8 @@ function criarContas(pasta, opcoes) {
   }
   function sha(token) { return crypto.createHash('sha256').update(String(token)).digest('hex'); }
   function publico(u) {
-    return u ? { login: u.login, nome: u.nome, papel: core.perfilCanonico(u.papel) || 'anestesista', ativo: u.ativo !== false } : null;
+    return u ? { login: u.login, nome: u.nome, papel: core.perfilCanonico(u.papel) || 'anestesista', ativo: u.ativo !== false,
+      anestesistaId: String(u.anestesistaId || '') } : null;
   }
   function porLogin(login) {
     var l = String(login || '').trim().toLowerCase();
@@ -134,7 +135,7 @@ function criarContas(pasta, opcoes) {
     if (erros.length) return { ok: false, erros: erros };
     var sal = crypto.randomBytes(16).toString('hex');
     usuarios.push({ login: d.login, nome: d.nome, papel: core.perfilCanonico(d.papel), ativo: true, sal: sal, hash: hash(d.senha, sal),
-      criadoEm: new Date().toISOString() });
+      criadoEm: new Date().toISOString(), anestesistaId: String(dados.anestesistaId || '').trim() });
     gravar(arqUsuarios, usuarios);
     if (codigo) { codigo = null; try { fs.unlinkSync(arqCodigo); } catch (e) { /* ok */ } }
     return { ok: true, usuario: publico(porLogin(d.login)) };
@@ -158,6 +159,7 @@ function criarContas(pasta, opcoes) {
     if (d.nome) u.nome = String(d.nome).trim();
     if (d.papel) u.papel = core.perfilCanonico(d.papel);
     if (dados.ativo !== undefined) u.ativo = !!dados.ativo;
+    if (dados.anestesistaId !== undefined) u.anestesistaId = String(dados.anestesistaId || '').trim();
     if (d.senha) { u.sal = crypto.randomBytes(16).toString('hex'); u.hash = hash(d.senha, u.sal); }
     gravar(arqUsuarios, usuarios);
     // Senha trocada, acesso cortado ou perfil mudado: as sessões abertas caem (a pessoa entra de novo e

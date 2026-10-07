@@ -30,7 +30,10 @@
  *     a operação que o perfil não faz (403), corta o dinheiro do estado e dos comandos que o
  *     anestesista recebe, e só o Anestesista chefe mexe em usuários, backup e restauração;
  *   - HTTPS: com <dados>/https/chave.pem e certificado.pem, sobe em https.
- *     Sem eles, use só em rede local confiável (Wi-Fi com senha).
+ *     Sem eles, use só em rede local confiável (Wi-Fi com senha). Na internet, ponha um proxy
+ *     com HTTPS (Caddy, ver deploy/) na frente e abra com --atras-de-proxy (ou ATRAS_DE_PROXY=1):
+ *     o cookie passa a ser Secure e o IP de quem entra é o que o proxy informa;
+ *   - uma só cópia do servidor por pasta de dados (servidor.trava).
  * ============================================================================
  */
 'use strict';
@@ -48,6 +51,7 @@ var path = require('path');
 var vm = require('vm');
 var os = require('os');
 var crypto = require('crypto');
+var zlib = require('zlib');
 
 var core = require('../core');
 var criarArmazem = require('./armazem').criarArmazem;
@@ -68,6 +72,7 @@ var TIPOS = {
 var LIMITE_BACKUP = 200 * 1024 * 1024;   // backup completo, com PDFs em base64
 var LIMITE_COMANDO = 4 * 1024 * 1024;
 var LIMITE_PDF = 25 * 1024 * 1024;
+var LIMITE_PDFS_POR_AVALIACAO = 30;
 var MAX_DIARIO_MEMORIA = 5000;
 var DESVIO_MAXIMO_MS = 5 * 60 * 1000;
 var AGORA_TEXTO = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
@@ -103,10 +108,91 @@ function cabecalhos(extras) {
   }, extras || {});
 }
 
+function aceitaGzip(res) {
+  return !!(res.req && /\bgzip\b/.test(String(res.req.headers['accept-encoding'] || '')));
+}
+
+/**
+ * Responde JSON. Corpo grande vai comprimido (gzip) quando o navegador aceita: o estado inteiro que cada tela baixa
+ * encolhe de 8 a 10 vezes, e o navegador descomprime sozinho.
+ */
 function json(res, status, obj, extras) {
   var corpo = JSON.stringify(obj);
-  res.writeHead(status, cabecalhos(Object.assign({ 'Content-Type': 'application/json; charset=utf-8' }, extras || {})));
+  var base = { 'Content-Type': 'application/json; charset=utf-8' };
+  if (corpo.length > 2048 && aceitaGzip(res)) {
+    zlib.gzip(Buffer.from(corpo, 'utf8'), function (erro, comprimido) {
+      if (res.headersSent || res.destroyed) return;
+      if (erro) { res.writeHead(status, cabecalhos(Object.assign(base, extras || {}))); res.end(corpo); return; }
+      res.writeHead(status, cabecalhos(Object.assign(base, { 'Content-Encoding': 'gzip', Vary: 'Accept-Encoding' }, extras || {})));
+      res.end(comprimido);
+    });
+    return;
+  }
+  res.writeHead(status, cabecalhos(Object.assign(base, extras || {})));
   res.end(corpo);
+}
+
+/**
+ * Argumentos de comando vindos da rede: só JSON de verdade, sem chave que mexe no prototype, com tamanho e profundidade
+ * limitados. Recusa em vez de "limpar": a tela que mandou já rodou o comando como estava, e o servidor tem de rodar o MESMO.
+ */
+function argumentosSeguros(v, fundo) {
+  fundo = fundo || 0;
+  if (fundo > 12) return false;
+  if (v === null || typeof v === 'boolean') return true;
+  if (typeof v === 'number') return isFinite(v);
+  if (typeof v === 'string') return v.length <= 200000;
+  if (Array.isArray(v)) return v.length <= 5000 && v.every(function (x) { return argumentosSeguros(x, fundo + 1); });
+  if (typeof v === 'object') {
+    var chaves = Object.keys(v);
+    return chaves.length <= 500 && chaves.every(function (k) {
+      return k !== '__proto__' && k !== 'constructor' && k !== 'prototype' && argumentosSeguros(v[k], fundo + 1);
+    });
+  }
+  return false;
+}
+
+/**
+ * Só um servidor por pasta de dados: dois gravando no mesmo estado e no mesmo diário se estragariam. A trava é um arquivo
+ * com o número do processo; se o processo dono já não existe (queda de luz), a trava velha é refeita.
+ * Devolve a função que solta a trava.
+ */
+var travasAbertas = new Set();
+process.once('exit', function () { travasAbertas.forEach(function (soltar) { soltar(); }); });
+
+function processoVivo(pid) {
+  try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
+}
+
+function pegarTrava(pasta) {
+  fs.mkdirSync(pasta, { recursive: true });
+  var arq = path.join(pasta, 'servidor.trava');
+  for (var tentativa = 0; tentativa < 3; tentativa++) {
+    try {
+      var fd = fs.openSync(arq, 'wx');
+      fs.writeSync(fd, JSON.stringify({ pid: process.pid, desde: new Date().toISOString() }));
+      fs.closeSync(fd);
+      var soltar = function () {
+        try {
+          var dono = JSON.parse(fs.readFileSync(arq, 'utf8'));
+          if (dono && dono.pid === process.pid) fs.unlinkSync(arq);
+        } catch (e) { /* já não existe */ }
+        travasAbertas.delete(soltar);
+      };
+      travasAbertas.add(soltar);
+      return soltar;
+    } catch (e) {
+      if (e.code !== 'EEXIST') throw e;
+      var dono = null;
+      try { dono = JSON.parse(fs.readFileSync(arq, 'utf8')); } catch (e2) { /* ilegível: trava velha */ }
+      if (dono && dono.pid && processoVivo(dono.pid)) {
+        throw new Error('Já existe um servidor usando esta pasta de dados (processo ' + dono.pid + ', aberto em ' + dono.desde +
+          '). Use a janela que já está aberta. Se tiver certeza de que ele não está rodando, apague o arquivo ' + arq + '.');
+      }
+      try { fs.unlinkSync(arq); } catch (e3) { /* outro processo pegou antes: tenta de novo */ }
+    }
+  }
+  throw new Error('Não consegui pegar a trava da pasta de dados (' + arq + ').');
 }
 
 function falha(status, msg) { var e = new Error(msg); e.status = status; return e; }
@@ -174,6 +260,29 @@ function criarServidor(opcoes) {
   PUBLICAS.forEach(function (p) {
     if (dentro(pastaDados, path.join(RAIZ, p))) throw new Error('A pasta de dados não pode ficar dentro de ' + p + '/ (seria servida na rede).');
   });
+  var soltarTrava = pegarTrava(pastaDados);   // antes de ler ou gravar qualquer coisa: só um servidor por pasta
+
+  /**
+   * Atrás de um proxy (Caddy, nginx) que faz o HTTPS: com `atrasDeProxy` (--atras-de-proxy ou ATRAS_DE_PROXY=1), o cabeçalho
+   * X-Forwarded-Proto vale para o cookie Secure e X-Forwarded-For para o IP de quem entra. Só se confia neles quando o pedido
+   * vem do próprio computador (o proxy); de fora, o cabeçalho é ignorado, para ninguém se passar por outro IP nem por HTTPS.
+   */
+  var atrasDeProxy = !!(opcoes.atrasDeProxy || process.env.ATRAS_DE_PROXY === '1');
+  function doProxy(req) {
+    var ip = String(req.socket && req.socket.remoteAddress || '');
+    return atrasDeProxy && (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1');
+  }
+  function ehHttps(req) {
+    return usaHttps || (doProxy(req) && String(req.headers['x-forwarded-proto'] || '').split(',').pop().trim() === 'https');
+  }
+  /** O IP de quem fez o pedido. Atrás do proxy, o último da lista X-Forwarded-For (o que o próprio proxy acrescentou). */
+  function ipDoCliente(req) {
+    if (doProxy(req) && req.headers['x-forwarded-for']) {
+      var ultimo = String(req.headers['x-forwarded-for']).split(',').pop().trim();
+      if (ultimo) return ultimo;
+    }
+    return String(req.socket && req.socket.remoteAddress || '');
+  }
 
   var registrar = opcoes.silencioso ? function () {} : function (m) {
     console.log(new Date().toTimeString().slice(0, 8) + '  ' + m);
@@ -192,7 +301,7 @@ function criarServidor(opcoes) {
     quem = quem || {};
     try {
       auditoria.registrar({ login: quem.login, nome: quem.nome, papel: quem.papel, evento: codigo, detalhe: detalhe,
-        ip: req && req.socket ? req.socket.remoteAddress : '', quando: quando });
+        ip: req && req.socket ? ipDoCliente(req) : '', quando: quando });
     } catch (e) { registrar('ATENÇÃO: não consegui gravar o evento "' + codigo + '": ' + (e && e.message)); }
     registrar(codigo + (quem.login ? ' · ' + quem.login : '') + (detalhe ? ' · ' + detalhe : ''));
   }
@@ -421,8 +530,8 @@ function criarServidor(opcoes) {
   function executarComando(c, eu, req) {
     var nome = String(c.nome || '');
     if (core.MUTACOES_STORE.indexOf(nome) < 0) return [400, { erro: 'Operação desconhecida.' }];
-    if (!Array.isArray(c.args) || c.args.length > 6) return [400, { erro: 'Argumentos inválidos.' }];
-    var perm = core.perfilPodeExecutar(eu.papel, nome, c.args);
+    if (!Array.isArray(c.args) || c.args.length > 6 || !argumentosSeguros(c.args)) return [400, { erro: 'Argumentos inválidos.' }];
+    var perm = core.perfilPodeExecutar(eu.papel, nome, c.args, core.contextoDeAssinatura(eu.anestesistaId, store.estado.anestesistas));
     if (!perm.ok) {
       evento('acesso_negado', eu, 'operação ' + nome + ' (' + perm.motivo + ')', req);
       return [403, { erro: perm.erro, motivo: perm.motivo }];
@@ -478,6 +587,10 @@ function criarServidor(opcoes) {
     var uid = String(req.headers['x-uid-avaliacao'] || '');
     var aval = store.estado.avaliacoes.filter(function (a) { return a.uid && a.uid === uid; })[0];
     if (!aval) return Promise.resolve([400, { erro: 'Avaliação não encontrada — recarregue a página.' }]);
+    var jaTem = armazem.metasAnexos().filter(function (m) { return m.uidAvaliacao === uid; }).length;
+    if (jaTem >= LIMITE_PDFS_POR_AVALIACAO) {
+      return Promise.resolve([400, { erro: 'Esta avaliação já tem ' + jaTem + ' exames anexados (o limite é ' + LIMITE_PDFS_POR_AVALIACAO + '). Remova algum antes de anexar outro.' }]);
+    }
     var nome;
     try { nome = decodeURIComponent(String(req.headers['x-nome'] || 'exame.pdf')); } catch (e) { nome = 'exame.pdf'; }
     return lerCorpo(req, LIMITE_PDF).then(function (buf) {
@@ -495,6 +608,21 @@ function criarServidor(opcoes) {
     });
   }
 
+  /** O vínculo do login com um anestesista do cadastro (quem assina o boletim): existe, é de uma só pessoa e não é da secretária. */
+  function erroDoVinculo(c, atual) {
+    if (c.anestesistaId === undefined) return null;
+    var id = String(c.anestesistaId || '').trim();
+    if (!id) return null;                                      // desligar sempre pode
+    var papel = core.perfilCanonico(c.papel !== undefined && c.papel !== '' ? c.papel : (atual && atual.papel)) || 'anestesista';
+    if (papel === 'secretaria') return { campo: 'anestesistaId', msg: 'A secretária não assina boletim: não precisa ser ligada a um anestesista.' };
+    var cad = store.estado.anestesistas.filter(function (a) { return String(a.id) === id; })[0];
+    if (!cad) return { campo: 'anestesistaId', msg: 'Esse anestesista não existe no cadastro.' };
+    var login = String(c.login || '').trim().toLowerCase();
+    var outro = contas.listar().filter(function (u) { return u.anestesistaId === id && u.login !== login; })[0];
+    if (outro) return { campo: 'anestesistaId', msg: 'Esse anestesista já está ligado ao usuário "' + outro.login + '".' };
+    return null;
+  }
+
   /* ----------------------------------------------------------- rotas */
 
   function api(req, res, caminho, busca) {
@@ -505,7 +633,7 @@ function criarServidor(opcoes) {
 
     function responder(par) { json(res, par[0], par[1]); }
     function cookie(t, apagar) {
-      return COOKIE + '=' + (apagar ? '' : t) + '; Path=/; HttpOnly; SameSite=Strict' + (usaHttps ? '; Secure' : '') +
+      return COOKIE + '=' + (apagar ? '' : t) + '; Path=/; HttpOnly; SameSite=Strict' + (ehHttps(req) ? '; Secure' : '') +
         (apagar ? '; Max-Age=0' : '; Max-Age=' + 7 * 86400);
     }
 
@@ -521,7 +649,7 @@ function criarServidor(opcoes) {
     }
     if (caminho === '/api/entrar' && metodo === 'POST') {
       return lerJson(req, 16384).then(function (c) {
-        var r = contas.entrar(c.login, c.senha, req.socket.remoteAddress || '');
+        var r = contas.entrar(c.login, c.senha, ipDoCliente(req));
         if (!r.ok) {
           evento(r.travado ? 'entrada_bloqueada' : 'entrada_recusada', { login: String(c.login || '').slice(0, 30) },
             r.travado ? 'muitas tentativas erradas' : 'login ou senha não conferem', req);
@@ -640,6 +768,8 @@ function criarServidor(opcoes) {
       if (!soChefe()) return Promise.resolve();
       return lerJson(req, 16384).then(function (c) {
         var antes = c.novo ? null : contas.usuario(c.login);
+        var erroVinculo = erroDoVinculo(c, antes);
+        if (erroVinculo) return json(res, 400, { ok: false, erros: [erroVinculo] });
         var r = c.novo ? contas.criarUsuario(c) : contas.alterarUsuario(c.login, c);
         if (r.ok) {
           evento(c.novo ? 'usuario_criado' : 'usuario_alterado', eu, r.usuario.login + ' · perfil ' + r.usuario.papel +
@@ -774,8 +904,17 @@ function criarServidor(opcoes) {
     if (!dentro(arquivo, path.join(RAIZ, raizPublica))) { res.writeHead(404, cabecalhos()); res.end(); return; }
     fs.stat(arquivo, function (erro, st) {
       if (erro || !st.isFile()) { res.writeHead(404, cabecalhos()); res.end('Não encontrado'); return; }
-      res.writeHead(200, cabecalhos({ 'Content-Type': TIPOS[path.extname(arquivo).toLowerCase()] || 'application/octet-stream',
-        'Content-Length': st.size, 'Cache-Control': 'no-cache' }));
+      var ext = path.extname(arquivo).toLowerCase();
+      var tipo = TIPOS[ext] || 'application/octet-stream';
+      var texto = ['.html', '.js', '.css', '.json', '.svg', '.webmanifest'].indexOf(ext) >= 0;
+      if (texto && st.size > 1024 && aceitaGzip(res)) {
+        // Texto comprime de 4 a 5 vezes: o sistema abre bem mais rápido por fora da rede da clínica.
+        res.writeHead(200, cabecalhos({ 'Content-Type': tipo, 'Content-Encoding': 'gzip', Vary: 'Accept-Encoding', 'Cache-Control': 'no-cache' }));
+        if (req.method === 'HEAD') { res.end(); return; }
+        fs.createReadStream(arquivo).pipe(zlib.createGzip()).pipe(res);
+        return;
+      }
+      res.writeHead(200, cabecalhos({ 'Content-Type': tipo, 'Content-Length': st.size, 'Cache-Control': 'no-cache' }));
       if (req.method === 'HEAD') { res.end(); return; }
       fs.createReadStream(arquivo).pipe(res);
     });
@@ -839,7 +978,7 @@ function criarServidor(opcoes) {
     gravarAgora();
     contas.gravarSessoes();
     return new Promise(function (resolver) {
-      servidor.close(function () { resolver(); });
+      servidor.close(function () { soltarTrava(); resolver(); });
       if (servidor.closeAllConnections) servidor.closeAllConnections();
     });
   }
@@ -865,12 +1004,19 @@ function argumentos(lista) {
     if (lista[i] === '--porta') o.porta = Number(lista[++i]);
     else if (lista[i] === '--host') o.host = lista[++i];
     else if (lista[i] === '--dados') o.dados = lista[++i];
+    else if (lista[i] === '--atras-de-proxy') o.atrasDeProxy = true;
   }
   return o;
 }
 
 if (require.main === module) {
-  var srv = criarServidor(argumentos(process.argv.slice(2)));
+  var srv;
+  try {
+    srv = criarServidor(argumentos(process.argv.slice(2)));
+  } catch (e) {
+    console.error('Não foi possível abrir o servidor: ' + (e && e.message));
+    process.exit(1);
+  }
   srv.iniciar().catch(function (e) {
     console.error(e && e.code === 'EADDRINUSE'
       ? 'A porta já está em uso — o servidor já está aberto em outra janela? Ou use --porta 8081.'
@@ -888,4 +1034,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { criarServidor: criarServidor };
+module.exports = { criarServidor: criarServidor, pegarTrava: pegarTrava };

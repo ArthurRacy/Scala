@@ -140,7 +140,7 @@ var SERVIDOR = (function () {
           return { ok: false, erros: [{ campo: '', msg: 'Os dados foram atualizados enquanto esta janela estava aberta. Feche-a e abra de novo.' }], avisos: [] };
         }
         // O servidor confere de novo (e é ele quem decide); aqui só se poupa a ida e volta.
-        var perm = perfilPodeExecutar(usuario.papel, nome, args);
+        var perm = perfilPodeExecutar(usuario.papel, nome, args, contextoDeAssinatura(usuario.anestesistaId, store.estado.anestesistas));
         if (!perm.ok) {
           return { ok: false, erros: [{ campo: '', msg: perm.erro }], avisos: [] };
         }

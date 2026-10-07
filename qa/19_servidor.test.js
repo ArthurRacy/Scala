@@ -201,6 +201,9 @@ module.exports = function (t, core, dados) {
           }).then(function () {
             return rep.comando('alterarLinhaBoletim', 'BOL0001', 'sinais', { acao: 'adicionar', linha: { hora: '07:05', pas: '120', pad: '80' } });
           }).then(function () {
+            // Quem assina é quem entrou: o login do administrador é ligado ao anestesista do cadastro (A06).
+            return cli.post('/api/usuarios', { login: 'admin', anestesistaId: 'A06' });
+          }).then(function () {
             return rep.comando('finalizarBoletim', 'BOL0001', { tracos: [[[0.1, 0.2], [0.5, 0.6]]], nome: 'Fabrício Tavares', crm: '1234-DF' });
           }).then(function (x) {
             verdadeiro(x.resp.corpo.ok, JSON.stringify(x.resp.corpo));
