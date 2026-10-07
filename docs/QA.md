@@ -1,7 +1,7 @@
 # QA — o que a bateria cobre
 
 ```bash
-node qa              # tudo (800 testes)
+node qa              # tudo (829 testes)
 node qa 05           # só o arquivo que começa com "05"
 node qa rodizio      # só os arquivos cujo nome contém "rodizio"
 ```
@@ -9,7 +9,7 @@ node qa rodizio      # só os arquivos cujo nome contém "rodizio"
 Sai com código 1 se qualquer teste falhar, então serve de porta de CI.
 Zero dependências: o arnês está em `qa/_runner.js`.
 
-**Resultado atual: 800 testes, 800 aprovados.**
+**Resultado atual: 829 testes, 829 aprovados.**
 
 ---
 
@@ -87,10 +87,13 @@ cada arquivo; somados aos 15, dão 514 (mais os arquivos 25 e 26, que vieram dep
 | `27_fuso.test.js` | 3 | Hora de Brasília em qualquer fuso do computador (e o dia de Brasília quando o UTC já virou); **servidor de verdade num processo com `TZ=UTC` (como numa nuvem) aceita a hora de Brasília e recusa a de UTC** |
 | `24_exames_na_cirurgia.test.js` | 22 | Exames do paciente na tela de cirurgia nova: a regra que diz se a cirurgia gera avaliação (onde os PDFs ficam) é a mesma da criação da linha e vem do core; `adicionarCirurgia` e `atualizarCirurgia` devolvem a avaliação criada (uid e `idCirurgia`) e a mesma semente dá o mesmo uid na tela e no servidor; conferência do arquivo (PDF de verdade com lixo antes do cabeçalho, texto com extensão `.pdf`, vazio, grande demais); fila de espera (aceitos, recusados com motivo, repetidos, duas levas quase juntas, remover); envio um a um preso ao uid, o que falha fica na fila e sai em `falhas`, avaliação sem uid não envia nada; ligações da tela (conferir os exames antes de gravar e enviar só depois de fechar, erro volta para a aba de dados, a regra vem do core, soltar fora da área é barrado) e o CSS que mantém o modal dentro do celular com nome de arquivo comprido e a altura fixa com abas |
 | `30_nomes.test.js` | 1 | Nenhum nome usado sem existir, nos quatro ambientes (navegador, core no Node, servidor, Apps Script): o erro "X is not defined" que só aparece quando alguém clica, e o nome que existe no navegador mas ficou fora do `module.exports` do core (`tools/verificar_nomes.js`) |
-| `31_robustez.test.js` | 13 | Dado com nome de propriedade do JavaScript (`constructor`, `__proto__`, `toString`, `hasOwnProperty`, `valueOf`) como data, dia, nome ou ID não derruba o recálculo nem suja o `Object`; `horas()` e `aplicarRemanejamento` com entrada fora do contrato; **mudar a escala-base (ou o cadastro, com a base automática) com substituição antiga avisa exatamente quando a mesma pessoa fica em duas posições**; trocar um posto da base deixa linha no LOG |
+| `31_robustez.test.js` | 16 | Dado com nome de propriedade do JavaScript (`constructor`, `__proto__`, `toString`…) como data, dia, nome ou ID não derruba o recálculo nem suja o `Object`; `horas()` e `aplicarRemanejamento` com entrada fora do contrato; **cirurgia que vira a meia-noite conflita com a do dia seguinte (F13)**; **mudar a escala-base (ou o cadastro, com a base automática) que deixaria a mesma pessoa em duas posições no mesmo dia é RECUSADO e nada muda**; trocar um posto da base deixa linha no LOG |
 | `32_contas_independentes.test.js` | 22 | **As contas refeitas por fora**: calendário contra o `Date` (2024 a 2044) e o ano bissexto; `moedaBR` contra o `Intl` do pt-BR em 5.000 valores e ida e volta; financeiro do mês e **repasse (a soma das cotas fecha com o líquido, ao centavo)** contra centavos inteiros em estados aleatórios, nas duas bases; rodízio contra a fórmula (com substituições, e escala-base automática de 5 a 15 pessoas, com o mês encerrado congelado) |
 | `33_aleatorio.test.js` | 1 | Operações sorteadas (3 sementes × 120 passos, `tools/aleatorio_store.js`): nenhuma exceção, nenhum "Erro interno", **recusa não muda o estado**, leitura não muda o estado, e a réplica refeita fica **idêntica** |
 | `34_disco_e_freios.test.js` | 6 | **Disco recusando gravação**: o comando é desfeito (503) e nada fica pela metade nem duplica; importar sem gravar no disco é desfeito e `/api/saude` avisa (e volta ao normal); o diário não fica com linha pela metade; **freios contra relógio errado** (não apaga quase todas as cópias de uma vez, nem mais de 4 arquivos de LOG); `/api/saude` sem login e sem dado |
+| `35_assinatura_login.test.js` | 6 | **O boletim só é assinado por quem entrou no sistema (F05)**: o contexto vem do cadastro; sem vínculo ninguém assina, ligado só no próprio nome, o CRM do cadastro manda (cadastro sem CRM aceita o digitado); no servidor de verdade: chefe e anestesista, secretária recusada, vínculo de uma pessoa só, que exista, e que se desfaz |
+| `36_servidor_operacao.test.js` | 11 | **Uma só cópia do servidor por pasta (F14)** (trava velha refeita); **recuperar a senha do chefe** (`tools/redefinir_senha.js`, só com o servidor fechado, registrado no LOG); **atrás de proxy**: cookie `Secure` e IP do LOG só com `--atras-de-proxy` e pedido do próprio computador (F06, F17); respostas em **gzip** idênticas ao original; argumentos com `__proto__`/`constructor`/fundo demais recusados (Q10); 30 exames por avaliação (F15) |
+| `37_limites_de_valor.test.js` | 9 | **Teto de R$ 100 milhões por mês** (cada lançamento e a soma do mês, cancelada não conta, recusa não deixa rastro) e **no máximo 2 casas decimais**, em cirurgia, avaliação e despesas do repasse (F11); objeto no lugar de texto não vira `[object Object]` |
 
 ---
 

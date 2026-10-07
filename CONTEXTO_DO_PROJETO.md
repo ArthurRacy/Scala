@@ -2,9 +2,9 @@
 
 Documento de passagem entre conversas. Diz o que o sistema é, como está
 montado, o que já foi feito, as regras que não podem ser quebradas e o que
-ainda falta. Atualizado em **05/10/2026**.
+ainda falta. Atualizado em **07/10/2026**.
 
-- Estado atual: **800 testes, todos passando** (`node qa`; a suíte inteira leva alguns minutos).
+- Estado atual: **829 testes, todos passando** (`node qa`; a suíte inteira leva alguns minutos).
 - Versão online publicada: **versão 10** (com o módulo de qualidade e segurança).
 
 ---
@@ -310,6 +310,17 @@ Regras de concorrência e de acesso:
     `qa/31` (núcleo) e `qa/34` (disco e freios). **Regra para o futuro:** o laço de eventos
     do `node qa` fica preso durante os testes síncronos; teste que espera um processo filho
     deve contar só o tempo em que o laço esteve livre (ver `qa/27`).
+13. **Decisões do dono do produto e endurecimento** (07/10/2026): **não travar o mês** (F03); **login ligado a quem assina o
+    boletim** (cada chefe/anestesista é ligado a um anestesista do cadastro na tela Usuários; o servidor recusa assinatura em
+    outro nome ou com CRM diferente do cadastro; `contextoDeAssinatura` em `core/12b_permissoes.js`); **teto de R$ 100 milhões
+    por mês e no máximo 2 casas decimais** (`LIMITE_VALOR_MES`, `erroDeTetoMensal`); **mudança de escala-base (ou de cadastro com
+    a base automática) que deixaria a mesma pessoa em duas posições no mesmo dia é recusada**; sem prejuízo no repasse (F12, nada a
+    fazer); sem registro de rascunho de boletim no LOG. Conflito de horário **também na virada do dia** (F13). Servidor: **uma só
+    cópia por pasta de dados** (`servidor.trava`, F14), `--atras-de-proxy`/`ATRAS_DE_PROXY=1` para cookie `Secure` e IP real (F06,
+    F17), limite de 30 exames por avaliação (F15), argumentos de comando seguros, respostas em gzip, `tools/redefinir_senha.js`,
+    `docs/RUNBOOK.md`, `deploy/` (modelos, não testados numa máquina) e `.github/workflows/testes.yml`. **Volume:** até 2.500
+    cirurgias por mês não cabe no desenho de hoje (`docs/ESCALA_E_BANCO.md`): banco relacional, tela por mês e boletim/ficha por
+    registro, **aguardando aprovação**.
 
 ## 9. Pendências e ideias (nada bloqueando)
 
@@ -366,13 +377,13 @@ Regras de concorrência e de acesso:
     8091). Não afeta o navegador da pessoa usuária;
   - a pasta de teste do servidor ficou no scratchpad.
 - **Documentação** atualizada: README (seções de boletim, qualidade, servidor e
-  segurança), docs/QA.md (tabela por arquivo, 800 testes), docs/KANBAN.md,
+  segurança), docs/QA.md (tabela por arquivo, 829 testes), docs/KANBAN.md,
   docs/QUALIDADE.md e docs/QUALIDADE_INDICADORES.md (este é **gerado**: rode
   `node tools/gerar_docs_qualidade.js` depois de mudar o catálogo).
 
 ## 10. Primeiros passos sugeridos para o próximo chat
 
-1. Rodar `node qa` e confirmar 800 de 800.
+1. Rodar `node qa` e confirmar 829 de 829.
 2. Ler `README.md` (visão de uso) e a seção 3 deste arquivo (invariantes).
 3. Antes de mexer no store, conferir as listas `MUTACOES_*` e o contexto de
    execução.

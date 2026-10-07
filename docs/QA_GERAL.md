@@ -21,8 +21,14 @@ uma conta é pega na hora. **CONFIRMADO (rodei).**
 
 **Código e lógica.** Um programa sorteou mais de 31 mil chamadas às operações do sistema (com dado
 normal e dado absurdo) e conferiu o que nunca pode acontecer. Achou **8 problemas reais**; os 8 estão
-corrigidos, cada um com teste que falha sem a correção e passa com ela. Dois pontos dependem de
-decisão sua (Q5 e Q11, na lista abaixo). **CONFIRMADO (rodei).**
+corrigidos, cada um com teste que falha sem a correção e passa com ela. As duas decisões que ficaram
+com você (Q5 e Q11) foram tomadas em 07/10/2026 e estão feitas. **CONFIRMADO (rodei).**
+
+**Atualização de 07/10/2026.** Você informou até **2.500 cirurgias por mês**: isso **não cabe** no desenho de hoje
+(`docs/ESCALA_E_BANCO.md`). Também foram feitos, com teste: login ligado a quem assina o boletim (F05), teto de
+R$ 100 milhões por mês e 2 casas decimais (F11), conflito de horário na virada do dia (F13), uma só cópia do servidor por
+pasta (F14), cookie `Secure` e IP real atrás de proxy (F06, F17), limite de exames por avaliação (F15), argumentos de
+comando seguros (Q10), recuperação de senha do chefe, compressão das respostas, RUNBOOK e modelos de implantação.
 
 **Um ano.** Nenhum dado de operação (cirurgias, avaliações, boletins, fichas, repasses) é apagado
 sozinho. O que o sistema esconde ou apaga com o tempo é só o LOG na tela e as cópias de segurança
@@ -49,7 +55,7 @@ Tudo isso está em `docs/COLOCAR_NO_AR.md`.
 | Backup e restauração | Um sistema cheio é exportado, importado e comparado; 360 backups estragados de todo jeito (campos trocados, listas viradas em texto, `__proto__`, repetidos, lixo) e 22 textos que nem são JSON | O sistema restaurado dá os mesmos resultados; nenhum backup estragado derruba o sistema (achado Q1 corrigido). |
 | Nomes e variáveis | Programa que lê todo o código e acusa qualquer nome usado sem existir (o erro "X is not defined" que só aparece quando alguém clica) | Zero (e virou o teste `qa/30`). |
 | Telas | As 17 telas abertas no navegador (modo demonstração) | Todas abrem, nenhum erro de JavaScript. Não fiz bateria de acessibilidade nem de celular nesta rodada. |
-| Suíte | `node qa`, também em fusos diferentes, em clone limpo e com fim de linha do Windows | **800 testes, 800 aprovados** (05/10/2026). |
+| Suíte | `node qa`, também em fusos diferentes, em clone limpo e com fim de linha do Windows | **829 testes, 829 aprovados** (07/10/2026; eram 800 em 05/10). |
 
 **O que NÃO foi conferido de forma independente (honestidade):**
 
@@ -71,14 +77,14 @@ Tudo isso está em `docs/COLOCAR_NO_AR.md`.
 | Q2 | **Disco cheio ou sem permissão.** (a) O comando já tinha mudado a memória, mas não ia para o diário: o usuário via erro, tentava de novo (duplicava) e, se o servidor caísse, o comando sumia; (b) importar ou restaurar um backup sem conseguir gravar "valia" na memória e o estado velho voltava na próxima partida, sem ninguém saber; (c) a gravação agendada podia derrubar o servidor; (d) uma linha do diário gravada pela metade grudava na seguinte e as duas se perdiam. | Em PC com pouco espaço ou VPS pequena. Impacto: dado perdido ou duplicado. **CONFIRMADO (rodei)**, com disco "recusando" de mentira. | **Corrigido.** O comando é desfeito e devolve erro claro (503); a troca do estado inteiro é desfeita; a falha de gravação não derruba o servidor (tenta de novo em 10 s); o diário volta ao tamanho de antes. Teste `qa/34`. |
 | Q3 | **Relógio errado apagando cópias.** A limpeza de cópias e de arquivos do LOG usa a data do computador. Com a data muito à frente, apagaria quase tudo de uma vez. | Pilha de CMOS, VM restaurada, ajuste de data errado. **CONFIRMADO NO CÓDIGO**; o freio foi testado. | **Corrigido.** Freio: querer apagar quase tudo de uma vez (cópias) ou mais de 4 arquivos de LOG de uma vez não apaga nada e deixa aviso. Teste `qa/34`. |
 | Q4 | O LOG na tela guardava 6 meses por padrão e aceitava de 1 a 36. | Contra o seu pedido ("pelo menos um ano"). | **Corrigido.** Padrão 12, **mínimo 12**, máximo 60. O que sai da tela só sai depois de virar arquivo conferido (SHA-256), guardado 5 anos (0 = nunca apagar). Testes `qa/28` e `qa/29`. |
-| Q5 | **Mudar a escala-base com substituição já registrada** podia deixar a mesma pessoa em duas posições no mesmo dia (acontece também ao ativar/desativar alguém com a escala-base automática ligada). A tela aceitava sem avisar; só a tela Integridade acusava depois. | Qualquer mudança de base no meio do mês. Efeito: a busca de posição do rodízio fica ambígua naquele dia. **CONFIRMADO (rodei).** | **Corrigido o aviso:** a mudança vale (a regra de negócio não mudou) e a tela diz quais dias revisar. **Decisão sua (opcional):** em vez de avisar, *recusar* a mudança que cria duplicata? |
+| Q5 | **Mudar a escala-base com substituição já registrada** podia deixar a mesma pessoa em duas posições no mesmo dia (acontece também ao ativar/desativar alguém com a escala-base automática ligada). A tela aceitava sem avisar; só a tela Integridade acusava depois. | Qualquer mudança de base no meio do mês. Efeito: a busca de posição do rodízio fica ambígua naquele dia. **CONFIRMADO (rodei).** | **Decidido por você em 07/10/2026: recusar.** Agora a mudança que deixaria a mesma pessoa em duas posições no mesmo dia é recusada, diz quais dias e nada muda (o que já estava duplicado antes não trava nada). Teste `qa/31`. |
 | Q6 | Trocar um posto da escala-base **não deixava linha no LOG** (só ligar/desligar o modo automático deixava). | Falha na trilha por usuário. **CONFIRMADO (rodei).** | **Corrigido** (`ESCALA-BASE`, com quem trocou e de→para). |
 | Q7 | `horas()` com argumento que não é lista lançava exceção; `aplicarRemanejamento([null])` dava "Erro interno". | Só com chamada fora do contrato; a transação desfazia tudo. | **Corrigido** (recusa com mensagem). |
 | Q8 | Sem rota para um monitor externo saber se o sistema está de pé e gravando. | Cair sem ninguém ver. | **Corrigido:** `GET /api/saude` (sem login, sem dado nenhum; 503 se o disco recusa gravar). |
 | Q9 | Restaurar um backup transforma `null` em `""` em campos de texto livre. | As contas ficam iguais (conferido). Só a representação difere. | **Aceito (baixo).** |
-| Q10 | O cadastro aceita, **só por chamada direta à rede**, nomes absurdos (objeto vira `[object Object]`, `__proto__` como nome). A tela só manda texto. | Exige alguém já logado como chefe/secretária. | **Aberto (baixo).** Recomendo validar tipos no servidor junto com o endurecimento de segurança. |
-| Q11 | Editar o **rascunho** do boletim não escreve no LOG a cada edição (criar, assinar, reabrir e descartar escrevem). | Possivelmente por desenho: o documento assinado é protegido por código de conferência. | **Confirmar com você** se quer registro de cada edição de rascunho. |
-| Q12 | Cada gravação fica mais lenta com o volume (tabela abaixo). | Sem problema até uns 3.000 cirurgias no sistema; quanto tempo isso dura depende do volume (100 por mês ≈ 2,7 anos; 400 por mês ≈ 8 meses). | **Acompanhar** (F10). |
+| Q10 | O cadastro aceita, **só por chamada direta à rede**, nomes absurdos (objeto vira `[object Object]`, `__proto__` como nome). A tela só manda texto. | Exige alguém já logado como chefe/secretária. | **Corrigido em 07/10/2026.** Objeto ou lista no lugar de texto vira vazio (e a validação cobra o obrigatório); o servidor recusa argumentos com `__proto__`, `constructor`, `prototype`, fundos demais ou grandes demais. Testes `qa/36` e `qa/37`. |
+| Q11 | Editar o **rascunho** do boletim não escreve no LOG a cada edição (criar, assinar, reabrir e descartar escrevem). | Possivelmente por desenho: o documento assinado é protegido por código de conferência. | **Decidido por você em 07/10/2026: não registrar rascunho.** Nada a fazer. |
+| Q12 | Cada gravação fica mais lenta com o volume (tabela abaixo). | Sem problema até uns 3.000 cirurgias no sistema; quanto tempo isso dura depende do volume (100 por mês ≈ 2,7 anos; 400 por mês ≈ 8 meses). | **Você informou até 2.500 cirurgias por mês: isso não cabe no desenho de hoje.** Ver `docs/ESCALA_E_BANCO.md` (medições, como resolver, alternativas ao Supabase). Ganho imediato já feito: respostas comprimidas (gzip). |
 
 **Desempenho medido (CONFIRMADO, rodei, 15 gravações, com 1 avaliação por cirurgia):**
 
@@ -106,7 +112,7 @@ estado chega a dezenas de MB, e cada tela baixa tudo (F10). Se o volume for alto
 | **Servidor (Node)** | Estado em memória + diário (cada comando vai ao disco antes de responder) + cópias; o servidor **refaz** o comando de forma determinística; números de revisão e erro 409 para base velha; perfis decididos no servidor; dinheiro cortado do que o anestesista recebe | **Bom, e agora à prova de disco cheio.** Faltam: HTTPS, serviço que reabre sozinho, trava de instância única, monitor e backup fora da máquina (lista em `COLOCAR_NO_AR.md`). |
 | **Fronteira de confiança** | O "saneador" de tudo que entra de fora (`DADOS.sanearEstado`) mora em `webapp/js/03_dados.js`, e o servidor o carrega de lá | **Dívida técnica, sem risco hoje.** A regra de segurança está numa pasta de tela. O certo é morar no `core/`. Mudança média, sem mudar comportamento; recomendo fazer junto com a persistência no Supabase. |
 | **Persistência** | Disco do servidor. Supabase **não foi construído** | **Pendente** e depende da sua aprovação do desenho. |
-| **Escala de volume** | Cada tela baixa o estado inteiro; cada gravação recalcula tudo | **Aceitável até ~3.000 cirurgias** (tabela acima); quanto tempo dura depende do volume. |
+| **Escala de volume** | Cada tela baixa o estado inteiro; cada gravação recalcula tudo | **Aceitável até ~3.000 cirurgias** (tabela acima). Com 2.500 por mês **não cabe**: ver `docs/ESCALA_E_BANCO.md`. |
 | **Observabilidade** | LOG por usuário, eventos de acesso, arquivo mensal conferido, `/api/saude` | **Bom para começar**; falta o monitor externo e o aviso por e-mail/WhatsApp. |
 | **Testes** | Suíte própria sem dependências, mais conferência de nomes, contas independentes e sorteio | **Muito bom** para um projeto sem CI. Falta rodar sozinho a cada alteração no GitHub. |
 

@@ -11,7 +11,9 @@ seu "pode seguir" · **[JUNTOS]** eu preparo e você executa ou confere.
 1. O sistema funciona e passa na suíte de testes inteira; as contas de dinheiro, repasse, escala e
    datas foram refeitas por fora e batem ao centavo.
 2. Hoje ele guarda os dados **no disco do computador servidor** (estado, diário de comandos, cópias).
-   Ele **ainda não usa o Supabase**: essa parte **não foi construída** e precisa da sua aprovação.
+   Ele **ainda não usa o Supabase** (nem outro banco): essa parte **não foi construída** e precisa da sua
+   aprovação. **E ela deixou de ser opcional:** com até 2.500 cirurgias por mês, o desenho de hoje (todo o
+   histórico num bloco só) não aguenta o primeiro ano (`docs/ESCALA_E_BANCO.md`).
 3. **Não coloque dado real de paciente na nuvem** antes de fechar o item "Jurídico" (etapa 1).
 4. Para uso de teste, com **dado fictício**, ele já pode rodar hoje num computador da clínica.
 5. O que separa "funciona" de "pode abrir com dado real" não é erro de conta: é **decisão, jurídico,
@@ -21,17 +23,22 @@ seu "pode seguir" · **[JUNTOS]** eu preparo e você executa ou confere.
 
 ## Etapa 1 — Decisões (só você pode)
 
+**Já decididas por você (07/10/2026) e feitas:** não travar o mês (F03); login ligado a quem assina o boletim (F05);
+teto de R$ 100 milhões por mês (F11); sem prejuízo no repasse (F12, nada a fazer: "cada cirurgia feita já foi
+paga"); recusar a base que duplica uma pessoa no dia (Q5); não registrar rascunho de boletim no LOG (Q11).
+
+**Mudou o tamanho do trabalho (07/10/2026):** você informou até **2.500 cirurgias por mês**. Com isso o
+desenho de hoje (todo o histórico num bloco só) **não aguenta o primeiro ano**: veja `docs/ESCALA_E_BANCO.md`.
+A decisão 1 abaixo agora é "banco de dados de verdade, com tela por mês", e não só "guardar o bloco no Supabase".
+
 | # | Decisão | Por que importa | Quem |
 |---|---|---|---|
-| 1 | **Aprovar o desenho do armazenamento no Supabase**: um servidor Node numa máquina pequena + Supabase guardando estado, diário e PDFs, com a chave de serviço **só no servidor** (nunca no navegador). Custo de referência: ≈ US$ 32–37 por clínica por mês (Supabase Pro US$ 25 + servidor US$ 7–12), acima dos US$ 20 que você citou; você já sabia e escolheu assim. | Sem isso eu não começo a parte maior. É a única mudança "grande" que falta. | [VOCÊ] |
+| 1 | **Aprovar o desenho do armazenamento**: banco relacional (PostgreSQL) com a tela carregando um mês por vez e boletim/ficha por registro (`docs/ESCALA_E_BANCO.md`, seção 2), num servidor Node numa máquina pequena, com a chave de serviço **só no servidor**. E **escolher o fornecedor** (Supabase, Neon, AWS... seção 3 do mesmo arquivo). Custo de referência com Supabase: ≈ US$ 32–37 por clínica por mês, acima dos US$ 20 que você citou; você já sabia. | Sem isso eu não começo a parte maior. É a única mudança "grande" que falta, e agora é **necessária** para o volume. | [VOCÊ] |
 | 2 | **Jurídico / LGPD.** Prazo de guarda do prontuário (hipótese: 20 anos), contrato com o fornecedor (Supabase) e com a hospedagem, quem é o encarregado de dados, termo de uso, o que fazer quando um paciente pede para apagar. | Dado de saúde é dado sensível. Sem isso, **nada de dado real na nuvem**. | [VOCÊ] com advogado |
 | 3 | **Confirmar a matriz de perfis** (4 suposições minhas): (a) Anestesista não vê Horas nem Indicadores; (b) Secretária preenche a ficha de qualidade inteira, inclusive a revisão clínica; (c) Secretária edita cadastro e escala-base; (d) usuário antigo "equipe" vira Anestesista. | Quem vê dinheiro e quem assina é regra de negócio. | [VOCÊ] |
-| 4 | **Quem assina o boletim.** Hoje a pessoa digita nome e CRM. Ligar o login ao cadastro do anestesista, para só quem entrou poder assinar por si? (F05) | Assinatura é documento médico. | [VOCÊ] |
-| 5 | **Dinheiro:** teto de valor por lançamento? no máximo 2 casas decimais? e quando as despesas passam da entrada do mês, mostrar o prejuízo? (F11, F12) | Hoje o sistema aceita R$ 1.000.000.000.000.000 e some com o prejuízo. | [VOCÊ] |
-| 6 | **Volume**: quantas cirurgias por mês? | Define custo e quando a lentidão aparece (QA_GERAL, tabela de desempenho). | [VOCÊ] |
-| 7 | **Escala-base com substituição antiga** (Q5): quando uma mudança de base deixaria a mesma pessoa duas vezes no dia, **avisar** (como está) ou **recusar**? | Hoje avisa e deixa passar. | [VOCÊ] |
+| 4 | **Volume típico** (você deu o máximo: 2.500 por mês): quantas cirurgias por mês na maior parte do tempo? E alguém precisa ver o **histórico inteiro de uma vez** (relatório de anos) ou basta por mês? | Muda o desenho do banco e o custo. | [VOCÊ] |
+| 5 | **Dinheiro: 2 casas decimais.** Eu entendi "teto de R$ 100 milhões por mês" e também **recusei mais de 2 casas decimais** (centavos), o que você não disse com essas palavras. Está certo? | Muda o que o sistema aceita digitar. | [VOCÊ] |
 | 8 | **LOG**: 12 meses na tela (mínimo) e arquivo mensal conferido por 5 anos (0 = nunca apagar). Confirmar com o jurídico. | Você pediu "pelo menos um ano". | [VOCÊ] |
-| 9 | Registrar no LOG cada edição de **rascunho** de boletim? (hoje só criar, assinar, reabrir e descartar) (Q11) | Trilha de auditoria. | [VOCÊ] |
 | 10 | O repositório do GitHub é **público** e tem nomes reais do grupo (F19). Tornar privado? | Privacidade. | [VOCÊ] |
 | 11 | Aposentar a camada Google Planilhas (nunca foi executada de verdade, F20)? | Menos coisa para manter. | [VOCÊ] |
 
@@ -41,7 +48,7 @@ seu "pode seguir" · **[JUNTOS]** eu preparo e você executa ou confere.
 
 | # | Tarefa | Observação |
 |---|---|---|
-| 1 | Conta **Supabase** (plano Pro), **região São Paulo**, **um projeto por clínica**. | As chaves **nunca** vão para o chat nem para o repositório; ficam só no servidor. |
+| 1 | Conta no **fornecedor do banco** escolhido (Supabase Pro, Neon, AWS... ver `docs/ESCALA_E_BANCO.md`), **região São Paulo**, **um projeto por clínica**; primeiro um projeto de **teste** (no Supabase, o plano Free serve para testar: sem backup, e pausa depois de uma semana parado). | As chaves **nunca** vão para o chat nem para o repositório; ficam só no servidor. |
 | 2 | **Máquina para o servidor**: pequena, em São Paulo (ex.: Lightsail US$ 7–12/mês), Linux. | Windows também funciona, mas a janela do `.bat` não reabre sozinha. |
 | 3 | **Domínio** (ou subdomínio) e **HTTPS** (Caddy, certificado automático). | Sem HTTPS a senha viaja aberta: só serve para a rede interna da clínica. |
 | 4 | **Backup fora da máquina**: copiar todo dia as pastas `copias/`, `logs/` e `anexos/` para outro lugar (um bucket). Guardar por **pelo menos 13 meses**. | Hoje as cópias moram no mesmo disco do sistema: se o disco morre, elas morrem junto. **É o item mais importante para o "um ano".** |
@@ -57,16 +64,22 @@ Em ordem de prioridade. Cada item: pequeno, com teste, um commit.
 
 | # | Tarefa | Origem |
 |---|---|---|
-| 1 | **Persistência no Supabase** (estado, diário e PDFs), com a chave de serviço só no servidor, tabelas com segurança por linha ligada e sem política (ninguém acessa direto do navegador), buckets privados. **Grande: pede a aprovação da etapa 1, item 1.** | Auditoria |
-| 2 | **HTTPS atrás de proxy**: cookie `Secure` e o IP real de quem entra (hoje o bloqueio por tentativas usa o IP do proxy). | F06, F17 |
-| 3 | **Servidor como serviço** que reabre sozinho se cair, e **trava de instância única** (dois servidores no mesmo dado estragariam tudo). | F14, F16 |
-| 4 | **Backup completo com PDFs** sem estourar a memória (hoje a importação aceita no máximo 200 MB). | F07 |
-| 5 | **Recuperar a senha do chefe** com um comando no servidor (hoje, se o único chefe esquece, não há caminho documentado). | QA geral |
-| 6 | **Script que cria uma clínica nova** (projeto, buckets, chefe, senha inicial) — um sistema por clínica. | Decisão |
-| 7 | **Rodar os testes sozinho a cada alteração** no GitHub (CI). | F16 |
-| 8 | **Validar tipos** dos comandos no servidor (rejeitar objetos onde se espera texto) e limite de PDFs. | Q10, F15 |
-| 9 | **RUNBOOK** em português: queda, restaurar backup, relógio errado, disco cheio, trocar senha, atualizar versão. | Fase 5 |
-| 10 | Mover o saneador de dados que entram de fora para o `core/` (hoje mora numa pasta de tela). | Arquitetura |
+**Feito em 07/10/2026 (com teste):** F05 login ↔ assinatura do boletim · F11 teto de R$ 100 milhões por mês e 2
+casas · Q5 recusa de duplicata na escala · F13 conflito de horário na virada do dia · F14 trava de uma só cópia do
+servidor · F06/F17 cookie `Secure` e IP real atrás de proxy (`--atras-de-proxy`) · F15 limite de 30 exames por
+avaliação · Q10 argumentos de comando seguros e objeto-no-lugar-de-texto · recuperação de senha do chefe
+(`tools/redefinir_senha.js`) · compressão gzip das respostas · RUNBOOK (`docs/RUNBOOK.md`) · modelos de implantação
+(`deploy/`: Caddy, serviço, backup fora da máquina) · teste automático no GitHub (`.github/workflows/testes.yml`).
+
+**Falta:**
+
+| # | Tarefa | Origem |
+|---|---|---|
+| 1 | **Banco relacional + tela por mês + boletim/ficha por registro** (`docs/ESCALA_E_BANCO.md`), com a chave de serviço só no servidor, tabelas com segurança por linha ligada e sem política (ninguém acessa direto do navegador), arquivos em bucket privado. **Grande: pede a aprovação da etapa 1, item 1.** | Volume de 2.500/mês |
+| 2 | **Backup completo com PDFs** sem estourar a memória: com o banco novo, o backup passa a ser o do próprio banco e do bucket; hoje a importação aceita no máximo 200 MB (a cópia das pastas `anexos/` por `deploy/backup_diario.*` resolve o dia a dia). | F07 |
+| 3 | **Script que cria uma clínica nova** (projeto, buckets, chefe, senha inicial) — um sistema por clínica. | Decisão |
+| 4 | Mover o saneador de dados que entram de fora para o `core/` (hoje mora numa pasta de tela). | Arquitetura |
+| 5 | Usar os modelos de `deploy/` numa máquina de verdade e **testá-los** (serviço, Caddy, backup): foram escritos, não executados. | F16 |
 
 ---
 
@@ -88,7 +101,8 @@ Em ordem de prioridade. Cada item: pequeno, com teste, um commit.
 
 1. Subir o servidor com HTTPS e abrir o endereço.
 2. Criar o **Anestesista chefe** com o código de primeiro acesso (some do arquivo quando usado) e trocar a senha.
-3. Criar os usuários (Anestesista chefe, Anestesista, Secretária), cada um com senha própria.
+3. Criar os usuários (Anestesista chefe, Anestesista, Secretária), cada um com senha própria. **Ligar cada chefe e cada
+   anestesista ao seu cadastro** (tela Usuários → "Assina boletim como"): sem isso a pessoa não assina boletim. Cadastre **dois chefes**.
 4. Conferir **Escala-base**, **cadastro de anestesistas** (nome, CRM, PIX) e **dados da clínica** (CNPJ, termo).
 5. Tela **Auditoria → Arquivos e retenção**: conferir 12 meses na tela e prazo de guarda.
 6. Fazer uma cirurgia de teste ponta a ponta (cirurgia → avaliação → boletim assinado → ficha de qualidade) e apagar/descartar o que for teste.
@@ -108,7 +122,7 @@ Em ordem de prioridade. Cada item: pequeno, com teste, um commit.
 
 ---
 
-## Se algo der errado (resumo; o RUNBOOK completo vem na etapa 3)
+## Se algo der errado (resumo; o passo a passo está em `docs/RUNBOOK.md`)
 
 | Situação | O que fazer |
 |---|---|
@@ -116,13 +130,15 @@ Em ordem de prioridade. Cada item: pequeno, com teste, um commit.
 | **"Não consegui gravar no disco"** (erro 503) | Liberar espaço ou permissão. Nada foi alterado; quem digitou refaz depois. Não precisa reiniciar. |
 | **Dado lançado errado** | Tela **Auditoria**: quem, quando, de→para. Corrigir pela própria tela. Restaurar cópia só em caso grave (perde o que veio depois; o sistema guarda uma cópia "antes de restaurar"). |
 | **Relógio do computador errado** | O sistema recusa gravações com hora fora de 5 minutos; os freios **não apagam** cópias nem arquivos de LOG de uma vez. Acertar o relógio. |
-| **Esqueceram a senha do chefe** | Hoje não há caminho documentado: é a tarefa 5 da etapa 3. Até lá, outro chefe cadastrado pode trocar a senha. **Cadastre dois chefes.** |
+| **Esqueceram a senha do chefe** | Com o servidor fechado: `node tools/redefinir_senha.js <pasta de dados> <login>` (mostra uma senha temporária). Ou outro chefe troca pela tela Usuários: **cadastre dois chefes**. Ver `docs/RUNBOOK.md`. |
 | **Suspeita de acesso indevido** | Tela **Auditoria** (acessos por usuário); trocar as senhas; derrubar as sessões; avisar o jurídico (LGPD tem prazo para comunicar incidente). |
 
 ---
 
 ## O que **não** mudou (para não haver surpresa)
 
-- As regras de negócio: nada foi alterado sem você saber. O que mudou de visível: LOG mínimo de 12
-  meses, avisos de escala, erro claro quando o disco recusa gravar, linha no LOG ao trocar a escala-base.
+- As regras de negócio: nada foi alterado sem você saber. O que mudou de visível: LOG mínimo de 12 meses; **só quem
+  entrou assina o boletim** (login ligado ao cadastro); **teto de R$ 100 milhões por mês e no máximo 2 casas decimais**;
+  **mudança de escala-base que duplica uma pessoa no dia é recusada**; conflito de horário também na virada do dia;
+  erro claro quando o disco recusa gravar; linha no LOG ao trocar a escala-base.
 - Nada foi enviado ao GitHub, nem publicado em nenhum site, nem criado em nenhuma nuvem.

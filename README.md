@@ -405,11 +405,11 @@ apps-script/          Camada Google Sheets
   92_gatilhos.gs        Menu, onEdit (criação automática), ações manuais
   appsscript.json
 
-qa/                   800 testes, sem dependência externa
+qa/                   829 testes, sem dependência externa
   index.js              Executor  —  node qa  |  node qa 05
   _runner.js            Arnês de testes
   _mock_sheets.js       Google Sheets de mentira, para testar a ponte
-  01..34_*.test.js
+  01..37_*.test.js
 
 server/               Modo servidor (Node puro, sem npm install)
   servidor.js           HTTP, login, comandos, SSE, anexos, backup
@@ -428,9 +428,11 @@ tools/                Utilitários Python
   gerar_docs_qualidade.js      Catálogo de indicadores para a aprovação clínica
   verificar_nomes.js    Acusa nome usado sem existir (navegador, Node, servidor, Apps Script); roda no qa/30
   aleatorio_store.js    Sorteia operações com dado normal e absurdo e confere o que nunca pode acontecer (o qa/33 roda a versão curta)
+  redefinir_senha.js    Senha temporária para quem perdeu a senha (com o servidor fechado; ver docs/RUNBOOK.md)
   corrigir_planilha.py  Aplica as correções no .xlsx
 
 data/                 Dados extraídos da planilha (gerados)
+deploy/               Modelos para colocar no ar: HTTPS (Caddy), serviço que reabre sozinho, backup fora da máquina
 docs/                 Documentação
 saida/                Arquivos gerados para uso (planilha corrigida)
 Abrir sistema.bat     Atalho do Windows: um computador só (Python)
@@ -490,6 +492,8 @@ git add -A && git commit -m "Atualiza a página online" && git push
 - [docs/QA.md](docs/QA.md) — o que a bateria de testes cobre
 - [docs/QA_GERAL.md](docs/QA_GERAL.md) — QA geral de 05/10/2026: contas conferidas por fora, achados, arquitetura, retenção de um ano
 - [docs/COLOCAR_NO_AR.md](docs/COLOCAR_NO_AR.md) — lista do que fazer para colocar no ar (decisões, contas, desenvolvimento, testes, virada, 30 dias)
+- [docs/ESCALA_E_BANCO.md](docs/ESCALA_E_BANCO.md) — o que 2.500 cirurgias por mês exigem, como resolver, e alternativas ao Supabase
+- [docs/RUNBOOK.md](docs/RUNBOOK.md) — o que fazer quando cai, o disco enche, o relógio erra, a senha do chefe some
 - [docs/AUDITORIA_PRODUCAO.md](docs/AUDITORIA_PRODUCAO.md) — auditoria para produção com Supabase (fases 0 a 3) e decisões
 - [docs/QUALIDADE.md](docs/QUALIDADE.md) — módulo de qualidade e segurança:
   regras, permissões, proteção de dados, checklist de aprovação
