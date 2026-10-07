@@ -303,12 +303,16 @@ Na primeira vez, o Windows pergunta sobre o firewall: permita só em
 - **Onde ficam os dados** (`dados_servidor/`, ou `--dados D:\pasta`):
   `estado.json` (gravação atômica), `diario.jsonl` (cada comando é gravado
   antes de ser confirmado — uma queda de luz não perde nada), `copias/`
-  (uma por dia por 35 dias, a primeira de cada mês por 24 meses, marcos de
-  antes de importar/restaurar por 400 dias), `anexos/` (PDFs de exame;
-  removidos ficam 400 dias em `removidos/`), `usuarios.json` (senhas em
-  scrypt), `logs/` (acessos por usuário e o arquivo mensal do LOG, ver *Auditoria*).
-  Copie essa pasta para fora do computador de tempos
-  em tempos, ou use Dados e backup › Exportar com PDFs.
+  (uma por dia por 35 dias, a primeira de cada mês por 36 meses, marcos de
+  antes de importar/restaurar por 400 dias), `anexos/` (PDFs de exame, cada
+  um com a sua ficha `<id>.json` com o SHA-256; o `indice.json` é refeito das
+  fichas se se perder; removidos ficam 3 anos, contados da remoção, em
+  `removidos/`), `usuarios.json` (senhas em scrypt), `logs/` (acessos por
+  usuário e o arquivo mensal do LOG, ver *Auditoria*). Os exames são
+  conferidos na partida e a cada dia (problema vira alerta na Auditoria).
+  Copie essa pasta para fora do computador de tempos em tempos, ou use
+  Dados e backup › **Baixar todos os dados** (um .zip com tudo, escrito aos
+  poucos, sem limite de tamanho, com `SHA256SUMS.txt` para conferir).
 - **Levar os dados de um navegador para o servidor**: no modo de um
   computador só, *Exportar com PDFs*; no servidor, o administrador usa
   *Importar backup*.

@@ -57,6 +57,7 @@ var core = require('../core');
 var criarArmazem = require('./armazem').criarArmazem;
 var criarContas = require('./contas').criarContas;
 var criarAuditoria = require('./auditoria').criarAuditoria;
+var exportarTudo = require('./exportar_tudo').exportarTudo;
 
 var RAIZ = path.join(__dirname, '..');
 var PUBLICAS = ['webapp', 'core'];
@@ -306,6 +307,34 @@ function criarServidor(opcoes) {
     registrar(codigo + (quem.login ? ' · ' + quem.login : '') + (detalhe ? ' · ' + detalhe : ''));
   }
 
+  // O que a abertura dos exames achou (índice refeito das fichas, PDF sem ficha) vai para a Auditoria, onde o chefe vê.
+  armazem.tirarAvisos().forEach(function (a) { evento(a.codigo, SISTEMA, a.detalhe); });
+
+  /**
+   * Conferência dos exames (server/armazem.js): na partida e a cada virada do dia. Roda por fora dos comandos (lê os PDFs
+   * sem travar o servidor). Problema vira evento de alerta na Auditoria. `fechar()` espera ela terminar.
+   */
+  var conferenciaEmCurso = null;
+  var parandoConferencia = false;
+  var exportando = false;          // "baixar todos os dados" em andamento (um de cada vez)
+  function conferirExames(origem) {
+    if (conferenciaEmCurso) return conferenciaEmCurso;
+    conferenciaEmCurso = armazem.conferirAnexos({ parar: function () { return parandoConferencia; } }).then(function (r) {
+      if (r.registrados) registrar('Impressão digital (SHA-256) registrada em ' + r.registrados + ' exame(s) antigo(s).');
+      var lista = [];
+      if (r.semArquivo.length) lista.push(r.semArquivo.length + ' sem o arquivo (' + r.semArquivo.slice(0, 10).join(', ') + ')');
+      if (r.tamanhoDiferente.length) lista.push(r.tamanhoDiferente.length + ' com tamanho diferente do registrado (' + r.tamanhoDiferente.slice(0, 10).join(', ') + ')');
+      if (r.conteudoAlterado.length) lista.push(r.conteudoAlterado.length + ' com conteúdo diferente do registrado — SHA-256 não confere (' + r.conteudoAlterado.slice(0, 10).join(', ') + ')');
+      if (r.foraDoIndice.length) lista.push(r.foraDoIndice.length + ' PDF(s) em anexos/ fora do índice (' + r.foraDoIndice.slice(0, 10).join(', ') + ')');
+      if (r.erro) lista.push(r.erro);
+      if (lista.length) evento('exames_com_problema', SISTEMA, 'conferência (' + origem + ') de ' + r.total + ' exame(s): ' + lista.join('; '));
+      return r;
+    }, function (e) {
+      evento('exames_com_problema', SISTEMA, 'a conferência dos exames (' + origem + ') falhou: ' + (e && e.message));
+    }).then(function (r) { conferenciaEmCurso = null; return r; });
+    return conferenciaEmCurso;
+  }
+
   var hojeAtual = opcoes.hoje || core.hojeISO();
   var revisao = 0;
   var store = null;
@@ -372,6 +401,11 @@ function criarServidor(opcoes) {
       armazem.gravarEstado(revisao, enxuto);
       armazem.podarDiario(revisao);
       if (armazem.copiaDoDia(revisao, enxuto)) registrar('Cópia do dia gravada.');
+      var expurgados = armazem.tirarExpurgos();
+      if (expurgados.length) {
+        evento('exames_removidos_apagados', SISTEMA, expurgados.length + ' arquivo(s) de exame removido há mais de 3 anos saíram de vez: ' +
+          expurgados.slice(0, 20).join(', ') + (expurgados.length > 20 ? '…' : ''));
+      }
       var freio = armazem.freioDaRetencao();
       if (freio && freio !== ultimoFreioAvisado) { registrar('ATENÇÃO: ' + freio); evento('copias_retencao_freada', SISTEMA, freio); }
       ultimoFreioAvisado = freio;
@@ -452,6 +486,7 @@ function criarServidor(opcoes) {
     gravarAgora();
     emitir('recarregar', { revisao: revisao, motivo: 'dia' });
     rotacionarLogs('virada do dia');
+    conferirExames('virada do dia');
   }, 60000);
   relogioDia.unref();
 
@@ -574,7 +609,7 @@ function criarServidor(opcoes) {
 
     // Avaliações apagadas em cascata levam os PDFs de exame junto (vão para removidos/).
     var removidos = 0;
-    ((r && r.removidas) || []).forEach(function (a) { if (a.uid) removidos += armazem.removerAnexosDaAvaliacao(a.uid); });
+    ((r && r.removidas) || []).forEach(function (a) { if (a.uid) removidos += armazem.removerAnexosDaAvaliacao(a.uid, eu.nome); });
     if (removidos) emitir('anexos', { cliente: '' });
 
     emitirComando({ revisao: revisao, usuario: eu.nome, cliente: entrada.cliente, nome: nome });
@@ -601,7 +636,7 @@ function criarServidor(opcoes) {
         uidAvaliacao: uid, idAvaliacao: String(aval.id || ''), nome: nome.replace(/[\u0000-\u001f]/g, '').slice(0, 200) || 'exame.pdf',
         tamanho: buf.length, tipo: 'application/pdf', criadoEm: new Date().toISOString(), criadoPor: eu.nome
       };
-      armazem.salvarAnexo(meta, buf);
+      meta = armazem.salvarAnexo(meta, buf);      // volta com o SHA-256 do que foi gravado
       evento('exame_anexado', eu, 'avaliação ' + meta.idAvaliacao + ' · ' + meta.id, req);
       emitir('anexos', { cliente: String(req.headers['x-cliente'] || '') });
       return [200, { meta: meta }];
@@ -739,7 +774,7 @@ function criarServidor(opcoes) {
     }
     if (mAnexo && metodo === 'DELETE') {
       if (!armazem.ID_ANEXO.test(mAnexo[1])) return Promise.resolve(json(res, 404, { erro: 'Arquivo não encontrado.' }));
-      var n = armazem.removerAnexos([mAnexo[1]]);
+      var n = armazem.removerAnexos([mAnexo[1]], eu.nome);
       if (n) { evento('exame_removido', eu, mAnexo[1], req); emitir('anexos', { cliente: String(req.headers['x-cliente'] || '') }); }
       return Promise.resolve(json(res, 200, { removidos: n }));
     }
@@ -794,6 +829,25 @@ function criarServidor(opcoes) {
       evento('backup_baixado', eu, comPdfs ? 'com PDFs' : 'sem PDFs', req);
       return Promise.resolve();
     }
+    if (caminho === '/api/exportar-tudo' && metodo === 'GET') {
+      // "Baixar todos os dados": um .zip escrito aos poucos (server/exportar_tudo.js). Um de cada vez: é leitura pesada de disco.
+      if (!soChefe()) return Promise.resolve();
+      if (exportando) return Promise.resolve(json(res, 409, { erro: 'Já há um download de todos os dados em andamento. Espere ele terminar.' }));
+      exportando = true;
+      var nomeZip = 'anestesia_todos_os_dados_' + hojeAtual + '.zip';
+      res.writeHead(200, cabecalhos({ 'Content-Type': 'application/zip', 'Content-Disposition': 'attachment; filename="' + nomeZip + '"' }));
+      var contexto = { armazem: armazem, store: store, DADOS: DADOS, pastaLogs: path.join(pastaDados, 'logs'), quem: eu,
+        revisao: revisao, hoje: hojeAtual, agora: core.agoraTexto(new Date()), forcarZip64: opcoes.forcarZip64ParaTestes };
+      return Promise.resolve().then(function () { return exportarTudo(res, contexto); }).then(function (r) {
+        res.end();
+        evento('dados_exportados', eu, r.exames + ' exame(s), ' + r.examesRemovidos + ' removido(s), ' + r.arquivos + ' arquivo(s), ' +
+          (r.bytes / 1048576).toFixed(1) + ' MB' + (r.problemas.length ? ' · ' + r.problemas.length + ' problema(s): ' + r.problemas.slice(0, 5).join('; ') : ''), req);
+      }, function (e) {
+        // Sem o fim do .zip o navegador marca o download como falho, em vez de guardar um pacote pela metade.
+        res.destroy();
+        evento('dados_exportacao_interrompida', eu, e && e.message ? e.message : String(e), req);
+      }).then(function () { exportando = false; });
+    }
     if (caminho === '/api/importar' && metodo === 'POST') {
       if (!soChefe()) return Promise.resolve();
       return lerCorpo(req, LIMITE_BACKUP).then(function (buf) {
@@ -801,17 +855,23 @@ function criarServidor(opcoes) {
         if (!r.ok) return json(res, 400, { erro: r.erro });
         var existentes = {};
         armazem.metasAnexos().forEach(function (m) { existentes[m.id] = true; });
-        var pdfs = 0;
+        var pdfs = 0, recusados = [];
         (r.anexos || []).forEach(function (x) {
           if (existentes[x.meta.id] || !armazem.ID_ANEXO.test(x.meta.id)) return;
           var bytes = Buffer.from(x.conteudo, 'base64');
           if (bytes.subarray(0, 1024).toString('latin1').indexOf('%PDF-') < 0) return;
-          armazem.salvarAnexo(Object.assign({ tipo: 'application/pdf' }, x.meta, { tamanho: bytes.length }), bytes);
+          // O backup traz a impressão digital de quando o exame foi anexado: se não bate, o arquivo se estragou no caminho.
+          if (x.meta.sha256 && armazem.sha256(bytes) !== x.meta.sha256) { recusados.push(x.meta.id); return; }
+          armazem.salvarAnexo(Object.assign({ tipo: 'application/pdf' }, x.meta), bytes);
           pdfs++;
         });
         trocarEstadoInteiro(r.estado, 'importar', eu);
         if (pdfs) emitir('anexos', { cliente: '' });
-        json(res, 200, { ok: true, revisao: revisao, pdfs: pdfs });
+        if (recusados.length) {
+          evento('exames_com_problema', eu, 'importação: ' + recusados.length + ' PDF(s) do backup recusados — SHA-256 não confere com o ' +
+            'registrado (' + recusados.slice(0, 10).join(', ') + ')', req);
+        }
+        json(res, 200, { ok: true, revisao: revisao, pdfs: pdfs, pdfsRecusados: recusados.length });
       });
     }
     if (caminho === '/api/apagar-tudo' && metodo === 'POST') {
@@ -964,6 +1024,7 @@ function criarServidor(opcoes) {
         rotacionarLogs('partida');
         rotacaoPeriodica = setInterval(function () { rotacionarLogs('periódica'); }, 6 * 3600 * 1000);
         rotacaoPeriodica.unref();
+        if (!opcoes.semConferenciaNaPartida) conferirExames('partida');
         resolver({ porta: porta, url: esquema + '://localhost:' + porta + '/' });
       });
     });
@@ -977,9 +1038,14 @@ function criarServidor(opcoes) {
     fluxos.clear();
     gravarAgora();
     contas.gravarSessoes();
-    return new Promise(function (resolver) {
-      servidor.close(function () { soltarTrava(); resolver(); });
-      if (servidor.closeAllConnections) servidor.closeAllConnections();
+    // A conferência dos exames grava o índice no fim: termina antes de soltar a trava, para não escrever por cima de um
+    // servidor que abra depois na mesma pasta. Ela para no próximo PDF.
+    parandoConferencia = true;
+    return Promise.resolve(conferenciaEmCurso).then(function () {
+      return new Promise(function (resolver) {
+        servidor.close(function () { soltarTrava(); resolver(); });
+        if (servidor.closeAllConnections) servidor.closeAllConnections();
+      });
     });
   }
 
@@ -992,7 +1058,8 @@ function criarServidor(opcoes) {
     contas: contas,
     armazem: armazem,
     auditoria: auditoria,
-    rotacionarLogs: rotacionarLogs
+    rotacionarLogs: rotacionarLogs,
+    conferirExames: conferirExames
   };
 }
 

@@ -313,7 +313,9 @@ var DADOS = (function () {
           nome: String(x.meta.nome || 'exame.pdf').slice(0, 200),
           tamanho: Number(x.meta.tamanho) || 0,
           criadoEm: String(x.meta.criadoEm || ''),
-          criadoPor: String(x.meta.criadoPor || '').slice(0, 80)
+          criadoPor: String(x.meta.criadoPor || '').slice(0, 80),
+          // A impressão digital de quando foi anexado: quem importa confere o arquivo com ela.
+          sha256: /^[0-9a-f]{64}$/.test(String(x.meta.sha256 || '')) ? String(x.meta.sha256) : ''
         },
         conteudo: x.conteudo
       };

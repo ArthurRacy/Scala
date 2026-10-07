@@ -38,7 +38,7 @@ module.exports = function (t, core, dados) {
   describe('Retenção das cópias automáticas', function () {
 
     var HOJE = '2027-09-25';
-    var copias = diarias(HOJE, 800);
+    var copias = diarias(HOJE, 1200);
     var sair = GUARDA.copiasParaApagar(copias, HOJE);
     var ficam = copias.filter(function (c) { return sair.indexOf(c.id) < 0; }).map(function (c) { return c.dia; });
 
@@ -46,15 +46,16 @@ module.exports = function (t, core, dados) {
       for (var i = 0; i < 35; i++) verdadeiro(ficam.indexOf(core.somarDias(HOJE, -i)) >= 0, 'dia -' + i);
     });
 
-    it('guarda a primeira de cada mês por 24 meses — cobre mais de 1 ano', function () {
+    it('guarda a primeira de cada mês por 36 meses — o prazo de guarda de 3 anos', function () {
       verdadeiro(ficam.indexOf('2026-10-01') >= 0, 'out/2026, 12 meses atrás');
       verdadeiro(ficam.indexOf('2025-10-01') >= 0, 'out/2025, 24 meses atrás');
+      verdadeiro(ficam.indexOf('2024-10-01') >= 0, 'out/2024, 36 meses atrás');
     });
 
     it('descarta o resto (não enche o disco)', function () {
       falso(ficam.indexOf('2026-10-02') >= 0, 'dia 2 de mês antigo sai');
-      falso(ficam.indexOf('2025-08-01') >= 0, 'além de 24 meses sai');
-      verdadeiro(ficam.length < 35 + 26, 'total enxuto: ' + ficam.length);
+      falso(ficam.indexOf('2024-08-01') >= 0, 'além de 36 meses sai');
+      verdadeiro(ficam.length < 35 + 38, 'total enxuto: ' + ficam.length);
     });
 
     it('cópia de "antes de apagar" fica 400 dias', function () {

@@ -32,10 +32,13 @@ TELAS.log = (function () {
     log_arquivado: 'LOG arquivado', log_limpo: 'LOG limpo da tela', log_acessos_limpo: 'Acessos antigos limpos',
     log_arquivo_apagado: 'Arquivo de LOG apagado (prazo)', log_arquivo_com_problema: 'Arquivo de LOG com problema',
     log_rotacao_falhou: 'Rotação do LOG falhou', log_rotacao_manual: 'Rotação do LOG pedida', log_arquivos_conferidos: 'Arquivos de LOG conferidos',
-    log_arquivo_baixado: 'Baixou arquivo de LOG'
+    log_arquivo_baixado: 'Baixou arquivo de LOG',
+    dados_exportados: 'Baixou todos os dados', dados_exportacao_interrompida: 'Download de todos os dados interrompido',
+    exames_com_problema: 'Exames com problema', exames_indice_refeito: 'Índice dos exames refeito',
+    exames_removidos_apagados: 'Exames removidos apagados (prazo)'
   };
   var EVENTOS_DE_ALERTA = ['entrada_recusada', 'entrada_bloqueada', 'acesso_negado', 'senha_troca_travada', 'primeiro_acesso_recusado',
-    'log_rotacao_falhou', 'log_arquivo_com_problema'];
+    'log_rotacao_falhou', 'log_arquivo_com_problema', 'exames_com_problema', 'exames_indice_refeito', 'dados_exportacao_interrompida'];
 
   /** O que veio do servidor, guardado até a pessoa pedir de novo (nada de buscar a cada redesenho). */
   var remoto = { usuarios: null, acessos: null, arquivos: null, erro: null, carregando: false };

@@ -35,7 +35,7 @@ A decisão 1 abaixo agora é "banco de dados de verdade, com tela por mês", e n
 | # | Decisão | Por que importa | Quem |
 |---|---|---|---|
 | 1 | **Aprovar o desenho do armazenamento**: banco relacional (PostgreSQL) com a tela carregando um mês por vez e boletim/ficha por registro (`docs/ESCALA_E_BANCO.md`, seção 2), num servidor Node numa máquina pequena, com a chave de serviço **só no servidor**. E **escolher o fornecedor** (Supabase, Neon, AWS... seção 3 do mesmo arquivo). Custo de referência com Supabase: ≈ US$ 32–37 por clínica por mês, acima dos US$ 20 que você citou; você já sabia. | Sem isso eu não começo a parte maior. É a única mudança "grande" que falta, e agora é **necessária** para o volume. | [VOCÊ] |
-| 2 | **Jurídico / LGPD.** Prazo de guarda do prontuário (hipótese: 20 anos), contrato com o fornecedor (Supabase) e com a hospedagem, quem é o encarregado de dados, termo de uso, o que fazer quando um paciente pede para apagar. | Dado de saúde é dado sensível. Sem isso, **nada de dado real na nuvem**. | [VOCÊ] com advogado |
+| 2 | **Jurídico / LGPD.** Prazo de guarda: você decidiu **3 anos no sistema** + o pacote "Baixar todos os dados" guardado pela clínica; confirmar com o advogado que isso cobre o prazo do prontuário (a Lei 13.787/2018 fala em 20 anos). Contrato com o fornecedor (Supabase) e com a hospedagem, quem é o encarregado de dados, termo de uso, o que fazer quando um paciente pede para apagar. | Dado de saúde é dado sensível. Sem isso, **nada de dado real na nuvem**. | [VOCÊ] com advogado |
 | 3 | **Confirmar a matriz de perfis** (4 suposições minhas): (a) Anestesista não vê Horas nem Indicadores; (b) Secretária preenche a ficha de qualidade inteira, inclusive a revisão clínica; (c) Secretária edita cadastro e escala-base; (d) usuário antigo "equipe" vira Anestesista. | Quem vê dinheiro e quem assina é regra de negócio. | [VOCÊ] |
 | 4 | **Histórico**: alguém precisa ver o **histórico inteiro de uma vez** (relatório de anos) ou basta por mês? (Volume já informado: **800 por mês ≈ 9.600 por ano**, no pico 2.500 por mês.) | Muda o desenho do banco. | [VOCÊ] |
 | 5 | **Dinheiro: 2 casas decimais.** Eu entendi "teto de R$ 100 milhões por mês" e também **recusei mais de 2 casas decimais** (centavos), o que você não disse com essas palavras. Está certo? | Muda o que o sistema aceita digitar. | [VOCÊ] |
@@ -71,6 +71,14 @@ servidor · F06/F17 cookie `Secure` e IP real atrás de proxy (`--atras-de-proxy
 avaliação · Q10 argumentos de comando seguros e objeto-no-lugar-de-texto · recuperação de senha do chefe
 (`tools/redefinir_senha.js`) · compressão gzip das respostas · RUNBOOK (`docs/RUNBOOK.md`) · modelos de implantação
 (`deploy/`: Caddy, serviço, backup fora da máquina) · teste automático no GitHub (`.github/workflows/testes.yml`).
+
+**Feito em 07/10/2026, à tarde (etapa 0 da arquitetura, com teste `qa/38`):** o índice dos exames não recomeça vazio
+(era perda real: o próximo exame anexado apagava o vínculo de todos os outros); cada exame tem ficha e SHA-256, conferidos
+na partida e a cada dia; **prazo de guarda de 3 anos** (decisão sua): exame removido fica 3 anos contados da remoção (antes
+contava do envio e um exame antigo removido saía no mesmo dia) e a cópia mensal fica 36 meses; importar recusa PDF
+estragado; **Dados e backup → Baixar todos os dados**, um .zip com tudo, sem limite de tamanho (586 MB de PDFs saíram em
+2,2 s com a memória subindo 43 MB), conferido com Python e com o Windows. Isso resolve o "backup completo com PDFs" (F07)
+para a guarda; a importação de volta ainda é pelo .json.
 
 **Falta:**
 

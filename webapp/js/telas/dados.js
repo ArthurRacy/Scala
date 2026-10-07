@@ -153,6 +153,15 @@ TELAS.dados = (function () {
           blocoCopias
         ]) : null,
 
+        admin ? secao('Baixar todos os dados', [
+          el('p', { class: 't-pq t-medio' }, 'Um arquivo .zip com tudo: os dados (que voltam para o sistema), as planilhas, todos os ' +
+            'PDFs de exame (também os removidos ainda no prazo), o LOG e a impressão digital (SHA-256) de cada arquivo, para conferir ' +
+            'anos depois. O servidor guarda cópias e exames removidos por ' + Math.round(R.mesesMensais / 12) + ' anos: para guardar ' +
+            'mais que isso, baixe de tempos em tempos e guarde o pacote fora do servidor. Tem dados de pacientes.'),
+          el('button', { class: 'btn btn-primario', onclick: function () { baixarTudoDoServidor(); } },
+            [icone('baixar'), 'Baixar todos os dados (.zip)'])
+        ]) : null,
+
         admin ? secao('Backup em arquivo', [
           el('p', { class: 't-pq t-medio' }, 'Um arquivo .json com tudo; o completo leva os PDFs de exame. Guarde fora do ' +
             'servidor (pendrive, nuvem da clínica): é a proteção contra perder o computador. Tem dados de pacientes.'),
@@ -203,6 +212,18 @@ TELAS.dados = (function () {
     }, function (e) { UI.erro('Backup não gerado', e.message); });
   }
 
+  /**
+   * Todos os dados num .zip. O navegador baixa direto do servidor, aos poucos, para o disco: o pacote (anos de PDFs)
+   * nunca passa inteiro pela memória da página. Se a conexão cair, o navegador mostra o download como falho.
+   */
+  function baixarTudoDoServidor() {
+    var a = el('a', { href: '/api/exportar-tudo', download: true, style: 'display:none' });
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    UI.info('O download começou', 'O pacote sai aos poucos; com muitos exames, leva alguns minutos. Acompanhe pelos downloads do navegador.');
+  }
+
   function importarNoServidor() {
     escolherArquivo(function (texto, nome) {
       var r = DADOS.importarJSON(texto);
@@ -218,6 +239,10 @@ TELAS.dados = (function () {
       }, function () {
         SERVIDOR.admin.importar(new Blob([texto], { type: 'application/json' })).then(function (res) {
           UI.ok('Backup importado', resumo + (res.pdfs ? ' · ' + res.pdfs + ' PDF(s) novo(s)' : ''));
+          if (res.pdfsRecusados) {
+            UI.atencao('PDFs recusados', res.pdfsRecusados + ' PDF(s) do arquivo não conferem com a impressão digital registrada ' +
+              '(o arquivo se estragou) e ficaram de fora. Detalhes na Auditoria.');
+          }
         }, function (e) { UI.erro('Não foi importado', e.message); });
       });
     });

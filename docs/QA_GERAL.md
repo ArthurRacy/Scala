@@ -130,9 +130,13 @@ Itens de arquitetura que **não** mexi (precisam de decisão ou são grandes): m
 | LOG de alterações na tela | Estado do sistema | **12 a 60 meses (padrão 12)** | Só depois de virar arquivo mensal conferido | Mínimo de 12 meses travado no código |
 | LOG de alterações e de acessos, arquivo mensal | `logs/` (um arquivo por mês, com SHA-256 conferido) | **5 anos (ajustável; 0 = nunca apagar)** | O que passou do prazo, no máximo 4 arquivos por vez | Freio contra relógio errado |
 | Cópia diária do estado | `copias/` | Últimos 35 dias | As mais antigas que 35 dias | Freio (não apaga quase tudo de uma vez) |
-| Primeira cópia de cada mês | `copias/` | **24 meses** | A que passou de 24 meses | Idem |
+| Primeira cópia de cada mês | `copias/` | **36 meses** (prazo de 3 anos, decidido em 07/10/2026) | A que passou de 36 meses | Idem |
 | Cópia "antes de importar/apagar/restaurar" | `copias/` | 400 dias | As de mais de 400 dias | Idem |
-| PDFs de exame removidos pela pessoa | `anexos/removidos/` | 400 dias | Os de mais de 400 dias | — |
+| PDFs de exame removidos pela pessoa | `anexos/removidos/` (com a ficha: avaliação, quem removeu, quando) | **3 anos contados da remoção** | Os removidos há mais de 3 anos (linha na Auditoria) | Freio contra relógio errado |
+
+Para guardar além de 3 anos: **Dados e backup → Baixar todos os dados** (um .zip com dados, planilhas, todos os PDFs, o
+LOG e o SHA-256 de cada arquivo), guardado fora do servidor. Até 07/10/2026 o prazo dos PDFs removidos contava da data do
+envio, e um exame antigo removido saía de vez no mesmo dia (corrigido; `qa/38`).
 
 **Atenção:** a cópia mora **no mesmo disco** do sistema. Se o disco morrer, as cópias morrem junto.
 Para "um ano de verdade" é preciso **cópia fora da máquina** (lista de tarefas, etapa 2).

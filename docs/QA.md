@@ -1,7 +1,7 @@
 # QA — o que a bateria cobre
 
 ```bash
-node qa              # tudo (829 testes)
+node qa              # tudo (847 testes)
 node qa 05           # só o arquivo que começa com "05"
 node qa rodizio      # só os arquivos cujo nome contém "rodizio"
 ```
@@ -9,7 +9,7 @@ node qa rodizio      # só os arquivos cujo nome contém "rodizio"
 Sai com código 1 se qualquer teste falhar, então serve de porta de CI.
 Zero dependências: o arnês está em `qa/_runner.js`.
 
-**Resultado atual: 829 testes, 829 aprovados.**
+**Resultado atual: 847 testes, 847 aprovados.**
 
 ---
 
@@ -70,7 +70,7 @@ cada arquivo; somados aos 15, dão 514 (mais os arquivos 25 e 26, que vieram dep
 | `11_arquitetura_seguranca.test.js` | 26 | IDs nunca reaproveitados, uid da avaliação, campos protegidos, rollback, saneamento de importação, CSV sem fórmula, auditoria do PIX, estrutura de módulos e CSP |
 | `12_calendario.test.js` | 22 | Horizonte móvel além de dez/2026, rodízio sem salto na virada do ano, mês encerrado preservado, navegação do calendário (faixa de 24 meses, mês distante montado na hora, ajuste que sobrevive à recarga), migração de estado antigo |
 | `13_revisao_logica.test.js` | 18 | Centavos e milhar em dinheiro, horas negativas, nome canônico, horário de duração zero, avisos de validação, avaliação cancelada fora do faturamento, histórico preservado na exclusão, renomeação em cascata, mesma pessoa em dois postos |
-| `14_guarda.test.js` | 9 | Retenção das cópias automáticas (diárias, mensais, marcos de 400 dias), backup completo com PDFs, partida |
+| `14_guarda.test.js` | 9 | Retenção das cópias automáticas (diárias, mensais por 36 meses, marcos de 400 dias), backup completo com PDFs, partida |
 | `15_repasse.test.js` | 19 | Divisão igual com centavos sem sobra, base caixa × competência, despesas, registro do que foi repassado, e o grupo do mês guardado (desativar alguém não muda meses passados nem apaga repasse pago) |
 | `16_tcle_clinica.test.js` | 9 | Dados da clínica (CNPJ, LOG, backup saneado), texto próprio do termo, PDF válido com assinatura em vetor e código, link de WhatsApp do paciente |
 | `17_boletim.test.js` | 30 | Boletim anestésico: SHA-256 contra vetores oficiais e o Node, leitura estrita x tolerante, horários atravessando a meia-noite, validação (PA, fármaco sem via), checklist, ciclo de vida (criar, finalizar, reabrir com motivo, descartar), horário real e CRM levados na assinatura, cirurgia com boletim não se exclui, congelamento e rollback, integridade (adulteração, órfão, duplicado), backup, CSV e PDF com xref conferida |
@@ -94,6 +94,7 @@ cada arquivo; somados aos 15, dão 514 (mais os arquivos 25 e 26, que vieram dep
 | `35_assinatura_login.test.js` | 6 | **O boletim só é assinado por quem entrou no sistema (F05)**: o contexto vem do cadastro; sem vínculo ninguém assina, ligado só no próprio nome, o CRM do cadastro manda (cadastro sem CRM aceita o digitado); no servidor de verdade: chefe e anestesista, secretária recusada, vínculo de uma pessoa só, que exista, e que se desfaz |
 | `36_servidor_operacao.test.js` | 11 | **Uma só cópia do servidor por pasta (F14)** (trava velha refeita); **recuperar a senha do chefe** (`tools/redefinir_senha.js`, só com o servidor fechado, registrado no LOG); **atrás de proxy**: cookie `Secure` e IP do LOG só com `--atras-de-proxy` e pedido do próprio computador (F06, F17); respostas em **gzip** idênticas ao original; argumentos com `__proto__`/`constructor`/fundo demais recusados (Q10); 30 exames por avaliação (F15) |
 | `37_limites_de_valor.test.js` | 9 | **Teto de R$ 100 milhões por mês** (cada lançamento e a soma do mês, cancelada não conta, recusa não deixa rastro) e **no máximo 2 casas decimais**, em cirurgia, avaliação e despesas do repasse (F11); objeto no lugar de texto não vira `[object Object]` |
+| `38_exames_e_exportacao.test.js` | 18 | **Exames que não se perdem**: o índice ilegível ou apagado é refeito das fichas (nunca recomeça vazio), instalação antiga ganha fichas, PDF sem ficha fica e é avisado; **SHA-256** de cada exame e conferência (sumido, trocado, fora do índice, limite por rodada, alerta na Auditoria); exame removido fica **3 anos contados da remoção** (com freio), cópia mensal 36 meses; importar recusa PDF com SHA-256 diferente; **baixar todos os dados**: só o chefe, .zip que abre (CRC conferido por um leitor independente), backup que volta, planilhas, exames por avaliação, removidos com quem removeu, LOG, `SHA256SUMS.txt` que confere, ZIP64, e o gravador para se a conexão cai |
 
 ---
 

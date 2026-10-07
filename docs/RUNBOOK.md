@@ -41,6 +41,22 @@ Dica: tenha **dois chefes** cadastrados; o outro pode trocar a senha pela tela *
 - A limpeza de cópias e de arquivos de LOG tem **freio**: se a data estiver absurda e ela quiser apagar quase tudo, não
   apaga nada e deixa aviso na janela e no LOG. Acerte o relógio e confira `copias/` e `logs/`.
 
+## Alerta "Exames com problema" ou "Índice dos exames refeito" na Auditoria
+O servidor confere os PDFs de exame na partida e a cada dia: existe, tem o tamanho e o SHA-256 registrados ao anexar.
+- **"sem o arquivo"**: o PDF sumiu de `anexos/`. Procure-o no backup fora da máquina (`anexos/<id>.pdf`) e copie de volta
+  para `anexos/` com o servidor fechado.
+- **"SHA-256 não confere"** ou **"tamanho diferente"**: o arquivo foi trocado ou se estragou no disco. Pegue a versão do
+  backup fora da máquina (o bucket com versões guarda a anterior) e confira com `Get-FileHash -Algorithm SHA256`.
+- **"fora do índice"** ou **"sem ficha"**: há um PDF em `anexos/` que o sistema não sabe de que avaliação é. Não apague:
+  a ficha `<id>.json` do backup resolve; sem ela, veja o conteúdo e anexe de novo pela tela.
+- **"Índice dos exames refeito"**: o `anexos/indice.json` estava ilegível ou sumiu e foi refeito das fichas; o estragado
+  fica guardado como `indice.ilegivel_*.json`. Confira a quantidade de PDF(s) na tela **Dados e backup**.
+
+## Guardar mais que 3 anos / levar todos os dados embora
+**Dados e backup → Baixar todos os dados** (só o chefe): um .zip com os dados (que voltam por *Importar backup*), as
+planilhas, todos os PDFs (também os removidos ainda no prazo), o LOG, `CONFERENCIA.txt` e `SHA256SUMS.txt`. Guarde fora do
+servidor, com acesso restrito (tem dados de pacientes). O `LEIA-ME.txt` dentro do pacote explica como conferir anos depois.
+
 ## Restaurar a partir de uma cópia fora da máquina
 1. Feche o servidor. Guarde a pasta de dados atual (renomeie para `dados_antigos`).
 2. Copie de volta `copias/`, `logs/`, `anexos/` e `usuarios.json` do backup para uma pasta de dados nova.

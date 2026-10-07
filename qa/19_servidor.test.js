@@ -375,7 +375,9 @@ module.exports = function (t, core, dados) {
           return cli.get('/api/anexos');
         }).then(function (r) {
           igual(r.corpo.metas.length, 0, 'saiu com a avaliação');
-          igual(fs.readdirSync(path.join(pasta, 'anexos', 'removidos')).length, 1, 'mas fica guardado em removidos/');
+          var removidos = fs.readdirSync(path.join(pasta, 'anexos', 'removidos'));
+          igual(removidos.filter(function (n) { return /\.pdf$/.test(n); }).length, 1, 'mas fica guardado em removidos/');
+          igual(removidos.filter(function (n) { return /\.json$/.test(n); }).length, 1, 'com a ficha (de que avaliação era, quem removeu)');
         });
       });
     });
