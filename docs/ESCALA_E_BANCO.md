@@ -95,3 +95,55 @@ para fora (a lista de tarefas já exige isso de qualquer jeito).
 
 Preços e regiões acima são os que consegui conferir em 05–07/10/2026 e **mudam**: conferir na página do
 fornecedor antes de contratar.
+
+---
+
+## 4. Como o banco será criado (proposta — aguarda o seu "pode seguir")
+
+**Onde nasce:** dentro deste projeto, sem conta e sem custo. O Node já traz um banco relacional completo (SQLite, módulo
+`node:sqlite`: tabelas, índices, chaves entre tabelas, transações), que vive num arquivo no servidor da clínica. Eu
+escrevo as tabelas em SQL, um arquivo por versão (`server/migracoes/`), e testo tudo aqui. Se a produção for num
+PostgreSQL gerenciado (Supabase, Neon, AWS), troca-se só o adaptador pequeno que fala com o banco; o SQL e as regras não
+mudam (o PostgreSQL pede uma biblioteca de fora, `pg`, que seria a primeira do projeto).
+
+**Prova de que cabe (CONFIRMADO, rodei, Node 26 neste computador; 9.600 cirurgias = 1 ano a 800 por mês, cada uma com
+boletim de 8 KB e ficha de 12 KB; arquivo de 190 MB):**
+
+| O que | Hoje (bloco único), fim do 1º ano | No banco (medido) |
+|---|---|---|
+| Gravar uma alteração, com o disco forçado a confirmar | ≈ 0,6 s | **0,8 ms** (1 ms com a linha do LOG junto) |
+| Abrir um mês (800 cirurgias, sem boletim nem ficha) | baixa o histórico inteiro | **0,7 ms** |
+| Abrir um boletim | já está na memória (peso de 100+ MB) | **0,02 ms** |
+| Total do mês (soma em centavos) | recalcula tudo | **0,14 ms** |
+| Pico: abrir um mês de 2.500 cirurgias, com 30 mil no banco | — | **17 ms** |
+
+**Tabelas (resumo):** `anestesistas`, `escala_base`, `escala_ajustes` (as substituições), `cirurgias`, `avaliacoes`,
+`boletins`, `fichas_qualidade`, `estrutura`, `repasses` (+ participantes e pagamentos), `log`, `comandos` (o diário, agora
+dentro do banco), `config`, `usuarios`, `anexos` (os PDFs seguem em arquivo). O que se busca e se soma vira coluna
+(data, status, pessoa, mês, pago, data do pagamento, **valor em centavos inteiros**, com as regras do teto e da data
+como restrição do próprio banco); o conteúdo clínico longo do boletim e da ficha fica num campo JSON, que continua
+flexível. Ligação por **ID**, não por nome (resolve a F18).
+
+**Como o servidor passa a trabalhar:** cada comando abre **uma transação**: carrega o mês de que precisa, roda a mesma
+regra do `core/` (a mesma hora e semente de hoje), e grava só o que mudou + a linha do LOG + o número da revisão, **tudo ou
+nada**. Isso substitui `estado.json` e `diario.jsonl`, e a queda de luz no meio de uma gravação deixa o banco como estava.
+As telas carregam um mês por vez; boletim e ficha só ao abrir; totais do ano e painel de qualidade vêm calculados do servidor.
+
+**Etapas (cada uma com teste e commit, sem mudar o que o usuário vê até a virada):**
+1. Tabelas, importação do `estado.json` atual e **ida e volta idêntica** (estado → banco → estado).
+2. O servidor grava no banco **em paralelo** ao arquivo e compara (modo sombra).
+3. O servidor passa a usar só o banco (a cópia diária usa `VACUUM INTO`, que é cópia consistente).
+4. Telas por mês.
+5. Boletim e ficha por registro.
+6. Totais do ano e qualidade no servidor.
+7. Teste de carga com 30 mil cirurgias, ensaio de queda no meio da gravação e virada.
+
+**Testes novos:** ida e volta idêntica; as contas de um mês carregado sozinho dão o mesmo que as do histórico inteiro
+(com os oráculos do `qa/32`); comando sorteado dá o mesmo resultado nos dois caminhos; queda no meio da gravação; carga.
+Os 829 testes de hoje seguem valendo, porque o `core/` não muda.
+
+**Limites do SQLite (para decidir de olhos abertos):** (a) `node:sqlite` ainda é "candidato a estável" no Node e pede
+Node 22.13 ou mais novo (o `.bat` já manda instalar o LTS); (b) é **uma máquina só**: se o disco morre, vale a cópia de
+fora (já planejada em `deploy/`); (c) não há restauração "a um ponto do tempo" pronta como nos bancos gerenciados — o
+diário de comandos e as cópias diárias cobrem. Se esses três pontos incomodarem, a produção vai para o PostgreSQL gerenciado
+e o trabalho acima serve igual.
