@@ -278,7 +278,30 @@ function detectarConflitos(lista) {
     }
   });
 
+  // Virada do dia: a cirurgia que atravessa a meia-noite se cruza com as do dia seguinte da mesma pessoa.
+  Object.keys(porChave).forEach(function (k) {
+    var sep = k.indexOf('|');
+    var seguinte = porChave[somarDias(k.slice(0, sep), 1) + k.slice(sep)];
+    if (!seguinte) return;
+    porChave[k].forEach(function (a) {
+      seguinte.forEach(function (b) {
+        if (horariosSobrepostos(a, b)) {
+          conflitos.push({
+            a: a, b: b,
+            motivo: txt(a.anestesista) + ' tem duas cirurgias sobrepostas na virada de ' + dataBR(a.data) + ' para ' + dataBR(b.data) + '.'
+          });
+        }
+      });
+    });
+  });
+
   return conflitos;
+}
+
+/** As duas datas são o mesmo dia ou dias vizinhos (a cirurgia que vira a meia-noite entra no dia seguinte)? */
+function diasVizinhos(d1, d2) {
+  var n = diasEntre(d1, d2);
+  return n !== null && Math.abs(n) <= 1;
 }
 
 /**
@@ -292,7 +315,7 @@ function conflitosDaCirurgia(c, lista) {
   var dia = paraData(c.data);
   var quem = normalizar(c.anestesista);
   return (lista || []).filter(function (o) {
-    return txt(o.id) !== txt(c.id) && cirurgiaContabilizavel(o) && paraData(o.data) === dia &&
+    return txt(o.id) !== txt(c.id) && cirurgiaContabilizavel(o) && diasVizinhos(o.data, dia) &&
       normalizar(o.anestesista) === quem && horariosSobrepostos(o, c);
   });
 }
@@ -327,8 +350,9 @@ function sugerirAnestesista(cirurgia, idxEscala, cirurgias, opcoes) {
   var ignorar = txt(opcoes.ignorarId);
   var excluir = (opcoes.excluir || []).filter(function (n) { return !vazio(n); });
 
+  // Do dia e dos dias vizinhos: a cirurgia que vira a meia-noite ocupa a pessoa também no dia seguinte.
   var doDia = (cirurgias || []).filter(function (c) {
-    return paraData(c.data) === dia &&
+    return diasVizinhos(c.data, dia) &&
       cirurgiaContabilizavel(c) &&
       (vazio(ignorar) || txt(c.id) !== ignorar);
   });
@@ -381,9 +405,10 @@ function proporRemanejamento(data, nomeAusente, cirurgias, idxEscala) {
   var out = { data: dia, ausente: ausente, movimentos: [], semDestino: [] };
   if (!dia || vazio(ausente)) return out;
 
-  var doDia = (cirurgias || []).filter(function (c) {
-    return paraData(c.data) === dia && cirurgiaContabilizavel(c);
+  var vizinhas = (cirurgias || []).filter(function (c) {
+    return diasVizinhos(c.data, dia) && cirurgiaContabilizavel(c);
   });
+  var doDia = vizinhas.filter(function (c) { return paraData(c.data) === dia; });
 
   var dela = doDia.filter(function (c) { return mesmoTexto(c.anestesista, ausente); });
   dela.sort(function (a, b) {
@@ -395,7 +420,7 @@ function proporRemanejamento(data, nomeAusente, cirurgias, idxEscala) {
 
   // Ocupação viva do dia: começa com as cirurgias dos outros e vai recebendo
   // as que forem sendo remanejadas.
-  var ocupacao = doDia.filter(function (c) { return !mesmoTexto(c.anestesista, ausente); });
+  var ocupacao = vizinhas.filter(function (c) { return !mesmoTexto(c.anestesista, ausente); });
 
   dela.forEach(function (c) {
     var s = sugerirAnestesista(c, idxEscala, ocupacao, { ignorarId: c.id, excluir: [ausente] });
@@ -439,6 +464,12 @@ function horariosSobrepostos(c1, c2) {
   if (a1 === a2 || b1 === b2) return false;
   if (a2 < a1) a2 += 1440;    // virada de meia-noite
   if (b2 < b1) b2 += 1440;
+  // Com as duas datas, a conta é em minutos corridos: a cirurgia das 23h às 02h de um dia se cruza com a das 01h do dia seguinte.
+  var d1 = dataParaUTC(c1.data), d2 = dataParaUTC(c2.data);
+  if (d1 && d2) {
+    var deslocamento = Math.round((d2.getTime() - d1.getTime()) / 60000);   // minutos de c1 até o início do dia de c2
+    b1 += deslocamento; b2 += deslocamento;
+  }
   return a1 < b2 && b1 < a2;
 }
 

@@ -316,8 +316,6 @@ TELAS.escala = (function () {
       UI.ok(auto ? 'Escala-base automática ligada' : 'Escala-base manual',
         auto ? 'Os 30 postos foram remontados em ordem alfabética.'
              : 'A última escala gerada foi mantida e agora pode ser editada à mão.');
-      var conflito = (r.avisos || []).filter(function (a) { return a.campo === 'substituicao'; })[0];
-      if (conflito) UI.atencao('Revise a escala', conflito.msg);
     }
 
     if (!auto) { aplicar(); return; }
@@ -374,8 +372,6 @@ TELAS.escala = (function () {
 
       UI.fecharModal();
       UI.ok('Escala-base atualizada', 'Os três meses de escala foram recalculados.');
-      var conflito = (r.avisos || []).filter(function (a) { return a.campo === 'substituicao'; })[0];
-      if (conflito) UI.atencao('Revise a escala', conflito.msg);
       app.salvarEredesenhar();
     }
 

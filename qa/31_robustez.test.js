@@ -3,12 +3,13 @@
  *   - dado com nome de propriedade do JavaScript (constructor, __proto__, toString) não derruba o recálculo
  *     nem suja o `Object` (backup estragado ou adulterado)
  *   - horas() com argumento que não é lista
- *   - mudar a escala-base com substituição antiga avisa quando a mesma pessoa fica em duas posições
+ *   - mudar a escala-base (ou o cadastro, com a base automática) é RECUSADO quando uma substituição antiga deixaria a mesma
+ *     pessoa em duas posições no mesmo dia (decisão do dono do produto, 05/10/2026)
  */
 'use strict';
 
 module.exports = function (t, core, dados) {
-  var describe = t.describe, it = t.it, igual = t.igual, verdadeiro = t.verdadeiro;
+  var describe = t.describe, it = t.it, igual = t.igual, verdadeiro = t.verdadeiro, falso = t.falso;
 
   var U = require('./_servidor_util.js')(core);
   var DADOS = U.DADOS;
@@ -76,16 +77,61 @@ module.exports = function (t, core, dados) {
   });
 
   /* ====================================================================== */
+  describe('Cirurgia que vira a meia-noite (auditoria F13)', function () {
+
+    function cir(id, data, ini, fim, quem) {
+      return { id: id, status: 'Agendada', data: data, inicioPrev: ini, fimPrev: fim, anestesista: quem || 'Ana', paciente: 'P', procedimento: 'X' };
+    }
+
+    it('a das 23h às 2h se cruza com a das 1h do dia seguinte (e só se for a mesma pessoa e houver cruzamento de verdade)', function () {
+      igual(core.detectarConflitos([cir('C1', '2026-10-10', '23:00', '02:00'), cir('C2', '2026-10-11', '01:00', '03:00')]).length, 1);
+      igual(core.detectarConflitos([cir('C2', '2026-10-11', '01:00', '03:00'), cir('C1', '2026-10-10', '23:00', '02:00')]).length, 1, 'a ordem da lista não importa');
+      igual(core.detectarConflitos([cir('C1', '2026-10-10', '23:00', '02:00'), cir('C2', '2026-10-11', '02:00', '04:00')]).length, 0, 'encostar não conta');
+      igual(core.detectarConflitos([cir('C1', '2026-10-10', '23:00', '02:00'), cir('C2', '2026-10-11', '01:00', '03:00', 'Bia')]).length, 0, 'outra pessoa');
+      igual(core.detectarConflitos([cir('C1', '2026-10-10', '23:00', '02:00'), cir('C2', '2026-10-12', '01:00', '03:00')]).length, 0, 'dois dias depois não cruza');
+      igual(core.detectarConflitos([cir('C1', '2026-10-10', '08:00', '10:00'), cir('C2', '2026-10-11', '08:00', '10:00')]).length, 0, 'mesmo horário em dias diferentes não conflita');
+      igual(core.detectarConflitos([cir('C1', '2026-10-10', '08:00', '10:00'), cir('C2', '2026-10-10', '09:00', '11:00')]).length, 1, 'o caso do mesmo dia continua igual');
+    });
+
+    it('horariosSobrepostos compara os dois dias; sem data nenhuma, só os horários (como antes)', function () {
+      verdadeiro(core.horariosSobrepostos(cir('a', '2026-10-10', '23:00', '02:00'), cir('b', '2026-10-11', '01:00', '03:00')));
+      verdadeiro(core.horariosSobrepostos(cir('b', '2026-10-11', '01:00', '03:00'), cir('a', '2026-10-10', '23:00', '02:00')));
+      falso(core.horariosSobrepostos(cir('a', '2026-10-10', '23:00', '02:00'), cir('b', '2026-10-10', '01:00', '03:00')), 'no MESMO dia a das 01h é de antes');
+      verdadeiro(core.horariosSobrepostos({ inicioPrev: '22:00', fimPrev: '02:00' }, { inicioPrev: '23:00', fimPrev: '23:30' }));
+    });
+
+    it('a cirurgia nova avisa do conflito do dia anterior, e a sugestão não escolhe quem está operando na virada', function () {
+      var st = novoStore();
+      var d1 = '2026-12-08', d2 = '2026-12-09';
+      var pos1 = st.estado.consolidada.filter(function (l) { return l.data === d2 && l.posicao === 1; })[0].efetivo;
+      var base = { status: 'Agendada', procedimento: 'X', cirurgiao: 'Dr', avaliacaoNec: 'Não', sala: 'S1', paciente: 'P' };
+      verdadeiro(st.adicionarCirurgia(Object.assign({}, base, { data: d1, inicioPrev: '23:00', fimPrev: '02:00', anestesista: pos1 })).ok);
+      var sug = st.sugerirAnestesista({ data: d2, status: 'Agendada', inicioPrev: '01:00', fimPrev: '03:00' });
+      verdadeiro(sug.nome && sug.nome !== pos1, 'não sugere ' + pos1 + ', que opera até as 02h: sugeriu ' + sug.nome);
+      var r = st.adicionarCirurgia(Object.assign({}, base, { data: d2, inicioPrev: '01:00', fimPrev: '03:00', anestesista: pos1 }));
+      verdadeiro(r.ok, 'é só aviso, não bloqueio');
+      verdadeiro(r.avisos.some(function (a) { return /se sobrepõe/.test(a.msg); }), JSON.stringify(r.avisos));
+    });
+  });
+
+  /* ====================================================================== */
   describe('Mudar a escala-base com substituição antiga', function () {
 
-    it('a mesma pessoa em duas posições no mesmo dia: a mudança vale, mas o aviso diz qual dia', function () {
+    it('a mesma pessoa em duas posições no mesmo dia: a mudança é RECUSADA, diz qual dia, e nada muda', function () {
       var st = novoStore();
       verdadeiro(st.ajustarEscala('2026-11-07', 1, { substituto: 'Tiago Tolentino', motivo: 'troca combinada' }).ok);
+      var antes = core.jsonCanonico({ base: st.estado.escalaBase, cons: st.estado.consolidada, cfg: st.estado.config });
+      var logAntes = st.estado.log.length;
       var r = st.definirModoEscalaBase(true);   // na base alfabética o Tiago passa a trabalhar sábado
-      verdadeiro(r.ok, 'a regra de negócio não muda: a mudança é aceita');
-      var aviso = r.avisos.filter(function (a) { return a.campo === 'substituicao'; })[0];
-      verdadeiro(aviso, 'tem de avisar: ' + JSON.stringify(r.avisos));
-      verdadeiro(/07\/11 \(Tiago Tolentino\)/.test(aviso.msg), aviso.msg);
+      falso(r.ok, 'decisão do dono do produto: recusar');
+      igual(r.erros[0].campo, 'substituicao');
+      verdadeiro(/07\/11 \(Tiago Tolentino\)/.test(r.erros[0].msg), r.erros[0].msg);
+      igual(core.jsonCanonico({ base: st.estado.escalaBase, cons: st.estado.consolidada, cfg: st.estado.config }), antes, 'base, escala e configuração ficam como estavam');
+      igual(st.estado.log.length, logAntes, 'nada vai para o LOG');
+      igual(st.escalaBaseAutomatica(), false);
+      // desfeita a substituição, a mesma mudança passa
+      verdadeiro(st.ajustarEscala('2026-11-07', 1, { ajuste: false }).ok);
+      verdadeiro(st.definirModoEscalaBase(true).ok);
     });
 
     it('sem substituição antiga, nenhum aviso (e desligar o modo automático também não avisa)', function () {
@@ -110,38 +156,47 @@ module.exports = function (t, core, dados) {
       verdadeiro(l.de.indexOf('SEG 1: ' + velho) >= 0 && l.para.indexOf('SEG 1: Alene Cunha') >= 0, l.de + ' => ' + l.para);
     });
 
-    it('com a escala-base automática, mexer no cadastro avisa exatamente quando uma substituição antiga passou a duplicar alguém', function () {
-      var comAviso = 0, comDuplicata = 0;
+    it('com a escala-base automática, mexer no cadastro é recusado exatamente quando uma substituição antiga passaria a duplicar alguém', function () {
+      var recusados = 0, aceitos = 0;
+      var dia = '2026-12-03';   // quinta: na base alfabética trabalham os 5 primeiros da lista
+      // o sexto da lista alfabética não trabalha nesse dia, mas entra no lugar de quem sair dos 5 primeiros
+      var substituto = novoStore().estado.anestesistas.map(function (x) { return x.nome; })
+        .sort(function (x, y) { return x.localeCompare(y, 'pt-BR'); })[5];
       novoStore().estado.anestesistas.forEach(function (a) {
+        // o que a nova base faria naquele dia, sem a substituição no caminho
+        var limpo = novoStore();
+        limpo.definirModoEscalaBase(true);
+        limpo.salvarAnestesista({ id: a.id, ativo: 'Não' });
+        var novosDoDia = limpo.estado.consolidada.filter(function (l) { return l.data === dia; }).map(function (l) { return l.efetivo; });
+        var esperaConflito = novosDoDia.slice(1).indexOf(substituto) >= 0;   // fora da posição 1, onde a substituição cai
+
         var st = novoStore();
         verdadeiro(st.definirModoEscalaBase(true).ok);
-        var dia = '2026-12-03';   // quinta: na base alfabética trabalham os 5 primeiros da lista
-        // o sexto da lista alfabética não trabalha nesse dia, mas entra no lugar de quem sair dos 5 primeiros
-        var substituto = st.estado.anestesistas.map(function (x) { return x.nome; })
-          .sort(function (x, y) { return x.localeCompare(y, 'pt-BR'); })[5];
         verdadeiro(st.ajustarEscala(dia, 1, { substituto: substituto, motivo: 'troca' }).ok);
+        var antes = core.jsonCanonico({ cad: st.estado.anestesistas, cons: st.estado.consolidada, base: st.estado.escalaBase });
         var r = st.salvarAnestesista({ id: a.id, ativo: 'Não' });
-        verdadeiro(r.ok, JSON.stringify(r.erros));
-        var vistos = {}, duplicou = false;
-        st.estado.consolidada.forEach(function (l) { var k = l.data + '|' + l.efetivo; if (vistos[k]) duplicou = true; vistos[k] = true; });
-        var avisou = r.avisos.some(function (x) { return x.campo === 'substituicao'; });
-        igual(avisou, duplicou, 'desativar ' + a.nome + ': aviso=' + avisou + ' duplicou=' + duplicou);
-        if (avisou) comAviso++;
-        if (duplicou) comDuplicata++;
+        igual(r.ok, !esperaConflito, 'desativar ' + a.nome + ': esperava ' + (esperaConflito ? 'recusa' : 'aceite') + ' e veio ' + JSON.stringify(r.erros));
+        if (!r.ok) {
+          recusados++;
+          igual(r.erros[0].campo, 'substituicao');
+          igual(core.jsonCanonico({ cad: st.estado.anestesistas, cons: st.estado.consolidada, base: st.estado.escalaBase }), antes, 'recusado: tudo como estava');
+        } else aceitos++;
       });
-      verdadeiro(comDuplicata >= 1 && comAviso === comDuplicata, 'ao menos um caso de conflito tem de existir no teste (' + comDuplicata + ')');
+      verdadeiro(recusados >= 1 && aceitos >= 1, 'o teste tem de ter os dois casos (' + recusados + ' recusados, ' + aceitos + ' aceitos)');
     });
 
-    it('definirEscalaBase também avisa', function () {
+    it('definirEscalaBase também recusa, e a base continua a de antes', function () {
       var st = novoStore();
       st.ajustarEscala('2026-11-07', 1, { substituto: 'Tiago Tolentino', motivo: 'troca combinada' });
       var linhas = JSON.parse(JSON.stringify(st.estado.escalaBase));
+      var original = core.jsonCanonico(st.estado.escalaBase);
       // põe o Tiago também no sábado, em outra posição
       var i = linhas.findIndex(function (l, k) { return k >= 25 && l.posicao === 5; });
       linhas[i].nome = 'Tiago Tolentino'; linhas[i].id = 'A07';
       var r = st.definirEscalaBase(linhas);
-      verdadeiro(r.ok, JSON.stringify(r.erros));
-      verdadeiro(r.avisos.some(function (a) { return a.campo === 'substituicao'; }), JSON.stringify(r.avisos));
+      falso(r.ok);
+      igual(r.erros[0].campo, 'substituicao');
+      igual(core.jsonCanonico(st.estado.escalaBase), original);
     });
   });
 };
