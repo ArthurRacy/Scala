@@ -1,7 +1,8 @@
 # Escala de volume e escolha do banco de dados
 
-Escrito em 07/10/2026, a partir do que você informou: **no máximo 2.500 cirurgias por mês** (≈ 30 mil por
-ano). Marcas: **CONFIRMADO (rodei)** = medi · **HIPÓTESE** = estimativa minha, sem medição.
+Escrito em 07/10/2026, a partir do que você informou: **800 cirurgias por mês no dia a dia (≈ 9.600 por ano)** e
+**no máximo 2.500 por mês** (≈ 30 mil por ano, no pico). Marcas: **CONFIRMADO (rodei)** = medi · **HIPÓTESE** =
+estimativa minha, sem medição.
 
 ---
 
@@ -12,20 +13,28 @@ cada gravação recalcula tudo. Isso é ótimo para um grupo pequeno e quebra co
 
 **Medido (CONFIRMADO, rodei; 1 avaliação por cirurgia, sem boletins nem fichas):**
 
-| Cirurgias no sistema | Tempo de uma gravação | Tamanho do estado | Quando, com 2.500 por mês |
-|---|---|---|---|
-| 2.500 | 0,13 s | 2,4 MB | fim do 1º mês |
-| 5.000 | 0,31 s | 4,6 MB | fim do 2º mês |
-| 10.000 | 0,65 s | 9 MB | 4º mês |
-| 30.000 | 0,8 s | 27 MB | 12º mês |
+| Cirurgias no sistema | Tempo de uma gravação | Tamanho do estado | Chega lá, com 800 por mês | Chega lá, com 2.500 por mês |
+|---|---|---|---|---|
+| 2.500 | 0,13 s | 2,4 MB | no 3º mês | no 1º mês |
+| 5.000 | 0,31 s | 4,6 MB | no 6º mês | no 2º mês |
+| 10.000 | 0,65 s | 9 MB | no 13º mês | no 4º mês |
+| 30.000 | 0,8 s | 27 MB | em 3 anos | no 12º mês |
+
+Um ano com 800 por mês são **9.600 cirurgias**: entre as duas últimas medidas, ≈ 0,6 s por gravação e ≈ 9 MB.
 
 **O peso de verdade são os boletins e as fichas de qualidade** (HIPÓTESE, pelos tamanhos medidos na
-auditoria: boletim 3,5 a 10 KB, ficha 14 KB): com um boletim e uma ficha por cirurgia, 30 mil cirurgias são
-**cerca de 500 a 700 MB** no bloco que cada tela baixa. Isso trava os computadores muito antes do fim do
-primeiro ano.
+auditoria: boletim 3,5 a 10 KB, ficha 14 KB): com um boletim e uma ficha por cirurgia, o bloco que cada tela
+baixa fica em **40 a 60 MB aos 3 meses, 80 a 115 MB aos 6 meses e 170 a 230 MB em 1 ano** (800 por mês), ou
+**500 a 700 MB em 1 ano** (2.500 por mês). A compressão já feita corta a descarga de 8 a 10 vezes, mas o
+servidor e as telas ainda carregam tudo na memória.
 
-**Conclusão:** com 2.500 cirurgias por mês, o desenho atual **não aguenta um ano**. Aguenta 2 a 3 meses
-com folga. Não é erro de conta: é o desenho "um bloco só".
+**Conclusão:**
+- **Com 800 por mês (o normal):** o desenho atual serve bem nos **3 a 4 primeiros meses** (gravação abaixo de
+  0,2 s), fica pesado por volta dos **6 meses** e é ruim no **fim do primeiro ano** (≈ 0,6 s por gravação e
+  centenas de MB). Dá para começar, mas a troca do armazenamento tem de estar pronta **antes do 5º mês**.
+- **Com 2.500 por mês (o pico):** não aguenta um ano; aguenta 2 a 3 meses.
+- Não é erro de conta: é o desenho "um bloco só". Fazer a troca **antes** de abrir com dado real é mais seguro do
+  que migrar dados reais depois.
 
 ---
 
@@ -50,11 +59,15 @@ a camada que guarda e carrega os dados (`core/12_store.js`, `server/`) e a forma
 funciona: (a) modelo das tabelas e importação do que existe hoje; (b) servidor lendo e gravando no banco;
 (c) tela por mês; (d) boletim e ficha por registro; (e) totais no servidor; (f) teste de carga com 30 mil
 cirurgias e réplica idêntica. **Precisa da sua aprovação** (é troca de armazenamento) e de um banco de
-teste. Perguntas que mudam o desenho: o volume **típico** (não só o máximo) e se alguém precisa ver o
-histórico inteiro de uma vez (relatórios anuais) ou só por mês.
+teste. Pergunta que ainda muda o desenho: alguém precisa ver o histórico inteiro de uma vez (relatórios de
+anos) ou só por mês? (O volume típico já foi informado: 800 por mês.)
 
-Enquanto isso não vem, o sistema serve para **começar** (primeiros meses). Não prometa à clínica o primeiro
-ano com esse volume antes de a etapa acima estar pronta.
+Enquanto isso não vem, o sistema serve para **começar** (3 a 4 meses com 800 por mês). Não prometa à clínica o
+primeiro ano antes de a etapa acima estar pronta.
+
+**Tamanho do banco (HIPÓTESE):** ≈ 25 KB por cirurgia com boletim e ficha, ou **≈ 240 MB por ano** com 800 por mês
+(≈ 750 MB por ano no pico). Qualquer plano de banco gerenciado comporta isso por muitos anos (o Supabase Pro vem
+com 8 GB). Os PDFs de exame ficam à parte, em arquivo; é o que mais cresce e o que a cópia fora da máquina cobre.
 
 ---
 

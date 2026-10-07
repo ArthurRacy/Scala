@@ -27,8 +27,9 @@ seu "pode seguir" · **[JUNTOS]** eu preparo e você executa ou confere.
 teto de R$ 100 milhões por mês (F11); sem prejuízo no repasse (F12, nada a fazer: "cada cirurgia feita já foi
 paga"); recusar a base que duplica uma pessoa no dia (Q5); não registrar rascunho de boletim no LOG (Q11).
 
-**Mudou o tamanho do trabalho (07/10/2026):** você informou até **2.500 cirurgias por mês**. Com isso o
-desenho de hoje (todo o histórico num bloco só) **não aguenta o primeiro ano**: veja `docs/ESCALA_E_BANCO.md`.
+**Mudou o tamanho do trabalho (07/10/2026):** você informou **800 cirurgias por mês** (≈ 9.600 por ano) e até 2.500
+no pico. Com isso o desenho de hoje (todo o histórico num bloco só) serve nos **3 a 4 primeiros meses** e **não aguenta o
+primeiro ano**: a troca tem de estar pronta antes do 5º mês. Veja `docs/ESCALA_E_BANCO.md`.
 A decisão 1 abaixo agora é "banco de dados de verdade, com tela por mês", e não só "guardar o bloco no Supabase".
 
 | # | Decisão | Por que importa | Quem |
@@ -36,7 +37,7 @@ A decisão 1 abaixo agora é "banco de dados de verdade, com tela por mês", e n
 | 1 | **Aprovar o desenho do armazenamento**: banco relacional (PostgreSQL) com a tela carregando um mês por vez e boletim/ficha por registro (`docs/ESCALA_E_BANCO.md`, seção 2), num servidor Node numa máquina pequena, com a chave de serviço **só no servidor**. E **escolher o fornecedor** (Supabase, Neon, AWS... seção 3 do mesmo arquivo). Custo de referência com Supabase: ≈ US$ 32–37 por clínica por mês, acima dos US$ 20 que você citou; você já sabia. | Sem isso eu não começo a parte maior. É a única mudança "grande" que falta, e agora é **necessária** para o volume. | [VOCÊ] |
 | 2 | **Jurídico / LGPD.** Prazo de guarda do prontuário (hipótese: 20 anos), contrato com o fornecedor (Supabase) e com a hospedagem, quem é o encarregado de dados, termo de uso, o que fazer quando um paciente pede para apagar. | Dado de saúde é dado sensível. Sem isso, **nada de dado real na nuvem**. | [VOCÊ] com advogado |
 | 3 | **Confirmar a matriz de perfis** (4 suposições minhas): (a) Anestesista não vê Horas nem Indicadores; (b) Secretária preenche a ficha de qualidade inteira, inclusive a revisão clínica; (c) Secretária edita cadastro e escala-base; (d) usuário antigo "equipe" vira Anestesista. | Quem vê dinheiro e quem assina é regra de negócio. | [VOCÊ] |
-| 4 | **Volume típico** (você deu o máximo: 2.500 por mês): quantas cirurgias por mês na maior parte do tempo? E alguém precisa ver o **histórico inteiro de uma vez** (relatório de anos) ou basta por mês? | Muda o desenho do banco e o custo. | [VOCÊ] |
+| 4 | **Histórico**: alguém precisa ver o **histórico inteiro de uma vez** (relatório de anos) ou basta por mês? (Volume já informado: **800 por mês ≈ 9.600 por ano**, no pico 2.500 por mês.) | Muda o desenho do banco. | [VOCÊ] |
 | 5 | **Dinheiro: 2 casas decimais.** Eu entendi "teto de R$ 100 milhões por mês" e também **recusei mais de 2 casas decimais** (centavos), o que você não disse com essas palavras. Está certo? | Muda o que o sistema aceita digitar. | [VOCÊ] |
 | 8 | **LOG**: 12 meses na tela (mínimo) e arquivo mensal conferido por 5 anos (0 = nunca apagar). Confirmar com o jurídico. | Você pediu "pelo menos um ano". | [VOCÊ] |
 | 10 | O repositório do GitHub é **público** e tem nomes reais do grupo (F19). Tornar privado? | Privacidade. | [VOCÊ] |

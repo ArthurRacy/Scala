@@ -24,8 +24,8 @@ normal e dado absurdo) e conferiu o que nunca pode acontecer. Achou **8 problema
 corrigidos, cada um com teste que falha sem a correção e passa com ela. As duas decisões que ficaram
 com você (Q5 e Q11) foram tomadas em 07/10/2026 e estão feitas. **CONFIRMADO (rodei).**
 
-**Atualização de 07/10/2026.** Você informou até **2.500 cirurgias por mês**: isso **não cabe** no desenho de hoje
-(`docs/ESCALA_E_BANCO.md`). Também foram feitos, com teste: login ligado a quem assina o boletim (F05), teto de
+**Atualização de 07/10/2026.** Você informou **800 cirurgias por mês** (≈ 9.600 por ano; no pico 2.500): o desenho de hoje serve nos
+3 a 4 primeiros meses e **não cabe** no primeiro ano (`docs/ESCALA_E_BANCO.md`). Também foram feitos, com teste: login ligado a quem assina o boletim (F05), teto de
 R$ 100 milhões por mês e 2 casas decimais (F11), conflito de horário na virada do dia (F13), uma só cópia do servidor por
 pasta (F14), cookie `Secure` e IP real atrás de proxy (F06, F17), limite de exames por avaliação (F15), argumentos de
 comando seguros (Q10), recuperação de senha do chefe, compressão das respostas, RUNBOOK e modelos de implantação.
@@ -84,7 +84,7 @@ Tudo isso está em `docs/COLOCAR_NO_AR.md`.
 | Q9 | Restaurar um backup transforma `null` em `""` em campos de texto livre. | As contas ficam iguais (conferido). Só a representação difere. | **Aceito (baixo).** |
 | Q10 | O cadastro aceita, **só por chamada direta à rede**, nomes absurdos (objeto vira `[object Object]`, `__proto__` como nome). A tela só manda texto. | Exige alguém já logado como chefe/secretária. | **Corrigido em 07/10/2026.** Objeto ou lista no lugar de texto vira vazio (e a validação cobra o obrigatório); o servidor recusa argumentos com `__proto__`, `constructor`, `prototype`, fundos demais ou grandes demais. Testes `qa/36` e `qa/37`. |
 | Q11 | Editar o **rascunho** do boletim não escreve no LOG a cada edição (criar, assinar, reabrir e descartar escrevem). | Possivelmente por desenho: o documento assinado é protegido por código de conferência. | **Decidido por você em 07/10/2026: não registrar rascunho.** Nada a fazer. |
-| Q12 | Cada gravação fica mais lenta com o volume (tabela abaixo). | Sem problema até uns 3.000 cirurgias no sistema; quanto tempo isso dura depende do volume (100 por mês ≈ 2,7 anos; 400 por mês ≈ 8 meses). | **Você informou até 2.500 cirurgias por mês: isso não cabe no desenho de hoje.** Ver `docs/ESCALA_E_BANCO.md` (medições, como resolver, alternativas ao Supabase). Ganho imediato já feito: respostas comprimidas (gzip). |
+| Q12 | Cada gravação fica mais lenta com o volume (tabela abaixo). | Sem problema até uns 3.000 cirurgias no sistema; quanto tempo isso dura depende do volume (100 por mês ≈ 2,7 anos; 400 por mês ≈ 8 meses). | **Você informou 800 cirurgias por mês (≈ 9.600 por ano; no pico 2.500): serve nos 3 a 4 primeiros meses, não o primeiro ano.** Ver `docs/ESCALA_E_BANCO.md` (medições, como resolver, alternativas ao Supabase). Ganho imediato já feito: respostas comprimidas (gzip). |
 
 **Desempenho medido (CONFIRMADO, rodei, 15 gravações, com 1 avaliação por cirurgia):**
 
@@ -112,7 +112,7 @@ estado chega a dezenas de MB, e cada tela baixa tudo (F10). Se o volume for alto
 | **Servidor (Node)** | Estado em memória + diário (cada comando vai ao disco antes de responder) + cópias; o servidor **refaz** o comando de forma determinística; números de revisão e erro 409 para base velha; perfis decididos no servidor; dinheiro cortado do que o anestesista recebe | **Bom, e agora à prova de disco cheio.** Faltam: HTTPS, serviço que reabre sozinho, trava de instância única, monitor e backup fora da máquina (lista em `COLOCAR_NO_AR.md`). |
 | **Fronteira de confiança** | O "saneador" de tudo que entra de fora (`DADOS.sanearEstado`) mora em `webapp/js/03_dados.js`, e o servidor o carrega de lá | **Dívida técnica, sem risco hoje.** A regra de segurança está numa pasta de tela. O certo é morar no `core/`. Mudança média, sem mudar comportamento; recomendo fazer junto com a persistência no Supabase. |
 | **Persistência** | Disco do servidor. Supabase **não foi construído** | **Pendente** e depende da sua aprovação do desenho. |
-| **Escala de volume** | Cada tela baixa o estado inteiro; cada gravação recalcula tudo | **Aceitável até ~3.000 cirurgias** (tabela acima). Com 2.500 por mês **não cabe**: ver `docs/ESCALA_E_BANCO.md`. |
+| **Escala de volume** | Cada tela baixa o estado inteiro; cada gravação recalcula tudo | **Aceitável até ~3.000 cirurgias** (tabela acima): 4 meses com 800 por mês. Não cabe o primeiro ano: ver `docs/ESCALA_E_BANCO.md`. |
 | **Observabilidade** | LOG por usuário, eventos de acesso, arquivo mensal conferido, `/api/saude` | **Bom para começar**; falta o monitor externo e o aviso por e-mail/WhatsApp. |
 | **Testes** | Suíte própria sem dependências, mais conferência de nomes, contas independentes e sorteio | **Muito bom** para um projeto sem CI. Falta rodar sozinho a cada alteração no GitHub. |
 
