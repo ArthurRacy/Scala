@@ -140,7 +140,7 @@ var SERVIDOR = (function () {
           return { ok: false, erros: [{ campo: '', msg: 'Os dados foram atualizados enquanto esta janela estava aberta. Feche-a e abra de novo.' }], avisos: [] };
         }
         // O servidor confere de novo (e é ele quem decide); aqui só se poupa a ida e volta.
-        var perm = perfilPodeExecutar(usuario.papel, nome, args, contextoDeAssinatura(usuario.anestesistaId, store.estado.anestesistas));
+        var perm = perfilPodeExecutar(usuario, nome, args, contextoDeAssinatura(usuario.anestesistaId, store.estado.anestesistas));
         if (!perm.ok) {
           return { ok: false, erros: [{ campo: '', msg: perm.erro }], avisos: [] };
         }
@@ -483,7 +483,7 @@ var SERVIDOR = (function () {
   function menuConta() {
     UI.abrirModal({
       titulo: usuario.nome,
-      sub: 'Login ' + usuario.login + ' · ' + (PERFIS[usuario.papel] ? PERFIS[usuario.papel].rotulo : usuario.papel),
+      sub: 'Login ' + usuario.login + ' · ' + rotuloDoAcesso(usuario) + (usuario.principal ? ' (principal)' : ''),
       tamanho: 'estreito',
       corpo: [el('p', { class: 'sem-margem t-pq t-medio' },
         'As alterações que você faz vão para o LOG com o seu nome. Os dados ficam no servidor da clínica.')],
@@ -543,6 +543,9 @@ var SERVIDOR = (function () {
   var admin = {
     usuarios: function () { return pedir('GET', '/api/usuarios').then(function (r) { return exigirOk(r, 'Sem acesso.').usuarios; }); },
     salvarUsuario: function (dados) { return pedir('POST', '/api/usuarios', dados).then(function (r) { return exigirOk(r, 'Não foi salvo.'); }); },
+    transferirPrincipal: function (login) {
+      return pedir('POST', '/api/usuarios/principal', { login: login }).then(function (r) { return exigirOk(r, 'A função não foi passada.'); });
+    },
     copias: function () { return pedir('GET', '/api/copias').then(function (r) { return exigirOk(r, 'Sem acesso.').copias; }); },
     restaurarCopia: function (id) { return pedir('POST', '/api/copias/restaurar', { id: id }).then(function (r) { return exigirOk(r, 'Não foi restaurada.'); }); },
     backup: function (comPdfs) {

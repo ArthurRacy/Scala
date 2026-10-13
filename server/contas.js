@@ -2,7 +2,8 @@
  * ============================================================================
  * CONTAS — Usuários, senhas e sessões do modo servidor
  * ============================================================================
- *   <dados>/usuarios.json   { login, nome, papel, ativo, sal, hash, criadoEm }
+ *   <dados>/usuarios.json   { login, nome, papel, permissoes, principal, ativo, sal, hash, criadoEm,
+ *                             anestesistaId, permissoesAlteradasEm, permissoesAlteradasPor }
  *   <dados>/sessoes.json    sessões ativas, pelo SHA-256 do token (quem lê o
  *                           arquivo não consegue entrar com ele)
  *
@@ -17,6 +18,19 @@
  * (operação e gestão, sem painel de qualidade nem administração). Os nomes
  * antigos continuam entendidos: 'admin' vira 'chefe' e 'equipe' vira 'anestesista'
  * (o arquivo é regravado com os nomes novos na primeira partida).
+ *
+ * Permissões (docs/PERMISSOES.md): quem não é chefe guarda a LISTA COMPLETA do
+ * que pode (`permissoes`), escolhida pelo chefe a partir de um modelo. Conta
+ * antiga, sem lista, ganha a do modelo do seu perfil na primeira partida (o
+ * acesso não muda), com uma cópia do arquivo antes (usuarios.antes-das-permissoes.json).
+ *
+ * Chefe principal: entre os chefes, exatamente um é o principal. Só ele cria
+ * outro chefe, promove, rebaixa, desativa ou altera a conta de outro chefe, e
+ * passa a função de principal a outro chefe ativo. Ele mesmo não pode ser
+ * desativado nem rebaixado: passa a função antes. Os outros chefes fazem todo o
+ * resto (inclusive cadastrar usuários e decidir permissões). As regras valem
+ * quando há `ator` (a tela Usuários); a linha de comando do servidor
+ * (tools/redefinir_senha.js) não passa ator.
  *
  * Primeiro acesso: sem nenhum usuário, o servidor cria um código de uso
  * único (mostrado na janela do servidor e gravado em PRIMEIRO_ACESSO.txt);
@@ -63,10 +77,33 @@ function criarContas(pasta, opcoes) {
   // Perfis antigos ("admin", "equipe") e valores estranhos viram perfis de hoje. O que não se
   // reconhece vira o perfil que menos vê (anestesista): nunca um perfil mais aberto.
   var migrou = false;
+  var antesDasPermissoes = JSON.stringify(usuarios, null, 1);
+  var ganhouLista = false;
   usuarios.forEach(function (u) {
     var canonico = core.perfilCanonico(u.papel) || 'anestesista';
     if (u.papel !== canonico) { u.papel = canonico; migrou = true; }
+    // Conta sem lista de permissões: a do modelo do perfil (o mesmo acesso de antes), escrita por extenso.
+    if (canonico !== 'chefe' && !Array.isArray(u.permissoes)) {
+      u.permissoes = core.permissoesDe(canonico);
+      migrou = true;
+      ganhouLista = true;
+    }
+    if (canonico === 'chefe' && u.permissoes !== undefined) { delete u.permissoes; migrou = true; }
   });
+  // Sempre um chefe principal (o primeiro chefe ativo, se ninguém estiver marcado), e só um.
+  var principais = usuarios.filter(function (u) { return u.papel === 'chefe' && u.ativo !== false && u.principal === true; });
+  usuarios.forEach(function (u) {
+    var deve = principais.length ? u === principais[0] : false;
+    if (!!u.principal !== deve) { if (deve) u.principal = true; else delete u.principal; migrou = true; }
+  });
+  if (!principais.length) {
+    var primeiroChefe = usuarios.filter(function (u) { return u.papel === 'chefe' && u.ativo !== false; })[0];
+    if (primeiroChefe) { primeiroChefe.principal = true; migrou = true; }
+  }
+  if (ganhouLista) {
+    var arqAntes = path.join(pasta, 'usuarios.antes-das-permissoes.json');
+    if (!fs.existsSync(arqAntes)) fs.writeFileSync(arqAntes, antesDasPermissoes);
+  }
   if (migrou) gravar(arqUsuarios, usuarios);
   var sessoes = ler(arqSessoes, {});
   if (!sessoes || typeof sessoes !== 'object') sessoes = {};
@@ -77,9 +114,14 @@ function criarContas(pasta, opcoes) {
     return crypto.scryptSync(String(senha), sal, 64, { N: custo, r: 8, p: 1 }).toString('hex');
   }
   function sha(token) { return crypto.createHash('sha256').update(String(token)).digest('hex'); }
+  /** O que sai da conta para a tela e para as regras: `permissoes` é a lista que vale (todas, para o chefe). */
   function publico(u) {
-    return u ? { login: u.login, nome: u.nome, papel: core.perfilCanonico(u.papel) || 'anestesista', ativo: u.ativo !== false,
-      anestesistaId: String(u.anestesistaId || '') } : null;
+    if (!u) return null;
+    var papel = core.perfilCanonico(u.papel) || 'anestesista';
+    return { login: u.login, nome: u.nome, papel: papel, ativo: u.ativo !== false,
+      anestesistaId: String(u.anestesistaId || ''), principal: papel === 'chefe' && u.principal === true,
+      permissoes: core.permissoesDe({ papel: papel, permissoes: u.permissoes }),
+      permissoesAlteradasEm: u.permissoesAlteradasEm || '', permissoesAlteradasPor: u.permissoesAlteradasPor || '' };
   }
   function porLogin(login) {
     var l = String(login || '').trim().toLowerCase();
@@ -117,6 +159,7 @@ function criarContas(pasta, opcoes) {
       erros.push({ campo: 'nome', msg: 'Nome: de 2 a 80 letras.' });
     }
     if (dados.papel !== undefined && !core.perfilCanonico(dados.papel)) erros.push({ campo: 'papel', msg: 'Perfil de acesso inválido.' });
+    if (dados.permissoes !== undefined) erros = erros.concat(core.validarPermissoes(dados.permissoes).erros);
     if (dados.senha !== undefined) {
       var s = String(dados.senha);
       if (s.length < 8) erros.push({ campo: 'senha', msg: 'A senha precisa de pelo menos 8 caracteres.' });
@@ -127,45 +170,114 @@ function criarContas(pasta, opcoes) {
 
   /* ----------------------------------------------------------- usuários */
 
-  function criarUsuario(dados) {
+  /** O ator é o chefe principal? Sem ator (a linha de comando do próprio servidor) não há regra de ator. */
+  function atorPrincipal(ator) {
+    if (!ator) return true;
+    var a = porLogin(ator.login);
+    return !!(a && a.papel === 'chefe' && a.ativo !== false && a.principal === true);
+  }
+
+  var SO_PRINCIPAL = 'Só o Anestesista chefe principal cria, altera ou rebaixa outro Anestesista chefe.';
+
+  function diferenca(antes, depois) {
+    return {
+      entraram: depois.filter(function (p) { return antes.indexOf(p) < 0; }),
+      sairam: antes.filter(function (p) { return depois.indexOf(p) < 0; })
+    };
+  }
+
+  /** Cria um usuário. Chefe novo só pelo chefe principal (o primeiro usuário, no primeiro acesso, já nasce principal). */
+  function criarUsuario(dados, ator) {
     var d = { login: String(dados.login || '').trim().toLowerCase(), nome: String(dados.nome || '').trim(),
       papel: dados.papel || 'anestesista', senha: dados.senha };
+    if (dados.permissoes !== undefined) d.permissoes = dados.permissoes;
     var erros = validar(d, true);
     if (porLogin(d.login)) erros.push({ campo: 'login', msg: 'Já existe um usuário "' + d.login + '".' });
+    var papel = core.perfilCanonico(d.papel);
+    if (papel === 'chefe' && usuarios.length && !atorPrincipal(ator)) erros.push({ campo: 'papel', msg: SO_PRINCIPAL });
     if (erros.length) return { ok: false, erros: erros };
     var sal = crypto.randomBytes(16).toString('hex');
-    usuarios.push({ login: d.login, nome: d.nome, papel: core.perfilCanonico(d.papel), ativo: true, sal: sal, hash: hash(d.senha, sal),
-      criadoEm: new Date().toISOString(), anestesistaId: String(dados.anestesistaId || '').trim() });
+    var agora = new Date().toISOString();
+    var u = { login: d.login, nome: d.nome, papel: papel, ativo: true, sal: sal, hash: hash(d.senha, sal),
+      criadoEm: agora, anestesistaId: String(dados.anestesistaId || '').trim() };
+    if (papel === 'chefe') {
+      if (!usuarios.some(function (x) { return x.papel === 'chefe' && x.ativo !== false && x.principal === true; })) u.principal = true;
+    } else {
+      u.permissoes = d.permissoes !== undefined ? core.validarPermissoes(d.permissoes).lista : core.permissoesDe(papel);
+      u.permissoesAlteradasEm = agora;
+      u.permissoesAlteradasPor = ator ? String(ator.login || '') : '';
+    }
+    usuarios.push(u);
     gravar(arqUsuarios, usuarios);
     if (codigo) { codigo = null; try { fs.unlinkSync(arqCodigo); } catch (e) { /* ok */ } }
-    return { ok: true, usuario: publico(porLogin(d.login)) };
+    var pub = publico(u);
+    return { ok: true, usuario: pub, entraram: pub.permissoes, sairam: [] };
   }
 
   function chefesAtivos() { return usuarios.filter(function (u) { return u.papel === 'chefe' && u.ativo !== false; }); }
 
-  /** Muda nome, perfil, ativo ou define senha nova (pelo Anestesista chefe). */
-  function alterarUsuario(login, dados) {
+  /**
+   * Muda nome, perfil (modelo), permissões, ativo, vínculo ou define senha nova (pelo Anestesista chefe).
+   * Mudar o perfil sem mandar a lista aplica o modelo do perfil novo. Devolve também o que entrou e o que saiu.
+   */
+  function alterarUsuario(login, dados, ator) {
     var u = porLogin(login);
     if (!u) return { ok: false, erros: [{ campo: 'login', msg: 'Usuário não encontrado.' }] };
     var d = {};
     ['nome', 'papel', 'senha'].forEach(function (k) { if (dados[k] !== undefined && dados[k] !== '') d[k] = dados[k]; });
+    if (dados.permissoes !== undefined) d.permissoes = dados.permissoes;
     var erros = validar(d, false);
-    var ficaChefeAtivo = (core.perfilCanonico(d.papel) || u.papel) === 'chefe' && (dados.ativo === undefined ? u.ativo !== false : !!dados.ativo);
+    var papelNovo = core.perfilCanonico(d.papel) || u.papel;
+    var ativoNovo = dados.ativo === undefined ? u.ativo !== false : !!dados.ativo;
+    if ((u.papel === 'chefe' || papelNovo === 'chefe') && !atorPrincipal(ator)) {
+      erros.push({ campo: 'papel', msg: SO_PRINCIPAL });
+    }
+    if (u.principal === true && (papelNovo !== 'chefe' || !ativoNovo)) {
+      erros.push({ campo: 'papel', msg: 'Este é o Anestesista chefe principal: passe a função a outro chefe antes de tirá-lo.' });
+    }
+    var ficaChefeAtivo = papelNovo === 'chefe' && ativoNovo;
     if (u.papel === 'chefe' && u.ativo !== false && !ficaChefeAtivo && chefesAtivos().length <= 1) {
       erros.push({ campo: 'papel', msg: 'Este é o único Anestesista chefe ativo: crie outro antes de tirá-lo.' });
     }
     if (erros.length) return { ok: false, erros: erros };
+    var antes = publico(u).permissoes;
     var papelAntes = u.papel;
     if (d.nome) u.nome = String(d.nome).trim();
-    if (d.papel) u.papel = core.perfilCanonico(d.papel);
+    u.papel = papelNovo;
     if (dados.ativo !== undefined) u.ativo = !!dados.ativo;
     if (dados.anestesistaId !== undefined) u.anestesistaId = String(dados.anestesistaId || '').trim();
     if (d.senha) { u.sal = crypto.randomBytes(16).toString('hex'); u.hash = hash(d.senha, u.sal); }
+    if (papelNovo === 'chefe') delete u.permissoes;
+    else {
+      delete u.principal;
+      if (d.permissoes !== undefined) u.permissoes = core.validarPermissoes(d.permissoes).lista;
+      else if (papelNovo !== papelAntes || !Array.isArray(u.permissoes)) u.permissoes = core.permissoesDe(papelNovo);
+    }
+    var mud = diferenca(antes, publico(u).permissoes);
+    var mudouAcesso = mud.entraram.length > 0 || mud.sairam.length > 0 || papelNovo !== papelAntes;
+    if (mudouAcesso) {
+      u.permissoesAlteradasEm = new Date().toISOString();
+      u.permissoesAlteradasPor = ator ? String(ator.login || '') : 'servidor';
+    }
     gravar(arqUsuarios, usuarios);
-    // Senha trocada, acesso cortado ou perfil mudado: as sessões abertas caem (a pessoa entra de novo e
-    // recebe os dados do perfil novo; quem perdeu acesso não fica com a tela antiga viva).
-    if (d.senha || u.ativo === false || u.papel !== papelAntes) encerrarSessoesDe(u.login);
-    return { ok: true, usuario: publico(u) };
+    // Senha trocada, acesso cortado ou permissões mudadas: as sessões abertas caem (a pessoa entra de novo e
+    // recebe os dados do acesso novo; quem perdeu acesso não fica com a tela antiga viva).
+    if (d.senha || u.ativo === false || mudouAcesso) encerrarSessoesDe(u.login);
+    return { ok: true, usuario: publico(u), entraram: mud.entraram, sairam: mud.sairam, mudouAcesso: mudouAcesso };
+  }
+
+  /** O chefe principal passa a função a outro chefe ativo (e continua chefe). */
+  function transferirPrincipal(paraLogin, ator) {
+    if (!atorPrincipal(ator)) return { ok: false, erros: [{ campo: 'principal', msg: 'Só o Anestesista chefe principal passa a função.' }] };
+    var alvo = porLogin(paraLogin);
+    if (!alvo || alvo.papel !== 'chefe' || alvo.ativo === false) {
+      return { ok: false, erros: [{ campo: 'principal', msg: 'A função de principal só passa para outro Anestesista chefe ativo.' }] };
+    }
+    if (alvo.principal === true) return { ok: false, erros: [{ campo: 'principal', msg: 'Este já é o Anestesista chefe principal.' }] };
+    usuarios.forEach(function (x) { delete x.principal; });
+    alvo.principal = true;
+    gravar(arqUsuarios, usuarios);
+    return { ok: true, usuario: publico(alvo) };
   }
 
   /** A própria pessoa troca a senha, confirmando a atual. */
@@ -276,6 +388,7 @@ function criarContas(pasta, opcoes) {
     temUsuarios: function () { return usuarios.length > 0; },
     criarUsuario: criarUsuario,
     alterarUsuario: alterarUsuario,
+    transferirPrincipal: transferirPrincipal,
     trocarSenha: trocarSenha,
     listar: listar,
     usuario: usuario,

@@ -294,16 +294,18 @@ var COMP = (function () {
    * `aoMudar` roda depois de remover, para a tela desenhar a lista de novo.
    * É a mesma linha nas telas Avaliações pré e Cirurgias.
    */
-  function linhaExameGuardado(m, aoMudar) {
+  function linhaExameGuardado(m, aoMudar, pode) {
+    // `pode`: { remover } — sem a permissão "Remover exames" a linha não oferece o botão (o servidor recusaria).
+    var podeRemover = !pode || pode.remover !== false;
     return linhaExame({
       nome: m.nome,
       detalhe: ANEXOS.tamanhoLegivel(m.tamanho) + ' · ' + UI.data(m.criadoEm) + (m.criadoPor ? ' · ' + m.criadoPor : ''),
       aoAbrir: function () { ANEXOS.abrirEmAba(m.id, m.nome).catch(function (e) { UI.erro('Não foi possível abrir', e.message); }); },
       aoBaixar: function () { ANEXOS.baixar(m.id, m.nome).catch(function (e) { UI.erro('Não foi possível baixar', e.message); }); },
-      aoRemover: function () {
+      aoRemover: podeRemover ? function () {
         ANEXOS.remover(m.id).then(function () { UI.ok('Exame removido', m.nome); aoMudar(); },
           function (e) { UI.erro('Não foi possível remover', e.message); });
-      }
+      } : null
     });
   }
 

@@ -202,7 +202,9 @@ TELAS.log = (function () {
     remoto.carregando = true; remoto.erro = null;
     var login = f.usuario && f.usuario.indexOf('nome:') !== 0 ? f.usuario : '';
     return Promise.all([
-      remoto.usuarios ? Promise.resolve(remoto.usuarios) : SERVIDOR.admin.usuarios(),
+      // A lista de usuários (para o filtro) é do chefe; quem só lê a auditoria filtra pelo login.
+      remoto.usuarios ? Promise.resolve(remoto.usuarios)
+        : (app.ehChefe() ? SERVIDOR.admin.usuarios() : Promise.resolve([])),
       SERVIDOR.admin.acessos({ login: login, de: f.de, ate: f.ate, evento: f.evento, texto: f.texto })
     ]).then(function (r) {
       remoto.usuarios = r[0]; remoto.acessos = r[1]; remoto.carregando = false;
@@ -316,14 +318,14 @@ TELAS.log = (function () {
 
     if (remoto.erro) { blocos.push(aviso('Não foi possível ler os arquivos', remoto.erro, 'atencao')); return blocos; }
 
-    blocos.push(el('div', { class: 'cartao' }, [
+    if (app.ehChefe()) blocos.push(el('div', { class: 'cartao' }, [
       cab('Prazos', 'quanto fica na tela e quanto o arquivo é guardado'),
       el('div', { class: 'cartao-corpo' }, formConfig(app, cfg))
     ]));
 
     var rot = dados && dados.ultimaRotacao;
     blocos.push(el('div', { class: 'cartao' }, [
-      cab('Rotação mensal', rot ? 'última em ' + rot.quando + (rot.ok ? '' : ' — com falha') : 'ainda não rodou', [
+      cab('Rotação mensal', rot ? 'última em ' + rot.quando + (rot.ok ? '' : ' — com falha') : 'ainda não rodou', !app.ehChefe() ? [] : [
         el('button', {
           class: 'btn btn-pq', onclick: function () {
             UI.confirmar({

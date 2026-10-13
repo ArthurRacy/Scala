@@ -2263,8 +2263,8 @@ var MUTACOES_SEGURAS_EM_CONCORRENCIA = ['atualizarCirurgia', 'atualizarAvaliacao
   'salvarConfigQualidade', 'salvarConfigLog'];
 
 /*
- * Quem pode cada operação (os três perfis) está em core/12b_permissoes.js, a única tabela:
- * ali também sai MUTACOES_SO_ADMIN, a lista do que só o Anestesista chefe faz.
+ * Quem pode cada operação está em core/12b_permissoes.js, a única tabela (PERMISSAO_DA_OPERACAO, com o
+ * catálogo de permissões): ali também sai MUTACOES_SO_ADMIN, o que nos modelos só o Anestesista chefe faz.
  */
 
 if (typeof module !== 'undefined' && module.exports) {

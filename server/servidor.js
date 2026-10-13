@@ -438,7 +438,7 @@ function criarServidor(opcoes) {
   function emitirComando(info) {
     fluxos.forEach(function (f) {
       var dados = info;
-      if (!core.perfilVeFinanceiro(f.papel) && core.GRUPO_DA_MUTACAO[info.nome] === 'financeiro') {
+      if (core.comandoOcultoPara(f.usuario, info.nome)) {
         dados = { revisao: info.revisao, usuario: '', cliente: info.cliente, nome: '' };
       }
       try { f.res.write('event: comando\ndata: ' + JSON.stringify(dados) + '\n\n'); } catch (e) { /* conexão caiu */ }
@@ -566,7 +566,7 @@ function criarServidor(opcoes) {
     var nome = String(c.nome || '');
     if (core.MUTACOES_STORE.indexOf(nome) < 0) return [400, { erro: 'Operação desconhecida.' }];
     if (!Array.isArray(c.args) || c.args.length > 6 || !argumentosSeguros(c.args)) return [400, { erro: 'Argumentos inválidos.' }];
-    var perm = core.perfilPodeExecutar(eu.papel, nome, c.args, core.contextoDeAssinatura(eu.anestesistaId, store.estado.anestesistas));
+    var perm = core.perfilPodeExecutar(eu, nome, c.args, core.contextoDeAssinatura(eu.anestesistaId, store.estado.anestesistas));
     if (!perm.ok) {
       evento('acesso_negado', eu, 'operação ' + nome + ' (' + perm.motivo + ')', req);
       return [403, { erro: perm.erro, motivo: perm.motivo }];
@@ -648,8 +648,15 @@ function criarServidor(opcoes) {
     if (c.anestesistaId === undefined) return null;
     var id = String(c.anestesistaId || '').trim();
     if (!id) return null;                                      // desligar sempre pode
+    // Só é ligado quem vai assinar: o acesso como fica depois deste pedido (perfil e lista mandados, ou os de agora).
     var papel = core.perfilCanonico(c.papel !== undefined && c.papel !== '' ? c.papel : (atual && atual.papel)) || 'anestesista';
-    if (papel === 'secretaria') return { campo: 'anestesistaId', msg: 'A secretária não assina boletim: não precisa ser ligada a um anestesista.' };
+    var lista = c.permissoes !== undefined ? c.permissoes
+      : (atual && papel === atual.papel ? atual.permissoes : undefined);
+    if (!core.pode({ papel: papel, permissoes: lista }, 'boletim.assinar')) {
+      return { campo: 'anestesistaId', msg: papel === 'secretaria' && lista === undefined
+        ? 'A secretária não assina boletim: não precisa ser ligada a um anestesista.'
+        : 'Este usuário não assina boletim (falta a permissão "Assinar o boletim"): não precisa ser ligado a um anestesista.' };
+    }
     var cad = store.estado.anestesistas.filter(function (a) { return String(a.id) === id; })[0];
     if (!cad) return { campo: 'anestesistaId', msg: 'Esse anestesista não existe no cadastro.' };
     var login = String(c.login || '').trim().toLowerCase();
@@ -726,13 +733,23 @@ function criarServidor(opcoes) {
       }
       return chefe;
     }
+    /** A rota exige esta permissão do catálogo (core/12b_permissoes.js, PERMISSAO_DA_ROTA). */
+    function exigir(permissao) {
+      if (permissao === core.SO_CHEFE) return soChefe();
+      if (core.pode(eu, permissao)) return true;
+      var p = core.PERMISSOES.filter(function (x) { return x.id === permissao; })[0];
+      evento('acesso_negado', eu, metodo + ' ' + caminho + ' (falta ' + permissao + ')', req);
+      json(res, 403, { erro: 'O seu acesso não inclui "' + (p ? p.rotulo : permissao) + '". Peça ao Anestesista chefe.' });
+      return false;
+    }
+    function exigirDaRota(chave) { return exigir(core.PERMISSAO_DA_ROTA[chave]); }
 
     /* --- dados --- */
     if (caminho === '/api/estado' && metodo === 'GET') {
       return Promise.resolve(json(res, 200, {
         revisao: revisao, hoje: hojeAtual, agora: Date.now(), usuario: eu,
         // Cada perfil recebe só o que pode ver (o anestesista, nada de dinheiro): o corte é aqui.
-        estado: core.projetarEstadoParaPerfil(DADOS.enxugar(store.estado), eu.papel)
+        estado: core.projetarEstadoParaPerfil(DADOS.enxugar(store.estado), eu)
       }));
     }
     if (caminho === '/api/comando' && metodo === 'POST') {
@@ -744,14 +761,14 @@ function criarServidor(opcoes) {
       return Promise.resolve(json(res, 200, {
         revisao: revisao, hoje: hojeAtual,
         comandos: diario.filter(function (d) { return d.revisao > desde; })
-          .map(function (d) { return core.redigirComandoParaPerfil(d, eu.papel); })
+          .map(function (d) { return core.redigirComandoParaPerfil(d, eu); })
       }));
     }
     if (caminho === '/api/eventos' && metodo === 'GET') {
       res.writeHead(200, cabecalhos({ 'Content-Type': 'text/event-stream; charset=utf-8', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' }));
       res.write('retry: 3000\n\n');
       res.write('event: ola\ndata: ' + JSON.stringify({ revisao: revisao, hoje: hojeAtual }) + '\n\n');
-      var f = { res: res, login: eu.login, papel: eu.papel };
+      var f = { res: res, login: eu.login, papel: eu.papel, usuario: eu };
       fluxos.add(f);
       req.on('close', function () { fluxos.delete(f); });
       return Promise.resolve();
@@ -759,9 +776,16 @@ function criarServidor(opcoes) {
 
     /* --- anexos --- */
     var mAnexo = /^\/api\/anexos\/([A-Za-z0-9]+)$/.exec(caminho);
-    if (caminho === '/api/anexos' && metodo === 'GET') return Promise.resolve(json(res, 200, { metas: armazem.metasAnexos() }));
-    if (caminho === '/api/anexos' && metodo === 'POST') return receberAnexo(req, eu).then(responder);
+    if (caminho === '/api/anexos' && metodo === 'GET') {
+      if (!exigirDaRota('GET /api/anexos')) return Promise.resolve();
+      return Promise.resolve(json(res, 200, { metas: armazem.metasAnexos() }));
+    }
+    if (caminho === '/api/anexos' && metodo === 'POST') {
+      if (!exigirDaRota('POST /api/anexos')) return Promise.resolve();
+      return receberAnexo(req, eu).then(responder);
+    }
     if (mAnexo && metodo === 'GET') {
+      if (!exigirDaRota('GET /api/anexos/:id')) return Promise.resolve();
       if (!armazem.ID_ANEXO.test(mAnexo[1])) return Promise.resolve(json(res, 404, { erro: 'Arquivo não encontrado.' }));
       var buf = armazem.lerAnexo(mAnexo[1]);
       if (!buf) return Promise.resolve(json(res, 404, { erro: 'Arquivo não encontrado.' }));
@@ -773,6 +797,7 @@ function criarServidor(opcoes) {
       return Promise.resolve();
     }
     if (mAnexo && metodo === 'DELETE') {
+      if (!exigirDaRota('DELETE /api/anexos/:id')) return Promise.resolve();
       if (!armazem.ID_ANEXO.test(mAnexo[1])) return Promise.resolve(json(res, 404, { erro: 'Arquivo não encontrado.' }));
       var n = armazem.removerAnexos([mAnexo[1]], eu.nome);
       if (n) { evento('exame_removido', eu, mAnexo[1], req); emitir('anexos', { cliente: String(req.headers['x-cliente'] || '') }); }
@@ -796,27 +821,40 @@ function criarServidor(opcoes) {
 
     /* --- administração --- */
     if (caminho === '/api/usuarios' && metodo === 'GET') {
-      if (!soChefe()) return Promise.resolve();
+      if (!exigirDaRota('GET /api/usuarios')) return Promise.resolve();
       return Promise.resolve(json(res, 200, { usuarios: contas.listar() }));
     }
     if (caminho === '/api/usuarios' && metodo === 'POST') {
-      if (!soChefe()) return Promise.resolve();
+      if (!exigirDaRota('POST /api/usuarios')) return Promise.resolve();
       return lerJson(req, 16384).then(function (c) {
         var antes = c.novo ? null : contas.usuario(c.login);
         var erroVinculo = erroDoVinculo(c, antes);
         if (erroVinculo) return json(res, 400, { ok: false, erros: [erroVinculo] });
-        var r = c.novo ? contas.criarUsuario(c) : contas.alterarUsuario(c.login, c);
+        // O ator decide as regras do chefe principal (server/contas.js).
+        var r = c.novo ? contas.criarUsuario(c, eu) : contas.alterarUsuario(c.login, c, eu);
         if (r.ok) {
+          var acesso = (r.entraram && r.entraram.length ? ' · permissões +' + r.entraram.join(' +') : '') +
+            (r.sairam && r.sairam.length ? ' · permissões -' + r.sairam.join(' -') : '');
           evento(c.novo ? 'usuario_criado' : 'usuario_alterado', eu, r.usuario.login + ' · perfil ' + r.usuario.papel +
-            (r.usuario.ativo ? '' : ' · desativado') + (c.senha ? ' · senha redefinida' : ''), req);
-          // Acesso cortado, senha nova ou perfil diferente: a conexão aberta tem os dados do perfil velho.
-          if (!r.usuario.ativo || c.senha || (antes && antes.papel !== r.usuario.papel)) fecharFluxosDe(r.usuario.login);
+            (r.usuario.ativo ? '' : ' · desativado') + (c.senha ? ' · senha redefinida' : '') + acesso, req);
+          // Acesso cortado, senha nova ou permissões diferentes: a conexão aberta tem os dados do acesso velho.
+          if (!r.usuario.ativo || c.senha || r.mudouAcesso) fecharFluxosDe(r.usuario.login);
+        } else if (r.erros && r.erros.some(function (e) { return /principal/.test(e.msg); })) {
+          evento('acesso_negado', eu, 'usuário ' + String(c.login || '') + ' (só o chefe principal)', req);
         }
         json(res, r.ok ? 200 : 400, r);
       });
     }
+    if (caminho === '/api/usuarios/principal' && metodo === 'POST') {
+      if (!exigirDaRota('POST /api/usuarios')) return Promise.resolve();
+      return lerJson(req, 4096).then(function (c) {
+        var r = contas.transferirPrincipal(c.login, eu);
+        if (r.ok) evento('chefe_principal_transferido', eu, 'para ' + r.usuario.login, req);
+        json(res, r.ok ? 200 : 400, r);
+      });
+    }
     if (caminho === '/api/backup' && metodo === 'GET') {
-      if (!soChefe()) return Promise.resolve();
+      if (!exigirDaRota('GET /api/backup')) return Promise.resolve();
       var comPdfs = busca.get('pdfs') === '1';
       var anexos = comPdfs ? armazem.metasAnexos().map(function (m) {
         var b = armazem.lerAnexo(m.id);
@@ -831,7 +869,7 @@ function criarServidor(opcoes) {
     }
     if (caminho === '/api/exportar-tudo' && metodo === 'GET') {
       // "Baixar todos os dados": um .zip escrito aos poucos (server/exportar_tudo.js). Um de cada vez: é leitura pesada de disco.
-      if (!soChefe()) return Promise.resolve();
+      if (!exigirDaRota('GET /api/exportar-tudo')) return Promise.resolve();
       if (exportando) return Promise.resolve(json(res, 409, { erro: 'Já há um download de todos os dados em andamento. Espere ele terminar.' }));
       exportando = true;
       var nomeZip = 'anestesia_todos_os_dados_' + hojeAtual + '.zip';
@@ -849,7 +887,7 @@ function criarServidor(opcoes) {
       }).then(function () { exportando = false; });
     }
     if (caminho === '/api/importar' && metodo === 'POST') {
-      if (!soChefe()) return Promise.resolve();
+      if (!exigirDaRota('POST /api/importar')) return Promise.resolve();
       return lerCorpo(req, LIMITE_BACKUP).then(function (buf) {
         var r = DADOS.importarJSON(buf.toString('utf8'));
         if (!r.ok) return json(res, 400, { erro: r.erro });
@@ -875,7 +913,7 @@ function criarServidor(opcoes) {
       });
     }
     if (caminho === '/api/apagar-tudo' && metodo === 'POST') {
-      if (!soChefe()) return Promise.resolve();
+      if (!exigirDaRota('POST /api/apagar-tudo')) return Promise.resolve();
       return lerJson(req, 1024).then(function (c) {
         if (c.confirmacao !== 'APAGAR') return json(res, 400, { erro: 'Confirmação ausente.' });
         trocarEstadoInteiro(DADOS.estadoDoSeed().estado, 'apagar-tudo', eu);
@@ -883,11 +921,11 @@ function criarServidor(opcoes) {
       });
     }
     if (caminho === '/api/copias' && metodo === 'GET') {
-      if (!soChefe()) return Promise.resolve();
+      if (!exigirDaRota('GET /api/copias')) return Promise.resolve();
       return Promise.resolve(json(res, 200, { copias: armazem.listarCopias() }));
     }
     if (caminho === '/api/copias/restaurar' && metodo === 'POST') {
-      if (!soChefe()) return Promise.resolve();
+      if (!exigirDaRota('POST /api/copias/restaurar')) return Promise.resolve();
       return lerJson(req, 1024).then(function (c) {
         var copia;
         try { copia = armazem.lerCopia(c.id); } catch (e) { return json(res, 404, { erro: 'Cópia não encontrada.' }); }
@@ -896,20 +934,20 @@ function criarServidor(opcoes) {
       });
     }
 
-    /* --- auditoria por usuário e arquivo mensal do LOG (só o chefe) --- */
+    /* --- auditoria por usuário e arquivo mensal do LOG (ler: "Ver a auditoria"; arquivar e conferir: só o chefe) --- */
     if (caminho === '/api/auditoria/acessos' && metodo === 'GET') {
-      if (!soChefe()) return Promise.resolve();
+      if (!exigirDaRota('GET /api/auditoria/acessos')) return Promise.resolve();
       var rAc = auditoria.listarAcessos({ login: busca.get('login') || '', de: busca.get('de') || '', ate: busca.get('ate') || '',
         evento: busca.get('evento') || '', texto: busca.get('texto') || '', limite: busca.get('limite') });
       return Promise.resolve(json(res, 200, rAc));
     }
     if (caminho === '/api/auditoria/arquivos' && metodo === 'GET') {
-      if (!soChefe()) return Promise.resolve();
+      if (!exigirDaRota('GET /api/auditoria/arquivos')) return Promise.resolve();
       return Promise.resolve(json(res, 200, Object.assign(auditoria.arquivos(), { config: store.configLog(), hoje: hojeAtual })));
     }
     var mLog = /^\/api\/auditoria\/arquivos\/([a-z]+_\d{4}-\d{2}(?:_p\d+)?)$/.exec(caminho);
     if (mLog && metodo === 'GET') {
-      if (!soChefe()) return Promise.resolve();
+      if (!exigirDaRota('GET /api/auditoria/arquivos/:id')) return Promise.resolve();
       var conteudo;
       try { conteudo = auditoria.lerArquivo(mLog[1]); } catch (e) { return Promise.resolve(json(res, 404, { erro: e.message })); }
       var jsonl = busca.get('formato') === 'jsonl';
@@ -928,12 +966,12 @@ function criarServidor(opcoes) {
       return Promise.resolve();
     }
     if (caminho === '/api/auditoria/rotacionar' && metodo === 'POST') {
-      if (!soChefe()) return Promise.resolve();
+      if (!exigirDaRota('POST /api/auditoria/rotacionar')) return Promise.resolve();
       evento('log_rotacao_manual', eu, '', req);
       return Promise.resolve(json(res, 200, Object.assign({ ok: true }, rotacionarLogs('manual'))));
     }
     if (caminho === '/api/auditoria/conferir' && metodo === 'POST') {
-      if (!soChefe()) return Promise.resolve();
+      if (!exigirDaRota('POST /api/auditoria/conferir')) return Promise.resolve();
       var conf = auditoria.conferir();
       evento('log_arquivos_conferidos', eu, conf.conferem + ' de ' + conf.total + ' conferem', req);
       return Promise.resolve(json(res, 200, Object.assign({ ok: conf.problemas.length === 0 }, conf)));

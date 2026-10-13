@@ -27,6 +27,8 @@ TELAS.dados = (function () {
     if (app.servidor) { abrirNoServidor(app); return; }
     var st = app.store;
     var e = st.estado;
+    // Demonstração com conta que só tem "Baixar os dados": baixa, mas não importa, não restaura e não apaga.
+    var chefe = app.ehChefe();
 
     var blocoProtecao = el('div', { class: 'defs' }, [def('Situação', 'verificando…')]);
     var blocoPasta = el('div');
@@ -38,7 +40,7 @@ TELAS.dados = (function () {
       corpo: [
         secao('Proteção dos dados', [blocoProtecao]),
 
-        GUARDA.suportaPasta() ? secao('Backup automático numa pasta', [
+        chefe && GUARDA.suportaPasta() ? secao('Backup automático numa pasta', [
           el('p', { class: 't-pq t-medio' },
             'Uma vez por dia o sistema grava uma cópia compactada de tudo numa pasta deste computador ' +
             '(pode ser uma pasta do OneDrive ou do Google Drive, para ter cópia fora da máquina) e copia ' +
@@ -47,7 +49,7 @@ TELAS.dados = (function () {
           blocoPasta
         ]) : null,
 
-        secao('Cópias automáticas no navegador', [
+        !chefe ? null : secao('Cópias automáticas no navegador', [
           el('p', { class: 't-pq t-medio' },
             'Uma por dia (últimos ' + GUARDA.RETENCAO.diasDiarios + ' dias), a primeira de cada mês (' +
             GUARDA.RETENCAO.mesesMensais + ' meses) e uma antes de importar ou apagar (' +
@@ -65,21 +67,21 @@ TELAS.dados = (function () {
               [icone('baixar'), 'Exportar backup']),
             el('button', { class: 'btn', onclick: function () { exportar(app, true); } },
               [icone('clipe'), 'Exportar com PDFs']),
-            el('button', { class: 'btn', onclick: function () { importarBackup(app); } },
-              [icone('subir'), 'Importar backup'])
+            chefe ? el('button', { class: 'btn', onclick: function () { importarBackup(app); } },
+              [icone('subir'), 'Importar backup']) : null
           ])
         ]),
 
         secaoPlanilhas(app),
 
-        secao('Recarregar dados mestres', [
+        !chefe ? null : secao('Recarregar dados mestres', [
           el('p', { class: 't-pq t-medio' },
             'Substitui apenas o cadastro de anestesistas e a escala-base, a partir do seed.json gerado por ' +
             'tools/extrair_dados.py. As cirurgias e avaliações lançadas são preservadas.'),
           el('button', { class: 'btn', onclick: function () { importarSeed(app); } }, [icone('subir'), 'Importar seed.json'])
         ]),
 
-        secao('Zona de risco', [
+        !chefe ? null : secao('Zona de risco', [
           el('div', { class: 'aviso aviso-erro' }, [
             icone('alerta'),
             el('div', { class: 'aviso-corpo' }, [
@@ -130,7 +132,9 @@ TELAS.dados = (function () {
 
   function abrirNoServidor(app) {
     var e = app.store.estado;
+    // Baixar (backup, planilhas, todos os dados): permissão "Baixar os dados". Restaurar, importar e apagar: só o chefe.
     var admin = SERVIDOR.ehAdmin();
+    var baixa = app.pode('dados.exportar');
     var blocoCopias = el('div', { class: 't-pq t-medio' }, 'Carregando as cópias do servidor…');
     var R = RETENCAO_COPIAS;
 
@@ -153,7 +157,7 @@ TELAS.dados = (function () {
           blocoCopias
         ]) : null,
 
-        admin ? secao('Baixar todos os dados', [
+        baixa ? secao('Baixar todos os dados', [
           el('p', { class: 't-pq t-medio' }, 'Um arquivo .zip com tudo: os dados (que voltam para o sistema), as planilhas, todos os ' +
             'PDFs de exame (também os removidos ainda no prazo), o LOG e a impressão digital (SHA-256) de cada arquivo, para conferir ' +
             'anos depois. O servidor guarda cópias e exames removidos por ' + Math.round(R.mesesMensais / 12) + ' anos: para guardar ' +
@@ -162,13 +166,13 @@ TELAS.dados = (function () {
             [icone('baixar'), 'Baixar todos os dados (.zip)'])
         ]) : null,
 
-        admin ? secao('Backup em arquivo', [
+        baixa ? secao('Backup em arquivo', [
           el('p', { class: 't-pq t-medio' }, 'Um arquivo .json com tudo; o completo leva os PDFs de exame. Guarde fora do ' +
             'servidor (pendrive, nuvem da clínica): é a proteção contra perder o computador. Tem dados de pacientes.'),
           el('div', { class: 'linha' }, [
             el('button', { class: 'btn btn-primario', onclick: function () { baixarDoServidor(false); } }, [icone('baixar'), 'Exportar backup']),
             el('button', { class: 'btn', onclick: function () { baixarDoServidor(true); } }, [icone('clipe'), 'Exportar com PDFs']),
-            el('button', { class: 'btn', onclick: function () { importarNoServidor(); } }, [icone('subir'), 'Importar backup'])
+            admin ? el('button', { class: 'btn', onclick: function () { importarNoServidor(); } }, [icone('subir'), 'Importar backup']) : null
           ])
         ]) : secao('Backup', [el('p', { class: 't-pq t-medio' },
           'O servidor faz cópias automáticas todos os dias. Exportar, importar e restaurar ficam com o administrador do sistema.')]),

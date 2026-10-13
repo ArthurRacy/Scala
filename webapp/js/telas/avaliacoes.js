@@ -206,8 +206,8 @@ TELAS.avaliacoes = (function () {
     var fNF = UI.campo({ rotulo: 'Número da nota fiscal', nome: 'nf', valor: a.nf || '' });
     var fObs = UI.campo({ rotulo: 'Observações', nome: 'obs', tipo: 'textarea', valor: a.obs || '', largo: true, linhas: 2 });
 
-    // Dinheiro só para quem o vê: para os outros o campo nem existe, então nunca vai no pedido.
-    var veFin = app.veFinanceiro();
+    // Dinheiro só para quem pode alterá-lo: para os outros o campo nem existe, então nunca vai no pedido.
+    var veFin = app.editaFinanceiro();
     var form = UI.formulario([fAnest, fData, fHora, fRealizada, fTcle]
       .concat(veFin ? [fValor, fPago, fDataPag, fNF] : []).concat([fObs]));
 
@@ -298,8 +298,15 @@ TELAS.avaliacoes = (function () {
       return;
     }
 
+    if (!app.pode('exames.ver')) {
+      no.appendChild(el('div', { class: 'anexos-vazio t-pq t-suave' },
+        'O seu acesso não inclui abrir os exames do paciente. Peça ao Anestesista chefe, se precisar.'));
+      return;
+    }
+
     var itens = ANEXOS.listar(a.uid);
     var redesenhar = function () { desenharExames(app, a, no); app.redesenhar(); };
+    var podeAnexar = app.pode('exames.anexar');
 
     var entrada = el('input', {
       type: 'file', accept: 'application/pdf,.pdf', multiple: true, style: 'display:none',
@@ -324,9 +331,12 @@ TELAS.avaliacoes = (function () {
     no.appendChild(entrada);
 
     no.appendChild(itens.length
-      ? el('div', { class: 'anexos' }, itens.map(function (m) { return COMP.linhaExameGuardado(m, redesenhar); }))
+      ? el('div', { class: 'anexos' }, itens.map(function (m) {
+          return COMP.linhaExameGuardado(m, redesenhar, { remover: app.pode('exames.remover') });
+        }))
       : el('div', { class: 'anexos-vazio t-pq t-suave' }, 'Nenhum exame anexado ainda.'));
 
+    if (!podeAnexar) return;
     no.appendChild(el('div', { class: 'linha mt-3' }, [
       el('button', { class: 'btn', onclick: function () { entrada.click(); } }, [icone('clipe'), 'Anexar PDFs de exames']),
       el('span', { class: 't-mpq t-suave' },

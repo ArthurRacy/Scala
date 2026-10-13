@@ -204,11 +204,14 @@ module.exports = function (t, core, dados) {
       verdadeiro(texto.indexOf('n\\343o identifica') > 0 || /identifica/.test(texto), 'e diz que é agregado');
     });
 
-    it('a comparação por profissional e a configuração são da coordenação (regra do painel)', function () {
+    it('a comparação por profissional e a configuração têm permissão própria (regra do painel)', function () {
       var fonte = fs.readFileSync(path.join(RAIZ, 'webapp', 'js', 'telas', 'painel_qualidade.js'), 'utf8');
-      verdadeiro(/function ehCoordenacao\(app\)/.test(fonte), 'a regra existe');
+      verdadeiro(/function ehCoordenacao\(app\) \{\s*return app\.pode\('qualidade\.comparar'\);/.test(fonte), 'comparar: "Comparar profissionais"');
+      verdadeiro(/function podeConfigurar\(app\) \{\s*return app\.pode\('qualidade\.coordenar'\);/.test(fonte), 'configurar: "Coordenação da qualidade"');
       verdadeiro(/if \(!ehCoordenacao\(app\)\) return areaDaCoordenacao/.test(fonte), 'a comparação a usa');
-      verdadeiro(/var podeConfigurar = ehCoordenacao/.test(fonte), 'a configuração a usa');
+      verdadeiro(/if \(!podeConfigurar\(app\)\) return areaDaCoordenacao/.test(fonte), 'a configuração a usa');
+      falso(core.MODELOS_DE_PERMISSAO.anestesista.indexOf('qualidade.comparar') >= 0, 'nenhum modelo compara profissionais');
+      falso(core.MODELOS_DE_PERMISSAO.secretaria.indexOf('qualidade.coordenar') >= 0, 'nem coordena');
     });
   });
 
