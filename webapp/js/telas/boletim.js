@@ -738,9 +738,10 @@ TELAS.boletim = (function () {
         blocoSituacao,
         el('div', { class: 'pilha-pq mt-2' }, fechado ? [
           el('button', { class: 'btn btn-primario', onclick: gerarPdf }, [icone('baixar'), finalizado ? 'PDF do boletim' : 'PDF (rascunho)']),
-          finalizado && !soLeitura ? el('button', { class: 'btn', onclick: reabrir }, [icone('lapis'), 'Reabrir para correção']) : null
+          finalizado && !soLeitura && app.podeFazer('reabrirBoletim')
+            ? el('button', { class: 'btn', onclick: reabrir }, [icone('lapis'), 'Reabrir para correção']) : null
         ] : [
-          botaoFinalizar,
+          app.podeFazer('finalizarBoletim') ? botaoFinalizar : null,
           el('button', { class: 'btn', onclick: gerarPdf }, [icone('baixar'), 'PDF (rascunho)']),
           ehRascunhoNovo ? el('button', { class: 'btn btn-perigo', onclick: descartar }, [icone('lixo'), 'Descartar rascunho']) : null
         ])

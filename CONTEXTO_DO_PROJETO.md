@@ -4,7 +4,7 @@ Documento de passagem entre conversas. Diz o que o sistema é, como está
 montado, o que já foi feito, as regras que não podem ser quebradas e o que
 ainda falta. Atualizado em **13/10/2026**.
 
-- Estado atual: **855 testes, todos passando** (`node qa`; a suíte inteira leva alguns minutos).
+- Estado atual: **881 testes, todos passando** (`node qa`; a suíte inteira leva alguns minutos).
 - Versão online publicada: **versão 10** (com o módulo de qualidade e segurança).
 
 ---
@@ -97,21 +97,26 @@ docs/        REGRAS_DE_NEGOCIO.md, QA.md, KANBAN.md
      do store sem passar pelo contexto.
 9. **Toda operação nova do store que muda dados** tem de entrar em
    `MUTACOES_STORE` e `MUTACOES_SEGURAS_EM_CONCORRENCIA` (fim de `core/12_store.js`, esta
-   só se for o caso) **e ser classificada em `GRUPO_DA_MUTACAO` de `core/12b_permissoes.js`**
-   (quem faz). Sem classificação, só o chefe a faz; o teste 25 recusa operação nova que
-   não esteja na tabela dele. `MUTACOES_SO_ADMIN` agora sai dessa tabela (o que só o chefe
-   faz). Sem estar em `MUTACOES_STORE`, a operação não chega ao servidor.
-9b. **Perfis:** o corte do que cada perfil recebe (`projetarEstadoParaPerfil` e
-   `redigirComandoParaPerfil`) é parte do protocolo: operação nova que mexa em dinheiro ou
-   em dado de contato precisa entrar em `CAMPOS_FINANCEIROS` / `ARGUMENTO_RESTRITO`, e o
-   teste de réplica (qa/25) tem de continuar igual.
+   só se for o caso) **e apontar para uma permissão em `PERMISSAO_DA_OPERACAO` de
+   `core/12b_permissoes.js`** (ou `SO_CHEFE` / `INTERNA`). Sem classificação, só o chefe a faz; os
+   testes 25 e 40 recusam operação nova que não esteja na tabela. Tela nova entra em
+   `PERMISSAO_DA_TELA`; rota nova do servidor que não seja de todo mundo, em `PERMISSAO_DA_ROTA`
+   (e o servidor a confere com `exigirDaRota`). `MUTACOES_SO_ADMIN` sai dessa tabela.
+9b. **Permissões e cortes:** cada usuário que não é chefe tem a sua lista de permissões
+   (`usuarios.json`, escolhida pelo chefe a partir dos modelos Anestesista/Secretária). O corte do
+   que cada um recebe (`projetarEstadoParaPerfil` e `redigirComandoParaPerfil`, que aceitam um
+   perfil ou uma conta) segue 4 interruptores: "Ver valores", "Ver o repasse", "Ver contatos" e
+   "Ver a auditoria". Operação nova que mexa em dinheiro ou em dado de contato precisa entrar em
+   `CAMPOS_FINANCEIROS` / `ARGUMENTO_RESTRITO`, e os testes de réplica (qa/25 e qa/40, em todas as
+   combinações válidas) têm de continuar iguais. O LOG e "Baixar os dados" mostram tudo: por isso
+   exigem ver o repasse e os contatos (não afrouxar isso).
 9c. **LOG:** só cresce (append-only), com **uma única exceção**: `arquivarLogAte` (store),
    que o próprio servidor aplica depois de o arquivo mensal estar gravado e conferido
    (SHA-256) em `server/auditoria.js`, e que deixa uma linha "LOG ARQUIVADO" no lugar.
    Nenhuma linha sai sem estar num arquivo conferido; arquivo existente nunca é reescrito.
    Toda linha leva o `login` (o store carimba em `api.registrar`; a tela e o servidor
    precisam definir `store.login` para o estado ser idêntico). Operação interna: nenhum
-   perfil a manda pela rede (`GRUPO_DA_MUTACAO`: 'interna').
+   perfil a manda pela rede (`PERMISSAO_DA_OPERACAO`: `INTERNA`).
 10. **Downloads** passam por `UI.salvarArquivo(nome, dados)`. Na versão online,
     usa a capacidade `downloads` do Artifact.
 11. **Qualidade (regras que não se negociam):**
@@ -162,7 +167,13 @@ Regras de concorrência e de acesso:
   - trava após 5 senhas erradas;
   - cabeçalho `X-Anestesia` obrigatório contra CSRF;
   - primeiro acesso por código mostrado na janela do servidor.
-- **Perfis** (decididos pelo servidor; tabela única em `core/12b_permissoes.js`):
+- **Permissões** (desde 13/10/2026, `docs/PERMISSOES.md`): catálogo de 29 permissões em
+  `core/12b_permissoes.js`; cada usuário tem a sua lista, escolhida pelo chefe na tela Usuários a
+  partir de um modelo. Só o chefe cadastra usuários e decide permissões; entre os chefes, um é o
+  **principal** (`principal: true` em `usuarios.json`), o único que cria, altera, rebaixa ou desativa
+  outro chefe e passa a função (`POST /api/usuarios/principal`). Contas antigas ganharam a lista do
+  modelo do seu perfil na primeira partida (cópia em `usuarios.antes-das-permissoes.json`).
+- **Perfis = modelos** (decididos pelo servidor; tabela única em `core/12b_permissoes.js`):
   - `chefe` (Anestesista chefe): poder total;
   - `anestesista`: painel de operação e painel de qualidade, **sem dinheiro**
     (o servidor corta valores, pagamentos, nota fiscal, repasses, LOG e PIX/telefone/e-mail
@@ -330,6 +341,10 @@ Regras de concorrência e de acesso:
 14. **Três logins na versão online** (13/10/2026): a página do GitHub Pages abre numa tela de entrada com as contas
     Anestesista chefe, Anestesista e Secretária, cada uma com o seu nível de acesso (seção 4, "Perfis"). Testes em `qa/39`.
     O Artifact (seção 7) **não** foi republicado e continua sem login.
+15. **Permissões por usuário** (13/10/2026, `docs/PERMISSOES.md`): os 3 perfis viraram 29 permissões com modelos;
+    o chefe decide as de cada usuário (tela Usuários, no servidor e na demonstração); chefe principal; exames,
+    excluir cirurgia e revisão da ficha com controle próprio; rotas do servidor conferidas pela tabela; LOG e
+    download exigem ver dinheiro e contatos. Testes em `qa/40` (881 testes).
 
 ## 9. Pendências e ideias (nada bloqueando)
 
@@ -386,13 +401,13 @@ Regras de concorrência e de acesso:
     8091). Não afeta o navegador da pessoa usuária;
   - a pasta de teste do servidor ficou no scratchpad.
 - **Documentação** atualizada: README (seções de boletim, qualidade, servidor e
-  segurança), docs/QA.md (tabela por arquivo, 855 testes), docs/KANBAN.md,
+  segurança), docs/QA.md (tabela por arquivo, 881 testes), docs/KANBAN.md,
   docs/QUALIDADE.md e docs/QUALIDADE_INDICADORES.md (este é **gerado**: rode
   `node tools/gerar_docs_qualidade.js` depois de mudar o catálogo).
 
 ## 10. Primeiros passos sugeridos para o próximo chat
 
-1. Rodar `node qa` e confirmar 855 de 855.
+1. Rodar `node qa` e confirmar 881 de 881.
 2. Ler `README.md` (visão de uso) e a seção 3 deste arquivo (invariantes).
 3. Antes de mexer no store, conferir as listas `MUTACOES_*` e o contexto de
    execução.

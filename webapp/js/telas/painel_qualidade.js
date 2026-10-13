@@ -41,10 +41,14 @@ TELAS.painel_qualidade = (function () {
    * vê o painel do serviço, mas não o ranking individual — a comparação é a parte do
    * painel que mais pesa sobre uma pessoa. No computador único, quem usa é a coordenação.
    */
+  /** Compara profissionais entre si (permissão "Comparar profissionais"). */
   function ehCoordenacao(app) {
-    return app.ehCoordenacao();
+    return app.pode('qualidade.comparar');
   }
-  var podeConfigurar = ehCoordenacao;
+  /** Define as configurações clínicas (permissão "Coordenação da qualidade"). */
+  function podeConfigurar(app) {
+    return app.pode('qualidade.coordenar');
+  }
 
   /* ------------------------------------------------------------ filtros */
 

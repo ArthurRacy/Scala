@@ -1,7 +1,7 @@
 # QA — o que a bateria cobre
 
 ```bash
-node qa              # tudo (855 testes)
+node qa              # tudo (881 testes)
 node qa 05           # só o arquivo que começa com "05"
 node qa rodizio      # só os arquivos cujo nome contém "rodizio"
 ```
@@ -9,7 +9,7 @@ node qa rodizio      # só os arquivos cujo nome contém "rodizio"
 Sai com código 1 se qualquer teste falhar, então serve de porta de CI.
 Zero dependências: o arnês está em `qa/_runner.js`.
 
-**Resultado atual: 855 testes, 855 aprovados.**
+**Resultado atual: 881 testes, 881 aprovados.**
 
 ---
 
@@ -96,6 +96,7 @@ cada arquivo; somados aos 15, dão 514 (mais os arquivos 25 e 26, que vieram dep
 | `37_limites_de_valor.test.js` | 9 | **Teto de R$ 100 milhões por mês** (cada lançamento e a soma do mês, cancelada não conta, recusa não deixa rastro) e **no máximo 2 casas decimais**, em cirurgia, avaliação e despesas do repasse (F11); objeto no lugar de texto não vira `[object Object]` |
 | `38_exames_e_exportacao.test.js` | 18 | **Exames que não se perdem**: o índice ilegível ou apagado é refeito das fichas (nunca recomeça vazio), instalação antiga ganha fichas, PDF sem ficha fica e é avisado; **SHA-256** de cada exame e conferência (sumido, trocado, fora do índice, limite por rodada, alerta na Auditoria); exame removido fica **3 anos contados da remoção** (com freio), cópia mensal 36 meses; importar recusa PDF com SHA-256 diferente; **baixar todos os dados**: só o chefe, .zip que abre (CRC conferido por um leitor independente), backup que volta, planilhas, exames por avaliação, removidos com quem removeu, LOG, `SHA256SUMS.txt` que confere, ZIP64, e o gravador para se a conexão cai |
 | `39_contas_demo.test.js` | 8 | **Versão online com login**: uma conta de demonstração por perfil (chefe, anestesista, secretária), logins e senhas próprios; a entrada fica na aba e "Sair" apaga; janela privada não quebra; chefe e anestesista assinam por anestesistas **ativos e diferentes** do cadastro, a secretária não assina, e a assinatura fica presa a quem entrou (mesma regra do servidor) |
+| `40_permissoes.test.js` | 26 | **Permissões por usuário**: catálogo de 29 (ids, grupos, dependências sem ciclo), toda operação, tela e rota com dono na tabela (e conferida no servidor); modelos coerentes e iguais ao acesso de antes; ligar/desligar com dependências, lista incoerente ou inventada recusada, lista guardada incompleta **fecha**; LOG e download exigem ver dinheiro e contatos; acesso ajustado (entra e sai); **corte e réplica nas 7 combinações válidas**; servidor: migração com cópia, **chefe principal** (só ele cria/altera/rebaixa chefe e passa a função), rotas por permissão (exames, backup, auditoria), permissão nova derruba a sessão e deixa rastro; a demonstração segue as mesmas regras |
 
 ---
 

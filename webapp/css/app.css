@@ -1635,6 +1635,22 @@ body.arrastando-quadro { user-select: none; -webkit-user-select: none; cursor: g
 .entrada-marca .marca-bloco { border-radius: var(--r2); }
 .entrada-marca h1 { font-size: 18px; margin: 0 0 2px; }
 .entrada-botao { width: 100%; justify-content: center; margin-top: var(--e2); }
+/* Usuários: a lista de permissões de cada pessoa, agrupada. */
+.permissoes-titulo { font-size: var(--t-4); margin: var(--e5) 0 var(--e2); }
+.permissoes-resumo { margin-bottom: var(--e3); }
+.permissoes { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--e3); }
+.permissoes-grupo { margin: 0; padding: var(--e2) var(--e3) var(--e3); border: 1px solid var(--borda); border-radius: var(--r2); min-width: 0; }
+.permissoes-grupo legend { padding: 0 6px; font-weight: 600; font-size: var(--t-3); }
+.permissao { display: flex; gap: var(--e2); align-items: flex-start; padding: 7px 0; cursor: pointer; }
+.permissao + .permissao { border-top: 1px solid var(--borda); }
+.permissao input { width: 16px; height: 16px; flex: 0 0 16px; margin: 2px 0 0; accent-color: var(--acento); }
+.permissao input:disabled { cursor: not-allowed; }
+.permissao-texto { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.permissao-rotulo { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: var(--t-3); }
+.permissao.ligada .permissao-rotulo { font-weight: 550; }
+.permissao-cuidado { font-size: var(--t-1); padding: 1px 6px; }
+@media (max-width: 560px) { .permissoes { grid-template-columns: 1fr; } }
+
 /* Versão online: as três contas de demonstração, à vista na entrada. */
 .entrada-cartao.entrada-demo { width: min(480px, 100%); }
 .entrada-demo-titulo { font-size: var(--t-3); margin: var(--e5) 0 var(--e2); }

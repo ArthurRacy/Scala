@@ -41,8 +41,8 @@ var APP = (function () {
     { chave: 'clinica',      rotulo: 'Clínica e termo',    icone: 'nota',         grupo: 'Cadastro' },
     { chave: 'integridade',  rotulo: 'Integridade',        icone: 'escudo',       grupo: 'Cadastro' },
     { chave: 'log',          rotulo: 'Auditoria',          icone: 'historico',    grupo: 'Cadastro' },
-    // Só no servidor da clínica, só para o administrador.
-    { chave: 'usuarios',     rotulo: 'Usuários',           icone: 'cadeado',      grupo: 'Cadastro', soAdminServidor: true }
+    // Só no servidor da clínica e na demonstração (onde há login), só para o Anestesista chefe.
+    { chave: 'usuarios',     rotulo: 'Usuários',           icone: 'cadeado',      grupo: 'Cadastro', soComLogin: true }
   ];
 
   var SUBTITULOS = {
@@ -89,7 +89,22 @@ var APP = (function () {
      * demonstração por perfil (demo_online.js).
      */
     contaDemo: null,
+    /** Quem está usando, como o core entende: a conta do servidor, a da demonstração ou o chefe (computador único). */
+    quem: function () {
+      if (app.servidor) return SERVIDOR.usuario();
+      if (app.contaDemo) {
+        var c = app.contaDemo;
+        return { login: c.login, nome: c.nome, papel: c.perfil, permissoes: c.permissoes, principal: !!c.principal,
+          anestesistaId: app.store ? DEMO.idDoAssinante(c, app.store.estado.anestesistas) : '' };
+      }
+      return 'chefe';
+    },
     perfil: function () { return app.servidor ? SERVIDOR.perfil() : (app.contaDemo ? app.contaDemo.perfil : 'chefe'); },
+    /** Tem esta permissão do catálogo (core/12b_permissoes.js)? */
+    pode: function (permissao) { return pode(app.quem(), permissao); },
+    ehChefe: function () { return app.perfil() === 'chefe'; },
+    /** Usuários e permissões (tela Usuários): os do servidor da clínica, ou os da demonstração, guardados no navegador. */
+    contas: function () { return app.servidor ? SERVIDOR.admin : DEMO.admin(app); },
     /** Tem login (servidor da clínica ou conta de demonstração): o boletim sai no nome de quem entrou. */
     temLogin: function () { return !!(app.servidor || app.contaDemo); },
     /** ID, no cadastro, do anestesista ligado a quem entrou ('' sem vínculo ou sem login). */
@@ -97,10 +112,11 @@ var APP = (function () {
       if (app.servidor) return SERVIDOR.usuario().anestesistaId || '';
       return app.contaDemo && app.store ? DEMO.idDoAssinante(app.contaDemo, app.store.estado.anestesistas) : '';
     },
-    podeVer: function (tela) { return perfilPodeVerTela(app.perfil(), tela); },
-    veFinanceiro: function () { return perfilVeFinanceiro(app.perfil()); },
-    ehCoordenacao: function () { return perfilEhCoordenacao(app.perfil()); },
-    podeFazer: function (operacao) { return perfilPodeExecutar(app.perfil(), operacao, []).ok; },
+    podeVer: function (tela) { return perfilPodeVerTela(app.quem(), tela); },
+    veFinanceiro: function () { return app.pode('financeiro.ver'); },
+    editaFinanceiro: function () { return app.pode('financeiro.editar'); },
+    ehCoordenacao: function () { return app.pode('qualidade.coordenar'); },
+    podeFazer: function (operacao) { return perfilPodeExecutar(app.quem(), operacao, []).ok; },
 
     filtros: {
       cirurgias:   { texto: '', status: '', anestesista: '', todosOsMeses: false },
@@ -195,9 +211,12 @@ var APP = (function () {
     redesenhar();
 
     ANEXOS.usarServidor(SERVIDOR.anexos);
-    ANEXOS.iniciar().then(function () { redesenhar(); }, function (e) {
-      UI.atencao('Exames indisponíveis', e && e.message);
-    });
+    // Sem "Abrir os exames do paciente" o servidor recusa a lista: nem pede.
+    if (app.pode('exames.ver')) {
+      ANEXOS.iniciar().then(function () { redesenhar(); }, function (e) {
+        UI.atencao('Exames indisponíveis', e && e.message);
+      });
+    }
     SERVIDOR.conectar(app);
     ligarAtalhos();
   }
@@ -328,7 +347,7 @@ var APP = (function () {
       var original = store[nome];
       store[nome] = function () {
         var args = Array.prototype.slice.call(arguments);
-        var perm = perfilPodeExecutar(app.perfil(), nome, args, contextoDeAssinatura(app.idDoAssinante(), store.estado.anestesistas));
+        var perm = perfilPodeExecutar(app.quem(), nome, args, contextoDeAssinatura(app.idDoAssinante(), store.estado.anestesistas));
         if (!perm.ok) return { ok: false, erros: [{ campo: '', msg: perm.erro }], avisos: [] };
         return original.apply(store, args);
       };
@@ -421,10 +440,10 @@ var APP = (function () {
       el('div', { class: 'topo-titulo' }, [nos.tituloTela, nos.subTela]),
       el('div', { class: 'topo-acoes' }, [
         nos.seletorMes,
-        el('button', {
+        app.pode('cirurgias.editar') ? el('button', {
           class: 'btn btn-primario',
           onclick: function () { TELAS.cirurgias.form(app, null); }
-        }, [icone('mais'), el('span', { class: 'rotulo-botao' }, 'Nova cirurgia')]),
+        }, [icone('mais'), el('span', { class: 'rotulo-botao' }, 'Nova cirurgia')]) : null,
         app.podeVer('dados') ? el('button', {
           class: 'btn btn-icone', title: 'Dados e backup', 'aria-label': 'Dados e backup',
           onclick: function () { TELAS.dados.abrir(app); }
@@ -452,7 +471,7 @@ var APP = (function () {
       icone('info'),
       el('div', { style: 'flex:1;min-width:0' }, [
         el('strong', null, 'Versão online de demonstração. '),
-        app.contaDemo ? 'Você entrou como ' + PERFIS[app.contaDemo.perfil].rotulo + '. ' : null,
+        app.contaDemo ? 'Você entrou como ' + rotuloDoAcesso(app.quem()) + '. ' : null,
         'O que você lançar aqui fica só neste navegador. As cirurgias marcadas EXEMPLO são fictícias.'
       ]),
       app.contaDemo ? el('button', {
@@ -510,9 +529,9 @@ var APP = (function () {
     montarNav();
   }
 
-  /** Telas que esta pessoa vê: as do perfil dela (Usuários só existe no servidor da clínica). */
+  /** Telas que esta pessoa vê: as das permissões dela (Usuários só existe onde há login). */
   function telasVisiveis() {
-    return TELAS_DEF.filter(function (t) { return (!t.soAdminServidor || app.servidor) && app.podeVer(t.chave); });
+    return TELAS_DEF.filter(function (t) { return (!t.soComLogin || app.temLogin()) && app.podeVer(t.chave); });
   }
 
   function montarNav() {

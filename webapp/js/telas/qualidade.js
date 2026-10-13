@@ -1097,7 +1097,8 @@ TELAS.qualidade = (function () {
           el('div', { class: 'campo-grupo' }, [fQuem.no]),
           el('div', { class: 'mt-3' }, [tabelaEventos]),
           el('div', { class: 'campo-grupo mt-3' }, [fParecer.no]),
-          el('div', { class: 'linha mt-3' }, [
+          !app.podeFazer('revisarFichaQualidade') ? el('p', { class: 't-pq t-suave mt-3' },
+            'A revisão clínica é feita por quem tem a permissão "Revisão clínica da ficha".') : el('div', { class: 'linha mt-3' }, [
             el('button', {
               class: 'btn btn-primario', type: 'button',
               onclick: function () {
@@ -1363,7 +1364,7 @@ TELAS.qualidade = (function () {
           el('button', { class: 'btn btn-pq', onclick: gerarPdf }, [icone('baixar'), 'PDF']),
           botaoBoletim,
           fechado()
-            ? el('button', { class: 'btn btn-pq', onclick: reabrir }, [icone('troca'), 'Reabrir'])
+            ? (app.podeFazer('reabrirFichaQualidade') ? el('button', { class: 'btn btn-pq', onclick: reabrir }, [icone('troca'), 'Reabrir']) : null)
             : el('button', { class: 'btn btn-primario btn-pq', onclick: concluir }, [icone('check'), 'Concluir']),
           fechado() ? null : el('button', { class: 'btn btn-pq', onclick: descartar }, [icone('lixeira'), 'Descartar'])
         ]),

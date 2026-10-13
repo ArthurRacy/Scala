@@ -478,10 +478,13 @@ var DEMO = (function () {
    * em scrypt e quem corta o que cada perfil recebe é o servidor.
    *
    * `cadastro`: posição, entre os anestesistas ativos do cadastro, de quem este login assina o boletim
-   * (a secretária não assina).
+   * (a secretária não assina). O chefe da demonstração é o chefe principal.
+   *
+   * Na conta do chefe, a tela Usuários funciona de verdade: ele cria contas e decide as permissões de cada
+   * uma (inclusive das três fixas), e tudo fica guardado só neste navegador (CHAVE_CONTAS).
    */
   var CONTAS = [
-    { login: 'chefe', senha: 'chefe2026', perfil: 'chefe', nome: 'Anestesista chefe (demonstração)', cadastro: 0 },
+    { login: 'chefe', senha: 'chefe2026', perfil: 'chefe', nome: 'Anestesista chefe (demonstração)', cadastro: 0, principal: true },
     { login: 'anestesista', senha: 'anestesista2026', perfil: 'anestesista', nome: 'Anestesista (demonstração)', cadastro: 1 },
     { login: 'secretaria', senha: 'secretaria2026', perfil: 'secretaria', nome: 'Secretária (demonstração)', cadastro: null }
   ];
@@ -502,20 +505,160 @@ var DEMO = (function () {
     } catch (e) { /* janela privada: vale só até recarregar */ }
   }
 
+  /* Contas criadas pelo chefe e ajustes nas fixas: { novas: [conta], ajustes: { login: campos } }, só neste navegador. */
+  var CHAVE_CONTAS = 'anestesia.demo.contas';
+  var contasEmMemoria = { novas: [], ajustes: {} };
+
+  function lerGuardadas() {
+    try {
+      var g = JSON.parse(localStorage.getItem(CHAVE_CONTAS) || 'null');
+      if (g && Array.isArray(g.novas) && g.ajustes && typeof g.ajustes === 'object') return g;
+    } catch (e) { /* janela privada ou dado ilegível: vale o que está em memória */ }
+    return contasEmMemoria;
+  }
+
+  function gravarGuardadas(g) {
+    contasEmMemoria = g;
+    try { localStorage.setItem(CHAVE_CONTAS, JSON.stringify(g)); } catch (e) { /* janela privada: vale até recarregar */ }
+  }
+
+  /** As três fixas (com os ajustes do chefe) e as criadas por ele. */
+  function todasAsContas() {
+    var g = lerGuardadas();
+    var fixas = CONTAS.map(function (c) { return Object.assign({}, c, g.ajustes[c.login] || {}, { fixa: true }); });
+    return fixas.concat(g.novas.map(function (c) { return Object.assign({}, c); }));
+  }
+
   function contaPorLogin(login) {
     var l = txt(login).toLowerCase();
-    return CONTAS.filter(function (c) { return c.login === l; })[0] || null;
+    return todasAsContas().filter(function (c) { return c.login === l && c.ativo !== false; })[0] || null;
+  }
+
+  function senhaConfere(conta, senha) {
+    if (!conta) return false;
+    if (conta.fixa) return conta.senha === senha;
+    return conta.senhaSha === sha256Hex('demo:' + conta.login + ':' + senha);
   }
 
   /** Quem entrou nesta aba (ou null). */
   function contaAtiva() { return contaPorLogin(lerSessao()); }
 
-  /** ID do anestesista do cadastro em nome de quem esta conta assina o boletim ('' para a secretária). */
+  /**
+   * ID do anestesista do cadastro em nome de quem esta conta assina o boletim ('' sem "Assinar o boletim").
+   * Vínculo escolhido pelo chefe vale primeiro; nas fixas, sem escolha, a posição entre os ativos do cadastro.
+   */
   function idDoAssinante(conta, anestesistas) {
-    if (!conta || conta.cadastro === null) return '';
-    var ativos = (anestesistas || []).filter(function (a) { return ehSim(a.ativo); });
+    if (!conta || !pode({ papel: conta.perfil, permissoes: conta.permissoes }, 'boletim.assinar')) return '';
+    var lista = anestesistas || [];
+    if (conta.anestesistaId !== undefined) {
+      var escolhido = lista.filter(function (a) { return txt(a.id) === txt(conta.anestesistaId); })[0];
+      return escolhido ? txt(escolhido.id) : '';
+    }
+    if (conta.cadastro === null || conta.cadastro === undefined) return '';
+    var ativos = lista.filter(function (a) { return ehSim(a.ativo); });
     var a = ativos[conta.cadastro] || ativos[0];
     return a ? txt(a.id) : '';
+  }
+
+  /* ----------------------------------------- tela Usuários na demonstração -- */
+
+  function publico(c, anestesistas) {
+    var papel = perfilCanonico(c.perfil) || 'anestesista';
+    return { login: c.login, nome: c.nome, papel: papel, ativo: c.ativo !== false, principal: papel === 'chefe' && !!c.principal,
+      anestesistaId: idDoAssinante(c, anestesistas), permissoes: permissoesDe({ papel: papel, permissoes: c.permissoes }) };
+  }
+
+  function recusa(campo, msg) {
+    var e = new Error(msg);
+    e.erros = [{ campo: campo, msg: msg }];
+    return Promise.reject(e);
+  }
+
+  /**
+   * O mesmo contrato de SERVIDOR.admin (usuarios, salvarUsuario, transferirPrincipal), com as mesmas regras do
+   * servidor da clínica (server/contas.js), aplicadas aqui no navegador.
+   */
+  function admin(app) {
+    function anestesistas() { return app.store.estado.anestesistas; }
+    function eu() { return contaAtiva(); }
+    function souPrincipal() { var c = eu(); return !!(c && c.perfil === 'chefe' && c.principal); }
+
+    return {
+      usuarios: function () {
+        return Promise.resolve(todasAsContas().map(function (c) { return publico(c, anestesistas()); }));
+      },
+
+      salvarUsuario: function (pedido) {
+        var g = lerGuardadas();
+        var todas = todasAsContas();
+        var login = txt(pedido.login).toLowerCase();
+        var alvo = pedido.novo ? null : todas.filter(function (c) { return c.login === login; })[0];
+        if (!pedido.novo && !alvo) return recusa('login', 'Usuário não encontrado.');
+        var papel = perfilCanonico(pedido.papel) || (alvo ? alvo.perfil : 'anestesista');
+        if (!/^[a-z0-9._-]{3,30}$/.test(login)) return recusa('login', 'Login: 3 a 30 letras minúsculas, números, ponto, hífen ou sublinhado.');
+        if (pedido.novo && todas.some(function (c) { return c.login === login; })) return recusa('login', 'Já existe um usuário "' + login + '".');
+        var nome = txt(pedido.nome);
+        if (nome.length < 2 || nome.length > 80) return recusa('nome', 'Nome: de 2 a 80 letras.');
+        if (pedido.senha !== undefined || pedido.novo) {
+          if (alvo && alvo.fixa) return recusa('senha', 'A senha das três contas da demonstração não muda: ela está na tela de entrada.');
+          if (String(pedido.senha || '').length < 8) return recusa('senha', 'A senha precisa de pelo menos 8 caracteres.');
+        }
+        if ((papel === 'chefe' || (alvo && alvo.perfil === 'chefe')) && !souPrincipal()) {
+          return recusa('papel', 'Só o Anestesista chefe principal cria, altera ou rebaixa outro Anestesista chefe.');
+        }
+        var ativo = pedido.ativo === undefined ? (alvo ? alvo.ativo !== false : true) : !!pedido.ativo;
+        if (alvo && alvo.principal && (papel !== 'chefe' || !ativo)) {
+          return recusa('papel', 'Este é o Anestesista chefe principal: passe a função a outro chefe antes de tirá-lo.');
+        }
+        var permissoes;
+        if (papel !== 'chefe') {
+          var v = validarPermissoes(pedido.permissoes !== undefined ? pedido.permissoes : MODELOS_DE_PERMISSAO[papel]);
+          if (!v.ok) return recusa('permissoes', v.erros.map(function (e) { return e.msg; }).join(' '));
+          permissoes = v.lista;
+        }
+        var id = txt(pedido.anestesistaId);
+        if (id) {
+          if (!pode({ papel: papel, permissoes: permissoes }, 'boletim.assinar')) {
+            return recusa('anestesistaId', 'Este usuário não assina boletim (falta a permissão "Assinar o boletim"): não precisa ser ligado a um anestesista.');
+          }
+          if (!anestesistas().some(function (a) { return txt(a.id) === id; })) return recusa('anestesistaId', 'Esse anestesista não existe no cadastro.');
+          var outro = todas.filter(function (c) { return c.login !== login && idDoAssinante(c, anestesistas()) === id; })[0];
+          if (outro) return recusa('anestesistaId', 'Esse anestesista já está ligado ao usuário "' + outro.login + '".');
+        }
+        var campos = { nome: nome, perfil: papel, ativo: ativo, anestesistaId: id };
+        if (papel !== 'chefe') { campos.permissoes = permissoes; campos.principal = false; } else campos.permissoes = undefined;
+        if (pedido.novo) {
+          campos.login = login;
+          campos.senhaSha = sha256Hex('demo:' + login + ':' + pedido.senha);
+          g.novas.push(campos);
+        } else if (alvo.fixa) {
+          g.ajustes[login] = Object.assign({}, g.ajustes[login] || {}, campos);
+        } else {
+          g.novas = g.novas.map(function (c) {
+            if (c.login !== login) return c;
+            var novo = Object.assign({}, c, campos);
+            if (pedido.senha) novo.senhaSha = sha256Hex('demo:' + login + ':' + pedido.senha);
+            return novo;
+          });
+        }
+        gravarGuardadas(g);
+        return Promise.resolve({ ok: true });
+      },
+
+      transferirPrincipal: function (login) {
+        if (!souPrincipal()) return recusa('principal', 'Só o Anestesista chefe principal passa a função.');
+        var alvo = todasAsContas().filter(function (c) { return c.login === login; })[0];
+        if (!alvo || alvo.perfil !== 'chefe' || alvo.ativo === false) return recusa('principal', 'A função de principal só passa para outro Anestesista chefe ativo.');
+        var g = lerGuardadas();
+        todasAsContas().forEach(function (c) {
+          var principal = c.login === alvo.login;
+          if (c.fixa) g.ajustes[c.login] = Object.assign({}, g.ajustes[c.login] || {}, { principal: principal });
+        });
+        g.novas = g.novas.map(function (c) { return Object.assign({}, c, { principal: c.login === alvo.login }); });
+        gravarGuardadas(g);
+        return Promise.resolve({ ok: true });
+      }
+    };
   }
 
   /** Promessa que se cumpre com a conta de quem entrou (na hora, se esta aba já tinha entrado). */
@@ -558,7 +701,7 @@ var DEMO = (function () {
         if (!txt(d.login)) { fLogin.erro('Informe o login.'); fLogin.input.focus(); return; }
         if (!d.senha) { fSenha.erro('Informe a senha.'); fSenha.input.focus(); return; }
         var conta = contaPorLogin(d.login);
-        if (!conta || conta.senha !== d.senha) {
+        if (!conta || !senhaConfere(conta, d.senha)) {
           UI.preencher(aviso, [icone('alerta'), el('div', { class: 'aviso-corpo' },
             'Login ou senha não conferem. Use uma das três contas de demonstração abaixo.')]);
           aviso.hidden = false;
@@ -599,6 +742,7 @@ var DEMO = (function () {
       contas,
       el('p', { class: 't-mpq t-suave entrada-demo-nota' },
         'As senhas estão aqui de propósito: é uma página pública, e o que você lança fica só neste navegador. ' +
+        'As contas que o chefe criar na tela Usuários também entram aqui, com o login e a senha que ele definir. ' +
         'No sistema da clínica, cada pessoa tem a sua senha e quem corta o que cada perfil vê é o servidor.')
     ]));
     document.body.appendChild(pagina);
@@ -619,7 +763,7 @@ var DEMO = (function () {
     var assina = contextoDeAssinatura(idDoAssinante(c, app.store.estado.anestesistas), app.store.estado.anestesistas).anestesista;
     UI.abrirModal({
       titulo: c.nome,
-      sub: 'Login ' + c.login + ' · ' + p.rotulo,
+      sub: 'Login ' + c.login + ' · ' + rotuloDoAcesso({ papel: c.perfil, permissoes: c.permissoes }) + (c.principal ? ' (principal)' : ''),
       tamanho: 'estreito',
       corpo: [
         el('p', { class: 'sem-margem t-pq t-medio' }, p.resumo),
@@ -634,6 +778,7 @@ var DEMO = (function () {
 
   return {
     popular: popular, limpar: limpar, MARCA: MARCA,
-    CONTAS: CONTAS, entrar: entrar, contaAtiva: contaAtiva, idDoAssinante: idDoAssinante, menuConta: menuConta, sair: sair
+    CONTAS: CONTAS, entrar: entrar, contaAtiva: contaAtiva, idDoAssinante: idDoAssinante, menuConta: menuConta, sair: sair,
+    admin: admin, todasAsContas: todasAsContas
   };
 })();

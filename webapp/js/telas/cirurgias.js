@@ -117,10 +117,10 @@ TELAS.cirurgias = (function () {
                 class: 'btn btn-plano btn-icone btn-pq', title: 'Editar', 'aria-label': 'Editar',
                 onclick: function (ev) { ev.stopPropagation(); formCirurgia(app, c); }
               }, icone('lapis')),
-              el('button', {
+              app.pode('cirurgias.excluir') ? el('button', {
                 class: 'btn btn-plano btn-icone btn-pq', title: 'Excluir', 'aria-label': 'Excluir',
                 onclick: function (ev) { ev.stopPropagation(); excluirCirurgia(app, c); }
-              }, icone('lixo'))
+              }, icone('lixo')) : null
             ])
           ]);
           linha.__onclick = function () { formCirurgia(app, c); };
@@ -295,9 +295,9 @@ TELAS.cirurgias = (function () {
         : 'O registro intraoperatório (técnica, fármacos, sinais vitais, intercorrências) fica no boletim anestésico. ' +
           'Use o botão "Criar boletim" abaixo.';
 
-    // Dinheiro (valor, pago, data do pagamento, nota fiscal) só para quem o vê: para os outros o campo nem
-    // existe no formulário, então nunca vai no pedido (o servidor também recusaria).
-    var veFin = app.veFinanceiro();
+    // Dinheiro (valor, pago, data do pagamento, nota fiscal) só para quem pode alterá-lo: para os outros o campo
+    // nem existe no formulário, então nunca vai no pedido (o servidor também recusaria).
+    var veFin = app.editaFinanceiro();
     var form = UI.formulario([
       fData, fStatus, fIniPrev, fFimPrev, fIniReal, fFimReal,
       fPaciente, fConvenio, fTelefone, fProc, fCirurgiao, fSala,
@@ -577,7 +577,7 @@ TELAS.cirurgias = (function () {
       rotuloAbas: 'Seções da cirurgia',
       corpo: [painelDados, painelExames],
       acoes: [
-        novo ? null : el('button', {
+        novo || !app.pode('cirurgias.excluir') ? null : el('button', {
           class: 'btn btn-perigo',
           onclick: function () { UI.fecharModal(); excluirCirurgia(app, c); }
         }, [icone('lixo'), 'Excluir']),
@@ -684,6 +684,9 @@ TELAS.cirurgias = (function () {
       if (!ANEXOS.disponivel()) {
         no.appendChild(aviso('atencao', 'alerta', 'Este navegador não permite guardar arquivos',
           'Janela privada ou armazenamento bloqueado. Abra o sistema numa janela normal.'));
+      } else if (!app.pode('exames.ver')) {
+        no.appendChild(aviso('info', 'info', 'Exames do paciente',
+          'O seu acesso não inclui abrir os exames do paciente. Peça ao Anestesista chefe, se precisar.'));
       } else if (desenhado === 'existente') {
         desenharGuardados();
       } else {
@@ -705,9 +708,11 @@ TELAS.cirurgias = (function () {
       no.appendChild(aviso('info', 'info', 'Guardados na avaliação pré-anestésica ' + aval.id,
         'Cada PDF é guardado assim que é enviado, sem esperar o botão "Salvar alterações". ' +
         'Os mesmos exames aparecem na tela Avaliações pré.'));
-      no.appendChild(COMP.areaDeExames({ aoReceber: guardarNaHora, dica: dica() }));
+      if (app.pode('exames.anexar')) no.appendChild(COMP.areaDeExames({ aoReceber: guardarNaHora, dica: dica() }));
       no.appendChild(itens.length
-        ? el('div', { class: 'anexos mt-3' }, itens.map(function (m) { return COMP.linhaExameGuardado(m, depoisDeMudar); }))
+        ? el('div', { class: 'anexos mt-3' }, itens.map(function (m) {
+            return COMP.linhaExameGuardado(m, depoisDeMudar, { remover: app.pode('exames.remover') });
+          }))
         : el('div', { class: 'anexos-vazio t-pq t-suave mt-3' }, 'Nenhum exame anexado ainda.'));
     }
 
@@ -734,7 +739,7 @@ TELAS.cirurgias = (function () {
         no.appendChild(aviso('info', 'info', 'Os exames ficam na avaliação pré-anestésica',
           'Escolha os PDFs agora: eles são guardados quando você ' + (existente ? 'salvar as alterações' : 'lançar a cirurgia') +
           ', na avaliação que o sistema cria para ela.'));
-        no.appendChild(COMP.areaDeExames({ aoReceber: entrarNaFila, dica: dica() }));
+        if (app.pode('exames.anexar')) no.appendChild(COMP.areaDeExames({ aoReceber: entrarNaFila, dica: dica() }));
       } else if (s === 'precisaSim') {
         // É o estado normal de uma cirurgia nova ("Avaliação pré necessária? = Não"), e não um erro:
         // só vira aviso âmbar quando já há arquivo esperando, que aí não teria para onde ir.
