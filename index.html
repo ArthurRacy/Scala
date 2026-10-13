@@ -1647,6 +1647,18 @@ body.arrastando-quadro { user-select: none; -webkit-user-select: none; cursor: g
 .entrada-marca .marca-bloco { border-radius: var(--r2); }
 .entrada-marca h1 { font-size: 18px; margin: 0 0 2px; }
 .entrada-botao { width: 100%; justify-content: center; margin-top: var(--e2); }
+/* Versão online: as três contas de demonstração, à vista na entrada. */
+.entrada-cartao.entrada-demo { width: min(480px, 100%); }
+.entrada-demo-titulo { font-size: var(--t-3); margin: var(--e5) 0 var(--e2); }
+.entrada-contas { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--e2); }
+.entrada-conta {
+  display: flex; align-items: center; gap: var(--e3);
+  padding: var(--e2) var(--e3); border: 1px solid var(--borda); border-radius: var(--r1);
+  background: var(--superficie-2);
+}
+.entrada-conta-texto { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.entrada-conta-senha { margin-top: 2px; overflow-wrap: anywhere; }
+.entrada-demo-nota { margin: var(--e3) 0 0; }
 .status-servidor {
   display: flex; align-items: center; gap: 7px; margin: 0 0 var(--e2);
   padding: 6px 10px; border-radius: var(--r1); font-size: var(--t-1);
@@ -2169,7 +2181,10 @@ var SCHEMA = {
       { col: 'D', rotulo: 'ID_CIRURGIA',    campo: 'idCirurgia', tipo: 'texto', origem: 'AUTO' },
       { col: 'E', rotulo: 'CAMPO ALTERADO', campo: 'campo',      tipo: 'texto', origem: 'AUTO' },
       { col: 'F', rotulo: 'VALOR ANTERIOR', campo: 'de',         tipo: 'texto', origem: 'AUTO' },
-      { col: 'G', rotulo: 'NOVO VALOR',     campo: 'para',       tipo: 'texto', origem: 'AUTO' }
+      { col: 'G', rotulo: 'NOVO VALOR',     campo: 'para',       tipo: 'texto', origem: 'AUTO' },
+      // Quem fez, pelo login (que não muda), além do nome (que pode mudar). Coluna extra: fica fora da
+      // conferência com a planilha; vale no servidor da clínica e nas exportações do sistema.
+      { col: 'H', rotulo: 'LOGIN',          campo: 'login',      tipo: 'texto', origem: 'AUTO', extra: true }
     ]
   }
 };
@@ -2703,6 +2718,29 @@ function executarComContexto(ctx, fn) {
   }
 }
 
+/** Fuso em que a clínica trabalha e em que o servidor conta o dia (Brasília, sem horário de verão desde 2019). */
+var FUSO_DA_CLINICA = 'America/Sao_Paulo';
+
+/**
+ * 'YYYY-MM-DD HH:MM:SS' no relógio de Brasília, não importa o fuso do computador. É a hora que a tela manda
+ * ao servidor em cada comando: o servidor trabalha sempre em Brasília (server/servidor.js), e um
+ * computador com o relógio noutro fuso (viagem, nuvem em UTC) não pode fazer toda gravação ser recusada.
+ */
+function agoraTextoBrasilia(d) {
+  d = d || new Date();
+  var partes = {};
+  new Intl.DateTimeFormat('en-CA', {
+    timeZone: FUSO_DA_CLINICA, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit'
+  }).formatToParts(d).forEach(function (p) { partes[p.type] = p.value; });
+  return partes.year + '-' + partes.month + '-' + partes.day + ' ' + partes.hour + ':' + partes.minute + ':' + partes.second;
+}
+
+/** O dia ('YYYY-MM-DD') em Brasília para um instante. */
+function hojeBrasilia(d) {
+  return agoraTextoBrasilia(d).slice(0, 10);
+}
+
 /** Timestamp 'YYYY-MM-DD HH:MM:SS' para a aba LOG (o do contexto, se houver). */
 function agoraTexto(d) {
   if (!d && CONTEXTO_EXECUCAO.agora) return CONTEXTO_EXECUCAO.agora;
@@ -2886,7 +2924,8 @@ if (typeof module !== 'undefined' && module.exports) {
     cnpjValido: cnpjValido, cpfValido: cpfValido, chavePixValida: chavePixValida, crmValido: crmValido,
     chaveDataPosicao: chaveDataPosicao, chaveDataAnestesista: chaveDataAnestesista,
     chaveCompetencia: chaveCompetencia,
-    proximoId: proximoId, agoraTexto: agoraTexto
+    proximoId: proximoId, agoraTexto: agoraTexto,
+    FUSO_DA_CLINICA: FUSO_DA_CLINICA, agoraTextoBrasilia: agoraTextoBrasilia, hojeBrasilia: hojeBrasilia
   };
 }
 
@@ -3247,6 +3286,8 @@ function validarCirurgia(c, ctx) {
   var valor = paraNumero(c.valor);
   if (!vazio(c.valor) && valor === null) r.erro('valor', 'VALOR DA ANESTESIA inválido: ' + c.valor + '.');
   if (valor !== null && valor < 0) r.erro('valor', 'VALOR DA ANESTESIA não pode ser negativo.');
+  if (valor !== null && valor > LIMITE_VALOR_MES) r.erro('valor', 'VALOR DA ANESTESIA acima do teto de ' + moedaBR(LIMITE_VALOR_MES) + '.');
+  if (valor !== null && temMaisDeDuasCasas(valor)) r.erro('valor', 'VALOR DA ANESTESIA: use no máximo 2 casas decimais (centavos).');
 
   if (ehSim(c.pago) && valor === null) {
     r.aviso('valor', 'Marcado como PAGO sem VALOR DA ANESTESIA preenchido.');
@@ -3256,6 +3297,18 @@ function validarCirurgia(c, ctx) {
   }
 
   return r;
+}
+
+/**
+ * Teto de dinheiro: R$ 100 milhões por mês de competência (decisão do dono do produto, 05/10/2026). Cada lançamento
+ * também não passa disso. Vale para o que é digitado; o total do mês é conferido nas operações do store.
+ */
+var LIMITE_VALOR_MES = 100000000;
+
+/** Reais só têm centavos: mais de 2 casas decimais é digitação errada (o repasse trabalha em centavos inteiros). */
+function temMaisDeDuasCasas(n) {
+  var x = Number(n) * 100;
+  return Math.abs(x - Math.round(x)) > 1e-4;
 }
 
 /** Valida uma avaliação pré-anestésica. */
@@ -3291,6 +3344,8 @@ function validarAvaliacao(a, ctx) {
   var valor = paraNumero(a.valor);
   if (!vazio(a.valor) && valor === null) r.erro('valor', 'VALOR DA AVALIAÇÃO inválido: ' + a.valor + '.');
   if (valor !== null && valor < 0) r.erro('valor', 'VALOR DA AVALIAÇÃO não pode ser negativo.');
+  if (valor !== null && valor > LIMITE_VALOR_MES) r.erro('valor', 'VALOR DA AVALIAÇÃO acima do teto de ' + moedaBR(LIMITE_VALOR_MES) + '.');
+  if (valor !== null && temMaisDeDuasCasas(valor)) r.erro('valor', 'VALOR DA AVALIAÇÃO: use no máximo 2 casas decimais (centavos).');
 
   // A consulta pré-anestésica vem ANTES da cirurgia (ou no mesmo dia).
   if (dataValida(a.data) && dataValida(a.dataCirurgia) && paraData(a.data) > paraData(a.dataCirurgia)) {
@@ -3339,7 +3394,8 @@ if (typeof module !== 'undefined' && module.exports) {
     DOMINIOS: DOMINIOS, CLASSE_STATUS: CLASSE_STATUS,
     canonizar: canonizar, noDominio: noDominio, novoRelatorio: novoRelatorio,
     validarCirurgia: validarCirurgia, validarAvaliacao: validarAvaliacao,
-    validarAnestesista: validarAnestesista
+    validarAnestesista: validarAnestesista,
+    LIMITE_VALOR_MES: LIMITE_VALOR_MES, temMaisDeDuasCasas: temMaisDeDuasCasas
   };
 }
 
@@ -3386,7 +3442,7 @@ if (typeof module !== 'undefined' && module.exports) {
  * Saída: { 'QUINTA-FEIRA': { 1: {nome, id}, ... 5: {...} }, ... }
  */
 function indexarEscalaBase(linhas) {
-  var idx = {};
+  var idx = Object.create(null);   // sem prototype: um "dia" chamado constructor não pode virar a função Object
   var diaCorrente = '';
 
   (linhas || []).forEach(function (l) {
@@ -3415,7 +3471,7 @@ function indexarEscalaBase(linhas) {
  */
 function diasFixosPorAnestesista(linhasEscalaBase) {
   var idx = indexarEscalaBase(linhasEscalaBase);
-  var mapa = {};
+  var mapa = Object.create(null);
 
   DOMINIOS.DIA_SEMANA_ESCALA.forEach(function (dia) {
     var bloco = idx[dia] || {};
@@ -3629,7 +3685,7 @@ function recalcularEfetivo(linha) {
 
 /** Mapa nome-normalizado -> anestesista, para resolver ID a partir do nome. */
 function indexarAnestesistasPorNome(anestesistas) {
-  var m = {};
+  var m = Object.create(null);
   (anestesistas || []).forEach(function (a) {
     var k = normalizar(a.nome);
     if (k) m[k] = a;
@@ -3683,7 +3739,8 @@ function gerarConsolidada(escalasPorMes, anestesistas, meses) {
  * XLOOKUP faz por padrão.
  */
 function indexarConsolidada(consolidada) {
-  var porChavePosicao = {}, porChaveNome = {}, porData = {};
+  // Sem prototype: data ou nome "constructor"/"__proto__" (backup estragado) não pode derrubar o recálculo.
+  var porChavePosicao = Object.create(null), porChaveNome = Object.create(null), porData = Object.create(null);
 
   (consolidada || []).forEach(function (l) {
     if (l.chavePosicao && !(l.chavePosicao in porChavePosicao)) porChavePosicao[l.chavePosicao] = l;
@@ -4044,7 +4101,30 @@ function detectarConflitos(lista) {
     }
   });
 
+  // Virada do dia: a cirurgia que atravessa a meia-noite se cruza com as do dia seguinte da mesma pessoa.
+  Object.keys(porChave).forEach(function (k) {
+    var sep = k.indexOf('|');
+    var seguinte = porChave[somarDias(k.slice(0, sep), 1) + k.slice(sep)];
+    if (!seguinte) return;
+    porChave[k].forEach(function (a) {
+      seguinte.forEach(function (b) {
+        if (horariosSobrepostos(a, b)) {
+          conflitos.push({
+            a: a, b: b,
+            motivo: txt(a.anestesista) + ' tem duas cirurgias sobrepostas na virada de ' + dataBR(a.data) + ' para ' + dataBR(b.data) + '.'
+          });
+        }
+      });
+    });
+  });
+
   return conflitos;
+}
+
+/** As duas datas são o mesmo dia ou dias vizinhos (a cirurgia que vira a meia-noite entra no dia seguinte)? */
+function diasVizinhos(d1, d2) {
+  var n = diasEntre(d1, d2);
+  return n !== null && Math.abs(n) <= 1;
 }
 
 /**
@@ -4058,7 +4138,7 @@ function conflitosDaCirurgia(c, lista) {
   var dia = paraData(c.data);
   var quem = normalizar(c.anestesista);
   return (lista || []).filter(function (o) {
-    return txt(o.id) !== txt(c.id) && cirurgiaContabilizavel(o) && paraData(o.data) === dia &&
+    return txt(o.id) !== txt(c.id) && cirurgiaContabilizavel(o) && diasVizinhos(o.data, dia) &&
       normalizar(o.anestesista) === quem && horariosSobrepostos(o, c);
   });
 }
@@ -4093,8 +4173,9 @@ function sugerirAnestesista(cirurgia, idxEscala, cirurgias, opcoes) {
   var ignorar = txt(opcoes.ignorarId);
   var excluir = (opcoes.excluir || []).filter(function (n) { return !vazio(n); });
 
+  // Do dia e dos dias vizinhos: a cirurgia que vira a meia-noite ocupa a pessoa também no dia seguinte.
   var doDia = (cirurgias || []).filter(function (c) {
-    return paraData(c.data) === dia &&
+    return diasVizinhos(c.data, dia) &&
       cirurgiaContabilizavel(c) &&
       (vazio(ignorar) || txt(c.id) !== ignorar);
   });
@@ -4147,9 +4228,10 @@ function proporRemanejamento(data, nomeAusente, cirurgias, idxEscala) {
   var out = { data: dia, ausente: ausente, movimentos: [], semDestino: [] };
   if (!dia || vazio(ausente)) return out;
 
-  var doDia = (cirurgias || []).filter(function (c) {
-    return paraData(c.data) === dia && cirurgiaContabilizavel(c);
+  var vizinhas = (cirurgias || []).filter(function (c) {
+    return diasVizinhos(c.data, dia) && cirurgiaContabilizavel(c);
   });
+  var doDia = vizinhas.filter(function (c) { return paraData(c.data) === dia; });
 
   var dela = doDia.filter(function (c) { return mesmoTexto(c.anestesista, ausente); });
   dela.sort(function (a, b) {
@@ -4161,7 +4243,7 @@ function proporRemanejamento(data, nomeAusente, cirurgias, idxEscala) {
 
   // Ocupação viva do dia: começa com as cirurgias dos outros e vai recebendo
   // as que forem sendo remanejadas.
-  var ocupacao = doDia.filter(function (c) { return !mesmoTexto(c.anestesista, ausente); });
+  var ocupacao = vizinhas.filter(function (c) { return !mesmoTexto(c.anestesista, ausente); });
 
   dela.forEach(function (c) {
     var s = sugerirAnestesista(c, idxEscala, ocupacao, { ignorarId: c.id, excluir: [ausente] });
@@ -4205,6 +4287,12 @@ function horariosSobrepostos(c1, c2) {
   if (a1 === a2 || b1 === b2) return false;
   if (a2 < a1) a2 += 1440;    // virada de meia-noite
   if (b2 < b1) b2 += 1440;
+  // Com as duas datas, a conta é em minutos corridos: a cirurgia das 23h às 02h de um dia se cruza com a das 01h do dia seguinte.
+  var d1 = dataParaUTC(c1.data), d2 = dataParaUTC(c2.data);
+  if (d1 && d2) {
+    var deslocamento = Math.round((d2.getTime() - d1.getTime()) / 60000);   // minutos de c1 até o início do dia de c2
+    b1 += deslocamento; b2 += deslocamento;
+  }
   return a1 < b2 && b1 < a2;
 }
 
@@ -4428,7 +4516,7 @@ if (typeof module !== 'undefined' && module.exports) {
 
 /** Índice { ID_CIRURGIA: [avaliações...] }, preservando a ordem de entrada. */
 function indexarAvaliacoesPorCirurgia(avaliacoes) {
-  var idx = {};
+  var idx = Object.create(null);
   (avaliacoes || []).forEach(function (a) {
     var k = txt(a.idCirurgia);
     if (!k) return;
@@ -7739,6 +7827,14 @@ if (typeof module !== 'undefined' && module.exports) {
  * O que já foi pago fica registrado com valor e data e nunca é recalculado:
  * se entrar mais dinheiro depois, aparece como diferença a repassar.
  * Dado próprio do sistema (estado.repasses) — não é aba da planilha.
+ *
+ * QUEM DIVIDE (auditoria de 02/10/2026): o grupo do mês fica GUARDADO no registro
+ * (`participantes: [{ id, nome }]`) na primeira gravação do mês (despesas ou
+ * repasse). Antes, dividia-se pelos ativos DE HOJE: desativar alguém reescrevia a
+ * cota de todos os meses passados e fazia o repasse já pago a essa pessoa sumir
+ * da tela. Mês ainda sem gravação segue o cadastro de hoje (ainda não é dinheiro
+ * mexido); registro antigo, sem grupo guardado, também. Pagamento a quem não é do
+ * grupo do mês aparece numa linha à parte (`foraDoGrupo`) e entra no total.
  * ============================================================================
  */
 
@@ -7748,6 +7844,12 @@ function registroDeRepasse(repasses, chave) {
     if (repasses[i].mes === chave) return repasses[i];
   }
   return { mes: chave, despesas: null, obs: '', pagamentos: [] };
+}
+
+/** Quem divide o resultado hoje: os ativos com nome, na ordem do cadastro. [{ id, nome }]. */
+function participantesAtivosDoRepasse(anestesistas) {
+  return (anestesistas || []).filter(function (a) { return ehSim(a.ativo) && !vazio(a.nome); })
+    .map(function (a) { return { id: txt(a.id), nome: txt(a.nome) }; });
 }
 
 /** Lançamentos pagos que entram na base do mês, com a origem de cada um. */
@@ -7782,8 +7884,11 @@ function entradasDoMes(cirurgias, avaliacoes, ano, mes, base) {
  * Repasse de um mês.
  *   opcoes.base  'caixa' (padrão) | 'competencia'
  * Devolve { mes, base, entradas, bruto, despesas, liquido, participantes,
- *           linhas:[{ id, nome, pix, cota, repassado, diferenca, pagamentos }],
+ *           participantesGuardados,
+ *           linhas:[{ id, nome, pix, cota, repassado, diferenca, pagamentos, foraDoGrupo }],
  *           totalRepassado, semDataPagamento }.
+ * `participantes` é a QUANTIDADE do grupo que divide; `linhas` pode ter mais (os
+ * pagos fora do grupo), e `totalRepassado` soma sempre todos os pagamentos.
  */
 function calcularRepasse(cirurgias, avaliacoes, anestesistas, repasses, ano, mes, opcoes) {
   opcoes = opcoes || {};
@@ -7798,30 +7903,60 @@ function calcularRepasse(cirurgias, avaliacoes, anestesistas, repasses, ano, mes
   var despesas = paraNumero(reg.despesas) || 0;
   var liquidoCent = Math.max(0, brutoCent - Math.round(despesas * 100));
 
-  var ativos = (anestesistas || []).filter(function (a) { return ehSim(a.ativo) && !vazio(a.nome); });
-  var n = ativos.length;
+  var guardados = Array.isArray(reg.participantes);
+  var grupo = guardados ? reg.participantes : participantesAtivosDoRepasse(anestesistas);
+  var cadastro = {};
+  (anestesistas || []).forEach(function (a) { cadastro[txt(a.id)] = a; });
+  var n = grupo.length;
   var cotaCent = n ? Math.floor(liquidoCent / n) : 0;
   var sobra = n ? liquidoCent - cotaCent * n : 0;
 
-  var totalRepassadoCent = 0;
-  var linhas = ativos.map(function (a, i) {
+  function pagamentosDe(id) {
+    return (reg.pagamentos || []).filter(function (p) { return txt(p.idAnestesista) === id; });
+  }
+  function somaCent(pags) {
+    var c = 0;
+    pags.forEach(function (p) { c += Math.round((paraNumero(p.valor) || 0) * 100); });
+    return c;
+  }
+
+  var noGrupo = {};
+  var linhas = grupo.map(function (g, i) {
+    var id = txt(g.id);
+    noGrupo[id] = true;
+    var cad = cadastro[id];
     var cota = cotaCent + (i < sobra ? 1 : 0);
-    var pags = (reg.pagamentos || []).filter(function (p) { return txt(p.idAnestesista) === txt(a.id); });
-    var repassado = 0;
-    pags.forEach(function (p) { repassado += Math.round((paraNumero(p.valor) || 0) * 100); });
-    totalRepassadoCent += repassado;
+    var pags = pagamentosDe(id);
+    var repassado = somaCent(pags);
     return {
-      id: txt(a.id), nome: txt(a.nome), pix: txt(a.pix),
+      id: id, nome: txt(cad ? cad.nome : g.nome), pix: txt(cad && cad.pix),
       cota: cota / 100, repassado: repassado / 100, diferenca: (cota - repassado) / 100,
-      pagamentos: pags
+      pagamentos: pags, foraDoGrupo: false
     };
+  });
+
+  // Quem recebeu mas não é do grupo do mês (entrou depois, ou o registro é antigo e a
+  // pessoa já saiu): linha à parte, para o repasse pago nunca sumir da tela.
+  var jaVistos = {};
+  (reg.pagamentos || []).forEach(function (p) {
+    var id = txt(p.idAnestesista);
+    if (!id || noGrupo[id] || jaVistos[id]) return;
+    jaVistos[id] = true;
+    var cad = cadastro[id];
+    var pags = pagamentosDe(id);
+    var repassado = somaCent(pags);
+    linhas.push({
+      id: id, nome: txt(cad ? cad.nome : p.nome), pix: txt(cad ? cad.pix : p.pix),
+      cota: 0, repassado: repassado / 100, diferenca: -repassado / 100,
+      pagamentos: pags, foraDoGrupo: true
+    });
   });
 
   return {
     mes: chave, base: base, entradas: entradas,
     bruto: brutoCent / 100, despesas: arredondar2(despesas), liquido: liquidoCent / 100,
-    participantes: n, obs: txt(reg.obs),
-    linhas: linhas, totalRepassado: totalRepassadoCent / 100,
+    participantes: n, participantesGuardados: guardados, obs: txt(reg.obs),
+    linhas: linhas, totalRepassado: somaCent(reg.pagamentos || []) / 100,
     semDataPagamento: entradas.filter(function (e) { return e.semData; }).length
   };
 }
@@ -7829,6 +7964,7 @@ function calcularRepasse(cirurgias, avaliacoes, anestesistas, repasses, ano, mes
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     registroDeRepasse: registroDeRepasse,
+    participantesAtivosDoRepasse: participantesAtivosDoRepasse,
     entradasDoMes: entradasDoMes,
     calcularRepasse: calcularRepasse
   };
@@ -8918,16 +9054,19 @@ if (typeof module !== 'undefined' && module.exports) {
  * Regra única para o navegador (webapp/js/03d_guarda.js) e para o servidor
  * (server/armazem.js):
  *   - a cópia de cada dia, nos últimos 35 dias;
- *   - a primeira cópia de cada mês, por 24 meses;
- *   - marcos (a cópia tirada antes de apagar ou importar), por 400 dias.
- * Assim nada do que foi lançado some antes de um ano, nem apagado por engano.
+ *   - a primeira cópia de cada mês, por 36 meses;
+ *   - marcos (a cópia tirada antes de apagar ou importar), por 400 dias;
+ *   - o PDF de exame que alguém removeu, por 3 anos contados DA REMOÇÃO.
+ * Prazo de guarda decidido em 07/10/2026: 3 anos. Para guardar mais que isso, o chefe baixa
+ * todos os dados (Dados e backup → Baixar todos os dados) e guarda o pacote fora do sistema.
  * ============================================================================
  */
 
 var RETENCAO_COPIAS = {
   diasDiarios: 35,      // uma cópia por dia, nos últimos 35 dias
-  mesesMensais: 24,     // a primeira cópia de cada mês, por 24 meses
+  mesesMensais: 36,     // a primeira cópia de cada mês, por 36 meses (3 anos)
   diasMarcos: 400,      // cópia de antes de apagar/importar
+  diasExamesRemovidos: 1096,   // PDF de exame removido: 3 anos (com um 29 de fevereiro) a partir da remoção
   diasPasta: 60         // arquivos diários na pasta de backup do navegador (os mensais ficam)
 };
 
@@ -9047,6 +9186,8 @@ function novaEntradaLog(dados) {
   return {
     quando: dados.quando || agoraTexto(),
     usuario: txt(dados.usuario) || CONFIG.USUARIO_PADRAO,
+    // O login de quem fez (o store carimba o do usuário atual ao gravar). Vazio em entrada de antes do login existir.
+    login: txt(dados.login),
     aba: txt(dados.aba),
     idCirurgia: txt(dados.idCirurgia),
     campo: txt(dados.campo),
@@ -9147,8 +9288,10 @@ function logExclusao(abaLogica, registro, contexto) {
 }
 
 /**
- * Filtra o log. Aceita { idCirurgia, aba, usuario, campo, de, ate, texto }.
+ * Filtra o log. Aceita { idCirurgia, aba, usuario, login, nome, campo, de, ate, texto }.
  * `de`/`ate` comparam a parte de data do timestamp.
+ * `login` filtra por pessoa: a entrada com login tem de ter este login; a entrada antiga, de antes de o
+ * login ser gravado, vale pelo `nome` (se vier).
  */
 function filtrarLog(log, filtro) {
   filtro = filtro || {};
@@ -9157,6 +9300,10 @@ function filtrarLog(log, filtro) {
     if (filtro.idCirurgia && !mesmoTexto(l.idCirurgia, filtro.idCirurgia)) return false;
     if (filtro.aba && !mesmoTexto(l.aba, filtro.aba)) return false;
     if (filtro.usuario && !mesmoTexto(l.usuario, filtro.usuario)) return false;
+    if (filtro.login) {
+      if (!vazio(l.login)) { if (!mesmoTexto(l.login, filtro.login)) return false; }
+      else if (!filtro.nome || !mesmoTexto(l.usuario, filtro.nome)) return false;
+    }
     if (filtro.campo && !mesmoTexto(l.campo, filtro.campo)) return false;
 
     var dia = txt(l.quando).slice(0, 10);
@@ -9164,7 +9311,7 @@ function filtrarLog(log, filtro) {
     if (filtro.ate && dia > paraData(filtro.ate)) return false;
 
     if (filtro.texto) {
-      var alvo = normalizar([l.aba, l.idCirurgia, l.campo, l.de, l.para, l.usuario].join(' '));
+      var alvo = normalizar([l.aba, l.idCirurgia, l.campo, l.de, l.para, l.usuario, l.login].join(' '));
       if (alvo.indexOf(normalizar(filtro.texto)) < 0) return false;
     }
     return true;
@@ -9181,6 +9328,151 @@ if (typeof module !== 'undefined' && module.exports) {
     logExclusao: logExclusao,
     resumoDoRegistro: resumoDoRegistro,
     filtrarLog: filtrarLog
+  };
+}
+
+</script>
+<script>
+/* ---- ../core/11b_log_arquivo.js ---- */
+/**
+ * ============================================================================
+ * 11B_LOG_ARQUIVO — Arquivo mensal e limpeza do LOG (regras puras)
+ * ============================================================================
+ * O LOG de auditoria cresce para sempre dentro do estado, e todo computador da
+ * clínica o baixa a cada recarga. A regra para ele não pesar e, ao mesmo tempo, não
+ * perder a prova de quem fez o quê:
+ *
+ *   1. TODO MÊS, o mês fechado vira um ARQUIVO (JSON por linha, comprimido), com o
+ *      código SHA-256 do conteúdo. É o backup mensal do log.
+ *   2. A TELA guarda só os últimos `mesesNaTela` meses (padrão 12, e nunca menos que 12: a clínica
+ *      exige que a informação fique no sistema por pelo menos um ano). O que é mais
+ *      antigo sai da tela, e SÓ DEPOIS de o arquivo estar gravado e conferido.
+ *   3. O ARQUIVO é guardado por `anosDeGuarda` anos (padrão 5; 0 = nunca apagar sozinho).
+ *      Prontuário e dinheiro têm prazo de guarda legal que não é do sistema decidir:
+ *      o Anestesista chefe ajusta, com o jurídico.
+ *
+ * Este arquivo só tem as contas (quais meses, qual corte, que texto). Quem escreve
+ * no disco é server/auditoria.js; quem tira as linhas do estado é a operação
+ * `arquivarLogAte` do store (a única que remove linha do LOG, e deixa uma linha
+ * "LOG ARQUIVADO" no lugar). Os dois tipos de log têm a mesma regra:
+ *   alteracoes  as alterações críticas (estado.log)
+ *   acessos     entradas, saídas, recusas, backups, exames… (server/auditoria.js)
+ * ============================================================================
+ */
+
+var LOG_PADRAO = { mesesNaTela: 12, anosDeGuarda: 5 };
+var LOG_LIMITES = {
+  mesesNaTela: { min: 12, max: 60 },
+  anosDeGuarda: { min: 0, max: 30 }
+};
+var TIPOS_DE_LOG = ['alteracoes', 'acessos'];
+
+function inteiroNaFaixa(v, faixa) {
+  if (v === null || v === undefined || v === '' || typeof v === 'boolean') return null;
+  var n = Number(v);
+  return isFinite(n) && Math.floor(n) === n && n >= faixa.min && n <= faixa.max ? n : null;
+}
+
+/** Configuração do log lida de qualquer entrada: valor fora da faixa volta ao padrão. */
+function lerConfigLog(cfg) {
+  cfg = cfg && typeof cfg === 'object' ? cfg : {};
+  var m = inteiroNaFaixa(cfg.mesesNaTela, LOG_LIMITES.mesesNaTela);
+  var a = inteiroNaFaixa(cfg.anosDeGuarda, LOG_LIMITES.anosDeGuarda);
+  return {
+    mesesNaTela: m === null ? LOG_PADRAO.mesesNaTela : m,
+    anosDeGuarda: a === null ? LOG_PADRAO.anosDeGuarda : a
+  };
+}
+
+/** 'YYYY-MM' ± n meses. */
+function somarMesesAoMes(mes, n) {
+  var a = Number(String(mes).slice(0, 4));
+  var m = Number(String(mes).slice(5, 7)) - 1 + Number(n);
+  a += Math.floor(m / 12);
+  m = ((m % 12) + 12) % 12;
+  return a + '-' + pad2(m + 1);
+}
+
+/** Mês ('YYYY-MM') de um carimbo 'YYYY-MM-DD HH:MM:SS'; '' se não for um carimbo de verdade. */
+function mesDoLog(quando) {
+  var dia = String(quando === null || quando === undefined ? '' : quando).slice(0, 10);
+  return dataValida(dia) && /^\d{4}-\d{2}-\d{2}$/.test(dia) ? dia.slice(0, 7) : '';
+}
+
+/**
+ * Agrupa entradas pelo mês. Entrada sem carimbo válido vai para `semData`: ela nunca é
+ * arquivada nem tirada da tela (não dá para provar a que mês pertence).
+ */
+function agruparLogPorMes(entradas) {
+  var meses = {}, semData = [];
+  (entradas || []).forEach(function (e) {
+    var mes = mesDoLog(e && e.quando);
+    if (!mes) { semData.push(e); return; }
+    (meses[mes] = meses[mes] || []).push(e);
+  });
+  return { meses: meses, semData: semData };
+}
+
+/**
+ * O mês já pode virar arquivo? Só depois de fechar e de passar mais um dia: o servidor
+ * aceita comando com a hora até 5 minutos fora da dele, então nos primeiros minutos do mês
+ * novo ainda pode chegar uma entrada carimbada no mês que acabou.
+ */
+function mesFechadoParaArquivo(mes, hoje) {
+  var h = paraData(hoje);
+  if (!h || !/^\d{4}-\d{2}$/.test(mes)) return false;
+  return h >= somarDias(somarMesesAoMes(mes, 1) + '-01', 1);
+}
+
+/** Primeiro dia que PERMANECE na tela: o que for anterior a ele pode sair (depois de arquivado). */
+function corteDaTela(hoje, mesesNaTela) {
+  return somarMesesAoMes(paraData(hoje).slice(0, 7), -Number(mesesNaTela)) + '-01';
+}
+
+/** Os meses cujo arquivo já passou do prazo de guarda (anosDeGuarda 0 = nenhum). */
+function mesesDeArquivoParaApagar(meses, hoje, anosDeGuarda) {
+  if (!anosDeGuarda) return [];
+  var limite = somarMesesAoMes(paraData(hoje).slice(0, 7), -12 * Number(anosDeGuarda));
+  return (meses || []).filter(function (m) { return m < limite; });
+}
+
+/** O texto do arquivo: uma entrada por linha, com as chaves em ordem (o mesmo dado dá sempre o mesmo texto). */
+function textoDoArquivoDeLog(entradas) {
+  return (entradas || []).map(function (e) { return jsonCanonico(e) + '\n'; }).join('');
+}
+
+/** O contrário: { entradas, invalidas } (linha que não lê não derruba a leitura, mas é contada). */
+function entradasDoTextoDeLog(texto) {
+  var entradas = [], invalidas = 0;
+  String(texto || '').split('\n').forEach(function (linha) {
+    if (!linha.trim()) return;
+    try {
+      var v = JSON.parse(linha);
+      if (v && typeof v === 'object' && !Array.isArray(v)) entradas.push(v); else invalidas++;
+    } catch (e) { invalidas++; }
+  });
+  return { entradas: entradas, invalidas: invalidas };
+}
+
+/** 'alteracoes' + '2026-09' (+ parte 2) -> 'alteracoes_2026-09_p2.jsonl.gz'. */
+function nomeDoArquivoDeLog(tipo, mes, parte) {
+  return tipo + '_' + mes + (parte > 1 ? '_p' + parte : '') + '.jsonl.gz';
+}
+
+/** O contrário: { tipo, mes, parte } ou null para nome que não é de arquivo de log. */
+function lerNomeDoArquivoDeLog(nome) {
+  var m = /^(alteracoes|acessos)_(\d{4}-\d{2})(?:_p(\d+))?\.jsonl\.gz$/.exec(String(nome || ''));
+  return m ? { tipo: m[1], mes: m[2], parte: m[3] ? Number(m[3]) : 1 } : null;
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    LOG_PADRAO: LOG_PADRAO, LOG_LIMITES: LOG_LIMITES, TIPOS_DE_LOG: TIPOS_DE_LOG,
+    lerConfigLog: lerConfigLog, inteiroNaFaixa: inteiroNaFaixa, somarMesesAoMes: somarMesesAoMes, mesDoLog: mesDoLog,
+    agruparLogPorMes: agruparLogPorMes, mesFechadoParaArquivo: mesFechadoParaArquivo,
+    corteDaTela: corteDaTela, mesesDeArquivoParaApagar: mesesDeArquivoParaApagar,
+    textoDoArquivoDeLog: textoDoArquivoDeLog, entradasDoTextoDeLog: entradasDoTextoDeLog,
+    nomeDoArquivoDeLog: nomeDoArquivoDeLog, lerNomeDoArquivoDeLog: lerNomeDoArquivoDeLog
   };
 }
 
@@ -9239,7 +9531,9 @@ function estadoVazio() {
       escalaBaseAuto: false,
       sequencias: { cirurgia: 0, avaliacao: 0, boletim: 0, qualidade: 0, estrutura: 0 },
       clinica: {},
-      qualidade: configQualidadePadrao()
+      qualidade: configQualidadePadrao(),
+      // Arquivo mensal e limpeza do LOG (11b_log_arquivo.js).
+      log: lerConfigLog()
     },
     anestesistas: [],
     escalaBase: [],
@@ -9270,6 +9564,8 @@ function criarStore(estadoInicial, opcoes) {
 
   var estado = estadoInicial || estadoVazio();
   var usuario = opcoes.usuario || CONFIG.USUARIO_PADRAO;
+  // O login de quem está mexendo: vai em toda linha do LOG, ao lado do nome (que pode mudar).
+  var login = txt(opcoes.login);
   var ouvintes = [];
   if (typeof opcoes.aoMudar === 'function') ouvintes.push(opcoes.aoMudar);
 
@@ -9549,9 +9845,17 @@ function criarStore(estadoInicial, opcoes) {
     });
     var saida = {};
     Object.keys(dados || {}).forEach(function (k) {
-      if (permitidos[k] === true) saida[k] = dados[k];
+      // Os campos da planilha são texto, número ou Sim/Não. Um objeto ou lista no lugar (só dá para mandar pela rede) virava
+      // "[object Object]" gravado como nome ou observação: vira vazio, e a validação cobra o que for obrigatório.
+      if (permitidos[k] === true) saida[k] = (dados[k] !== null && typeof dados[k] === 'object') ? '' : dados[k];
     });
     return saida;
+  }
+
+  /** Põe o login de quem está mexendo na linha do LOG (se ela ainda não tiver o dela). */
+  function carimbarLogin(entrada) {
+    if (login && vazio(entrada.login)) entrada.login = login;
+    return entrada;
   }
 
   /**
@@ -9566,9 +9870,12 @@ function criarStore(estadoInicial, opcoes) {
    *
    * Devolve { ok, erros, avisos, log, criadas, atualizadas, orfas }.
    */
+  var recalculouNaTransacao = false;   // a operação refez o derivado no meio (ver erroDeSubstituicaoEmConflito)
+
   function transacao(fn) {
     var snap = snapshot(true);
     var resultado;
+    recalculouNaTransacao = false;
 
     try {
       resultado = fn(estado, {
@@ -9576,16 +9883,18 @@ function criarStore(estadoInicial, opcoes) {
         proximoIdCirurgia: proximoIdCirurgia,
         proximoIdAnestesista: proximoIdAnestesista,
         registrar: function (entradas) {
-          (entradas || []).forEach(function (e) { estado.log.push(e); });
+          (entradas || []).forEach(function (e) { estado.log.push(carimbarLogin(e)); });
         }
       }) || { ok: true };
     } catch (e) {
       restaurar(snap);
+      if (recalculouNaTransacao) recalcular();
       return { ok: false, erros: [{ campo: '', msg: 'Erro interno: ' + (e && e.message ? e.message : e) }], avisos: [] };
     }
 
     if (resultado.ok === false) {
       restaurar(snap);
+      if (recalculouNaTransacao) recalcular();
       return {
         ok: false,
         erros: resultado.erros || [{ campo: '', msg: 'Operação rejeitada.' }],
@@ -9598,11 +9907,11 @@ function criarStore(estadoInicial, opcoes) {
 
     // Avaliações criadas pela sincronização também entram no log.
     (sync.criadas || []).forEach(function (a) {
-      estado.log.push(logCriacao('AVALIACOES_PRE', a, {
+      estado.log.push(carimbarLogin(logCriacao('AVALIACOES_PRE', a, {
         usuario: usuario,
         idCirurgia: a.idCirurgia,
         campo: 'AVALIAÇÃO CRIADA AUTOMATICAMENTE'
-      }));
+      })));
     });
 
     var saida = {
@@ -9621,7 +9930,9 @@ function criarStore(estadoInicial, opcoes) {
       ficha: resultado.ficha || null,
       registro: resultado.registro || null,
       // Campos copiados de outro registro (ficha preenchida a partir do boletim).
-      preenchidos: resultado.preenchidos || []
+      preenchidos: resultado.preenchidos || [],
+      // Linhas que saíram do LOG (arquivarLogAte).
+      arquivadas: resultado.arquivadas || 0
     };
 
     ouvintes.forEach(function (f) {
@@ -9669,6 +9980,27 @@ function criarStore(estadoInicial, opcoes) {
   /*                       OPERAÇÕES DE NEGÓCIO                           */
   /* ==================================================================== */
 
+  /**
+   * Teto de R$ 100 milhões por mês de competência (decisão do dono do produto, 05/10/2026): o total lançado no(s) mês(es)
+   * das datas dadas, em centavos. Devolve o erro ({ campo, msg }) ou null. Só olha o que foi mexido, para um mês antigo
+   * já acima do teto (se existir) não travar o resto do trabalho.
+   */
+  function erroDeTetoMensal(st, datas) {
+    var alvo = Object.create(null), soma = Object.create(null);
+    datas.forEach(function (d) { var m = paraData(d).slice(0, 7); if (m) alvo[m] = true; });
+    function somar(data, valor) {
+      var m = paraData(data).slice(0, 7), v = paraNumero(valor);
+      if (m && alvo[m] && v !== null) soma[m] = (soma[m] || 0) + Math.round(v * 100);
+    }
+    st.cirurgias.forEach(function (c) { if (cirurgiaContabilizavel(c)) somar(c.data, c.valor); });
+    st.avaliacoes.forEach(function (a) { somar(a.data || a.dataCirurgia, a.valor); });
+    var estourou = Object.keys(soma).sort().filter(function (m) { return soma[m] > LIMITE_VALOR_MES * 100; })[0];
+    return estourou
+      ? { campo: 'valor', msg: 'O total lançado em ' + estourou.slice(5, 7) + '/' + estourou.slice(0, 4) + ' passaria do teto de ' +
+          moedaBR(LIMITE_VALOR_MES) + ' por mês. Confira os valores.' }
+      : null;
+  }
+
   /** Cria uma cirurgia. `dados` traz só campos manuais. */
   function adicionarCirurgia(dados) {
     return transacao(function (st, api) {
@@ -9693,6 +10025,8 @@ function criarStore(estadoInicial, opcoes) {
       }
 
       st.cirurgias.push(c);
+      var teto = erroDeTetoMensal(st, [c.data]);
+      if (teto) return { ok: false, erros: [teto], avisos: rel.avisos };
       api.registrar([logCriacao('CIRURGIAS', c, { usuario: usuario, idCirurgia: c.id })]);
       return { ok: true, avisos: rel.avisos };
     });
@@ -9724,6 +10058,8 @@ function criarStore(estadoInicial, opcoes) {
         avaliacoesPorCirurgia: idx.avaliacoesPorCirurgia
       });
 
+      var teto = erroDeTetoMensal(st, [alvo.data]);
+      if (teto) return { ok: false, erros: [teto], avisos: rel.avisos };
       api.registrar(diffParaLog('CIRURGIAS', antes, alvo, { usuario: usuario, idCirurgia: alvo.id }));
       return { ok: true, avisos: rel.avisos };
     });
@@ -9807,6 +10143,8 @@ function criarStore(estadoInicial, opcoes) {
       if (!rel.ok) return { ok: false, erros: rel.erros, avisos: rel.avisos };
 
       Object.assign(alvo, mudancas);
+      var teto = erroDeTetoMensal(st, [alvo.data || alvo.dataCirurgia]);
+      if (teto) return { ok: false, erros: [teto], avisos: rel.avisos };
       api.registrar(diffParaLog('AVALIACOES_PRE', antes, alvo, {
         usuario: usuario, idCirurgia: alvo.idCirurgia
       }));
@@ -9817,7 +10155,8 @@ function criarStore(estadoInicial, opcoes) {
   /** Cria ou atualiza um anestesista do cadastro. */
   function salvarAnestesista(dados) {
     return transacao(function (st, api) {
-      var novo = !dados.id || !st.anestesistas.some(function (a) { return txt(a.id) === txt(dados.id); });
+      var duplicadasAntes = st.config && st.config.escalaBaseAuto ? duplicatasDaEscala(st) : null;
+      var novo =!dados.id || !st.anestesistas.some(function (a) { return txt(a.id) === txt(dados.id); });
       var alvo = novo ? null : st.anestesistas.filter(function (a) { return txt(a.id) === txt(dados.id); })[0];
 
       var candidato = Object.assign({
@@ -9858,6 +10197,11 @@ function criarStore(estadoInicial, opcoes) {
         api.registrar([logCriacao('ANESTESISTAS', candidato, { usuario: usuario, idCirurgia: candidato.id })]);
       }
 
+      // Com a escala-base automática, mexer no cadastro reescreve a base: se uma substituição antiga passasse a duplicar alguém, recusa.
+      if (duplicadasAntes) {
+        var conflito = erroDeSubstituicaoEmConflito(st, duplicadasAntes);
+        if (conflito) return { ok: false, erros: [conflito], avisos: rel.avisos };
+      }
       return { ok: true, avisos: rel.avisos };
     });
   }
@@ -9946,13 +10290,66 @@ function criarStore(estadoInicial, opcoes) {
     });
   }
 
-  /** Substitui a ESCALA_BASE inteira (as 30 linhas) de uma vez. */
+  /** Os dias em que a mesma pessoa está em duas posições: { 'AAAA-MM-DD|nome': 'dd/mm (Nome)' }. */
+  function duplicatasDaEscala(st) {
+    var vistos = Object.create(null), dups = Object.create(null);
+    (st.consolidada || []).forEach(function (l) {
+      var k = l.chaveNome;
+      if (!k) return;
+      if (vistos[k]) dups[k] = String(l.data).slice(8, 10) + '/' + String(l.data).slice(5, 7) + ' (' + txt(l.efetivo) + ')';
+      vistos[k] = true;
+    });
+    return dups;
+  }
+
+  /**
+   * Decisão do dono do produto (05/10/2026): mudança de escala-base que deixaria a MESMA pessoa em duas posições no
+   * mesmo dia é RECUSADA. `antes` = duplicatasDaEscala de antes da mudança (o que já estava duplicado não trava nada).
+   * Chame depois de mexer na base ou no cadastro; devolve o erro ({ campo, msg }) ou null.
+   */
+  function erroDeSubstituicaoEmConflito(st, antes) {
+    recalcular();   // para olhar o resultado; se for recusado, a transação refaz o cálculo depois de desfazer
+    recalculouNaTransacao = true;
+    var depois = duplicatasDaEscala(st);
+    var novas = Object.keys(depois).filter(function (k) { return !(k in antes); }).map(function (k) { return depois[k]; });
+    if (!novas.length) return null;
+    return { campo: 'substituicao', msg: 'Não foi feito: com essa mudança a mesma pessoa ficaria em duas posições no mesmo dia (' +
+      novas.slice(0, 5).join(', ') + (novas.length > 5 ? ' e mais ' + (novas.length - 5) : '') +
+      '). É uma substituição já registrada nesses dias: desfaça-a na tela Escala e tente de novo.' };
+  }
+
+  /** Os postos (dia + posição) cujo nome mudou entre duas escalas-base: { de: [...], para: [...] } para o LOG. */
+  function postosMudadosDaBase(antes, depois) {
+    var a = indexarEscalaBase(antes), b = indexarEscalaBase(depois), de = [], para = [];
+    CONFIG.DIAS_ESCALA.forEach(function (dia) {
+      CONFIG.POSICOES.forEach(function (pos) {
+        var x = txt(((a[dia] || {})[pos] || {}).nome), y = txt(((b[dia] || {})[pos] || {}).nome);
+        if (x === y) return;
+        var rotulo = dia.slice(0, 3) + ' ' + pos;
+        de.push(rotulo + ': ' + (x || '—'));
+        para.push(rotulo + ': ' + (y || '—'));
+      });
+    });
+    return { de: de, para: para };
+  }
+
+  /** Substitui a ESCALA_BASE inteira (as 30 linhas) de uma vez. As substituições já registradas continuam valendo; se alguma
+   *  fizesse a mesma pessoa ficar em duas posições no mesmo dia, a mudança é recusada. */
   function definirEscalaBase(linhas) {
-    return transacao(function (st) {
+    return transacao(function (st, api) {
       var rel = validarEscalaBase(linhas, st.anestesistas);
       if (!rel.ok) return { ok: false, erros: rel.erros, avisos: rel.avisos };
+      var duplicadasAntes = duplicatasDaEscala(st);
+      var anterior = st.escalaBase;
       st.escalaBase = JSON.parse(JSON.stringify(linhas));
-      return { ok: true, avisos: rel.avisos };
+      var conflito = erroDeSubstituicaoEmConflito(st, duplicadasAntes);
+      if (conflito) return { ok: false, erros: [conflito], avisos: rel.avisos };
+      var mudou = postosMudadosDaBase(anterior, st.escalaBase);
+      if (mudou.de.length) {
+        api.registrar([novaEntradaLog({ usuario: usuario, aba: 'CONFIGURAÇÃO', idCirurgia: 'ESCALA_BASE', campo: 'ESCALA-BASE',
+          de: mudou.de.join(' | ').slice(0, 400), para: mudou.para.join(' | ').slice(0, 400) })]);
+      }
+      return { ok: true, avisos: rel.avisos || [] };
     });
   }
 
@@ -9968,6 +10365,7 @@ function criarStore(estadoInicial, opcoes) {
       var depois = !!auto;
       if (antes === depois) return { ok: true };
 
+      var duplicadasAntes = duplicatasDaEscala(st);
       if (!st.config) st.config = {};
       st.config.escalaBaseAuto = depois;
 
@@ -9979,6 +10377,8 @@ function criarStore(estadoInicial, opcoes) {
                  ' anestesistas ativos para montar a escala-base sozinha.' }] };
         }
         st.escalaBase = nova;
+        var conflito = erroDeSubstituicaoEmConflito(st, duplicadasAntes);
+        if (conflito) return { ok: false, erros: [conflito] };
       }
 
       api.registrar([novaEntradaLog({
@@ -10039,16 +10439,104 @@ function criarStore(estadoInicial, opcoes) {
     });
   }
 
+  /* ---------------------------------------------------------------- LOG */
+
+  /** Como o arquivo mensal e a limpeza do LOG estão configurados (a faixa e o padrão são do core/11b). */
+  function configLog() { return lerConfigLog(estado.config && estado.config.log); }
+
+  /** Quanto tempo o LOG fica na tela e quanto tempo o arquivo mensal é guardado. Só o chefe. */
+  function salvarConfigLog(mesesNaTela, anosDeGuarda) {
+    return transacao(function (st, api) {
+      var erros = [];
+      var m = inteiroNaFaixa(mesesNaTela, LOG_LIMITES.mesesNaTela);
+      var a = inteiroNaFaixa(anosDeGuarda, LOG_LIMITES.anosDeGuarda);
+      if (m === null) erros.push({ campo: 'mesesNaTela', msg: 'Meses de LOG na tela: um número inteiro de ' + LOG_LIMITES.mesesNaTela.min + ' a ' + LOG_LIMITES.mesesNaTela.max + '.' });
+      if (a === null) erros.push({ campo: 'anosDeGuarda', msg: 'Anos de guarda do arquivo: um número inteiro de ' + LOG_LIMITES.anosDeGuarda.min + ' a ' + LOG_LIMITES.anosDeGuarda.max + ' (0 = nunca apagar sozinho).' });
+      if (erros.length) return { ok: false, erros: erros };
+      var antes = lerConfigLog(st.config.log);
+      st.config.log = { mesesNaTela: m, anosDeGuarda: a };
+      var entradas = [];
+      function mudou(campo, de, para) {
+        entradas.push(novaEntradaLog({ usuario: usuario, aba: 'CONFIGURAÇÃO', idCirurgia: 'LOG', campo: campo, de: de, para: para }));
+      }
+      if (antes.mesesNaTela !== m) mudou('LOG: MESES NA TELA', antes.mesesNaTela, m);
+      if (antes.anosDeGuarda !== a) mudou('LOG: ANOS DE GUARDA DO ARQUIVO', antes.anosDeGuarda === 0 ? 'nunca apagar' : antes.anosDeGuarda, a === 0 ? 'nunca apagar' : a);
+      api.registrar(entradas);
+      return { ok: true, semRecalculo: true };
+    });
+  }
+
+  /**
+   * Tira do LOG as linhas anteriores a `corte` (ISO) e deixa uma linha "LOG ARQUIVADO" no lugar.
+   * É a ÚNICA operação que remove linha do LOG e só o servidor a aplica (rotação mensal), DEPOIS de
+   * o arquivo com essas linhas estar gravado e conferido (server/auditoria.js). `resumo` diz onde
+   * elas estão (arquivos e SHA-256). Linha sem carimbo de data válido nunca sai.
+   */
+  function arquivarLogAte(corte, resumo) {
+    return transacao(function (st, api) {
+      var c = paraData(corte);
+      if (!c || !dataValida(c)) return { ok: false, erros: [{ campo: 'corte', msg: 'Data de corte inválida: ' + corte + '.' }] };
+      var ficam = st.log.filter(function (e) {
+        var mes = mesDoLog(e.quando);
+        return !(mes && txt(e.quando).slice(0, 10) < c);
+      });
+      var saem = st.log.length - ficam.length;
+      if (!saem) return { ok: true, semRecalculo: true, arquivadas: 0 };
+      st.log.splice(0, st.log.length);
+      ficam.forEach(function (e) { st.log.push(e); });
+      api.registrar([novaEntradaLog({
+        usuario: 'Sistema', login: 'sistema', aba: 'SISTEMA', idCirurgia: '', campo: 'LOG ARQUIVADO',
+        de: saem + ' registro(s) anteriores a ' + dataBR(c), para: txt(resumo).slice(0, 400)
+      })]);
+      return { ok: true, semRecalculo: true, arquivadas: saem };
+    });
+  }
+
   /* ------------------------------------------------------------ repasse */
 
-  function registroDoMes(st, chave) {
+  /**
+   * Registro do mês; se ainda não existe, cria e GUARDA o grupo que divide aquele mês
+   * (os ativos de agora), com uma linha no LOG. É o que impede o repasse de meses
+   * passados de mudar quando alguém é desativado depois (core/09b_repasse.js).
+   */
+  function registroDoMes(st, chave, api) {
     var reg = st.repasses.filter(function (r) { return r.mes === chave; })[0];
-    if (!reg) { reg = { mes: chave, despesas: null, obs: '', pagamentos: [] }; st.repasses.push(reg); }
+    if (!reg) {
+      reg = { mes: chave, despesas: null, obs: '', pagamentos: [], participantes: participantesAtivosDoRepasse(st.anestesistas) };
+      st.repasses.push(reg);
+      if (api) api.registrar([entradaLogRepasse(chave, 'GRUPO DO REPASSE', '', textoDoGrupo(reg.participantes))]);
+    }
     return reg;
+  }
+
+  function textoDoGrupo(grupo) {
+    return grupo.length + ' participante(s): ' + grupo.map(function (g) { return g.nome; }).join(', ');
   }
 
   function entradaLogRepasse(chave, campo, de, para, id) {
     return novaEntradaLog({ usuario: usuario, aba: 'REPASSE ' + chave, idCirurgia: id || chave, campo: campo, de: de, para: para });
+  }
+
+  /**
+   * Refaz o grupo do mês pelo cadastro de hoje (quem entrou ou foi reativado depois da
+   * primeira gravação). Só enquanto NINGUÉM recebeu: com repasse registrado, mudar o
+   * grupo mudaria a cota de quem já foi pago.
+   */
+  function atualizarParticipantesRepasse(ano, mes) {
+    return transacao(function (st, api) {
+      var info = infoMes(ano, mes);
+      if (!info) return { ok: false, erros: [{ campo: 'mes', msg: 'Mês inválido.' }] };
+      var reg = st.repasses.filter(function (r) { return r.mes === info.chave; })[0];
+      if (!reg) return { ok: false, erros: [{ campo: 'mes', msg: 'Este mês ainda não tem grupo guardado: ele é guardado ao salvar despesas ou registrar o primeiro repasse.' }] };
+      if (reg.pagamentos.length) {
+        return { ok: false, erros: [{ campo: 'pagamentos', msg: 'Já há repasse registrado neste mês: o grupo não pode mudar sem mexer na cota de quem já recebeu. Desfaça os registros primeiro, se for o caso.' }] };
+      }
+      var antes = Array.isArray(reg.participantes) ? textoDoGrupo(reg.participantes) : '(grupo ativo do dia)';
+      reg.participantes = participantesAtivosDoRepasse(st.anestesistas);
+      var depois = textoDoGrupo(reg.participantes);
+      if (antes !== depois) api.registrar([entradaLogRepasse(info.chave, 'GRUPO DO REPASSE', antes, depois)]);
+      return { ok: true };
+    });
   }
 
   /** Despesas do mês (descontadas antes da divisão) e observação. */
@@ -10059,7 +10547,9 @@ function criarStore(estadoInicial, opcoes) {
       var v = vazio(despesas) ? null : paraNumero(despesas);
       if (!vazio(despesas) && v === null) return { ok: false, erros: [{ campo: 'despesas', msg: 'Despesas: valor inválido.' }] };
       if (v !== null && v < 0) return { ok: false, erros: [{ campo: 'despesas', msg: 'Despesas não podem ser negativas.' }] };
-      var reg = registroDoMes(st, info.chave);
+      if (v !== null && v > LIMITE_VALOR_MES) return { ok: false, erros: [{ campo: 'despesas', msg: 'Despesas acima do teto de ' + moedaBR(LIMITE_VALOR_MES) + '.' }] };
+      if (v !== null && temMaisDeDuasCasas(v)) return { ok: false, erros: [{ campo: 'despesas', msg: 'Despesas: use no máximo 2 casas decimais (centavos).' }] };
+      var reg = registroDoMes(st, info.chave, api);
       var antes = reg.despesas;
       reg.despesas = v;
       reg.obs = txt(obs).slice(0, 500);
@@ -10087,7 +10577,7 @@ function criarStore(estadoInicial, opcoes) {
       if (!dataValida(data)) erros.push({ campo: 'data', msg: 'Informe a data do repasse.' });
       if (erros.length) return { ok: false, erros: erros };
 
-      var reg = registroDoMes(st, info.chave);
+      var reg = registroDoMes(st, info.chave, api);
       reg.pagamentos.push({
         idAnestesista: txt(a.id), nome: txt(a.nome), pix: txt(a.pix),
         valor: arredondar2(v), data: paraData(data),
@@ -10758,7 +11248,7 @@ function criarStore(estadoInicial, opcoes) {
    */
   function aplicarRemanejamento(movimentos) {
     return transacao(function (st, api) {
-      var lista = movimentos || [];
+      var lista = Array.isArray(movimentos) ? movimentos : [];
       if (!lista.length) {
         return { ok: false, erros: [{ campo: 'movimentos', msg: 'Nada a remanejar.' }] };
       }
@@ -10768,6 +11258,7 @@ function criarStore(estadoInicial, opcoes) {
 
       for (var i = 0; i < lista.length; i++) {
         var mov = lista[i];
+        if (!mov || typeof mov !== 'object') return { ok: false, erros: [{ campo: 'movimentos', msg: 'Movimento inválido (esperado: cirurgia e anestesista).' }] };
         var alvo = st.cirurgias.filter(function (c) { return txt(c.id) === txt(mov.id); })[0];
         if (!alvo) {
           return { ok: false, erros: [{ campo: 'id', msg: 'Cirurgia ' + mov.id + ' não encontrada.' }] };
@@ -11042,7 +11533,7 @@ function criarStore(estadoInicial, opcoes) {
 
   /** Visões calculadas, sempre a partir do estado atual. */
   /** Balanço de horas; `meses` padrão = o horizonte inteiro. */
-  function horas(meses) { return calcularHoras(estado.anestesistas, estado.cirurgias, meses || horizonteAtual()); }
+  function horas(meses) { return calcularHoras(estado.anestesistas, estado.cirurgias, Array.isArray(meses) ? meses : horizonteAtual()); }
 
   function financeiro(mes, ano) {
     return calcularFinanceiro(estado.cirurgias, estado.avaliacoes, mes, ano || CONFIG.ANO_REFERENCIA);
@@ -11100,6 +11591,11 @@ function criarStore(estadoInicial, opcoes) {
     estenderHorizonte: estenderHorizonte,
     get usuario() { return usuario; },
     set usuario(u) { usuario = txt(u) || CONFIG.USUARIO_PADRAO; },
+    get login() { return login; },
+    set login(v) { login = txt(v); },
+    configLog: configLog,
+    salvarConfigLog: salvarConfigLog,
+    arquivarLogAte: arquivarLogAte,
 
     aoMudar: function (fn) { if (typeof fn === 'function') ouvintes.push(fn); return store; },
 
@@ -11171,6 +11667,7 @@ function criarStore(estadoInicial, opcoes) {
 
     salvarDespesasRepasse: salvarDespesasRepasse,
     registrarPagamentoRepasse: registrarPagamentoRepasse,
+    atualizarParticipantesRepasse: atualizarParticipantesRepasse,
     removerPagamentoRepasse: removerPagamentoRepasse,
     repasse: repasse,
 
@@ -11226,10 +11723,12 @@ function criarStoreComSeed(seed, opcoes) {
 var MUTACOES_STORE = ['adicionarCirurgia', 'atualizarCirurgia', 'removerCirurgia', 'atualizarAvaliacao',
   'salvarAnestesista', 'ajustarEscala', 'definirEscalaBase', 'definirModoEscalaBase', 'aplicarRemanejamento',
   'salvarConfigClinica', 'salvarDespesasRepasse', 'registrarPagamentoRepasse', 'removerPagamentoRepasse',
+  'atualizarParticipantesRepasse',
   'criarBoletim', 'salvarBoletim', 'alterarLinhaBoletim', 'finalizarBoletim', 'reabrirBoletim', 'descartarBoletim',
   'criarFichaQualidade', 'salvarFichaQualidade', 'preencherFichaDoBoletim', 'alterarEventoQualidade', 'registrarSeguimentoQualidade',
   'revisarFichaQualidade', 'concluirFichaQualidade', 'reabrirFichaQualidade', 'descartarFichaQualidade',
   'salvarRegistroEstrutura', 'removerRegistroEstrutura', 'salvarConfigQualidade',
+  'salvarConfigLog', 'arquivarLogAte',
   'reparar'];
 
 /**
@@ -11242,16 +11741,12 @@ var MUTACOES_STORE = ['adicionarCirurgia', 'atualizarCirurgia', 'removerCirurgia
 var MUTACOES_SEGURAS_EM_CONCORRENCIA = ['atualizarCirurgia', 'atualizarAvaliacao', 'ajustarEscala', 'salvarConfigClinica',
   'salvarDespesasRepasse', 'salvarBoletim', 'alterarLinhaBoletim', 'reabrirBoletim',
   'salvarFichaQualidade', 'preencherFichaDoBoletim', 'registrarSeguimentoQualidade', 'revisarFichaQualidade', 'reabrirFichaQualidade',
-  'salvarConfigQualidade'];
+  'salvarConfigQualidade', 'salvarConfigLog'];
 
-/**
- * No modo servidor, só o administrador: cadastro (inclusive CHAVE PIX),
- * escala-base, dados da clínica, financeiro do repasse e o reparo geral.
+/*
+ * Quem pode cada operação (os três perfis) está em core/12b_permissoes.js, a única tabela:
+ * ali também sai MUTACOES_SO_ADMIN, a lista do que só o Anestesista chefe faz.
  */
-var MUTACOES_SO_ADMIN = ['salvarAnestesista', 'definirEscalaBase', 'definirModoEscalaBase', 'salvarConfigClinica',
-  'salvarDespesasRepasse', 'registrarPagamentoRepasse', 'removerPagamentoRepasse',
-  // Estrutura e definições clínicas são da coordenação, não do dia a dia.
-  'salvarRegistroEstrutura', 'removerRegistroEstrutura', 'salvarConfigQualidade', 'reparar'];
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
@@ -11259,8 +11754,305 @@ if (typeof module !== 'undefined' && module.exports) {
     criarStore: criarStore,
     criarStoreComSeed: criarStoreComSeed,
     MUTACOES_STORE: MUTACOES_STORE,
-    MUTACOES_SO_ADMIN: MUTACOES_SO_ADMIN,
     MUTACOES_SEGURAS_EM_CONCORRENCIA: MUTACOES_SEGURAS_EM_CONCORRENCIA
+  };
+}
+
+</script>
+<script>
+/* ---- ../core/12b_permissoes.js ---- */
+/**
+ * ============================================================================
+ * 12B_PERMISSOES — Quem vê e quem faz o quê (três perfis de acesso)
+ * ============================================================================
+ * Os perfis do sistema da clínica (modo servidor, com login):
+ *
+ *   chefe        Anestesista chefe. Poder total sobre a plataforma.
+ *   anestesista  Anestesista. Todo o painel de operação (escala, quadro do dia,
+ *                cirurgias, avaliações pré, boletim e ficha de qualidade) mais o
+ *                painel de qualidade. NUNCA vê dinheiro (valor, pago, data do
+ *                pagamento, nota fiscal, repasse) nem a chave PIX, o telefone e o
+ *                e-mail dos colegas.
+ *   secretaria   Secretária. Operação e gestão (horas, financeiro, repasse,
+ *                indicadores, cadastro e dados da clínica), sem o painel de
+ *                qualidade e sem estrutura; vê e imprime o boletim mas não cria,
+ *                não edita e não assina; sem as telas de administração.
+ *
+ * A TABELA MORA AQUI, no core, para três leitores usarem a MESMA regra: o
+ * servidor (quem decide e quem corta os dados), a tela (que só esconde o que a
+ * pessoa não pode usar) e os testes (que conferem). Esconder um botão nunca é
+ * a proteção: quem protege é o servidor.
+ *
+ * REGRA DE OURO: operação do store que não esteja classificada em
+ * GRUPO_DA_MUTACAO é recusada para todo perfil que não seja o chefe. Uma
+ * operação nova esquecida aqui nasce fechada, não aberta (teste em qa/25).
+ *
+ * Computador único não tem login: ali quem usa é o chefe. A versão online de
+ * demonstração tem uma conta por perfil (webapp/js/demo_online.js) e confere
+ * as operações por esta mesma tabela, só no navegador.
+ * ============================================================================
+ */
+
+var PERFIS = {
+  chefe: {
+    id: 'chefe', rotulo: 'Anestesista chefe',
+    resumo: 'Poder total sobre a plataforma: usuários, cadastro, financeiro, qualidade, auditoria e backup.'
+  },
+  anestesista: {
+    id: 'anestesista', rotulo: 'Anestesista',
+    resumo: 'Todo o painel de operação e o painel de qualidade. Não vê dinheiro nem dados de contato dos colegas.'
+  },
+  secretaria: {
+    id: 'secretaria', rotulo: 'Secretária',
+    resumo: 'Operação e gestão (horas, financeiro, repasse, cadastro), sem painel de qualidade, sem assinar boletim e sem administração.'
+  }
+};
+
+var ORDEM_DOS_PERFIS = ['chefe', 'anestesista', 'secretaria'];
+
+/**
+ * Nome de perfil (inclusive os dois antigos, "admin" e "equipe") -> perfil
+ * canônico, ou '' se não existir. "equipe" virou "anestesista": era a operação do
+ * dia a dia, e o anestesista é o perfil que menos dado vê (o chefe promove a
+ * secretária, se for o caso).
+ */
+function perfilCanonico(valor) {
+  var v = String(valor === null || valor === undefined ? '' : valor).trim().toLowerCase();
+  if (v === 'admin') return 'chefe';
+  if (v === 'equipe') return 'anestesista';
+  return PERFIS[v] ? v : '';
+}
+
+/* ------------------------------------------------------------------ telas -- */
+
+var TELAS_DE_OPERACAO = ['painel', 'escala', 'quadro', 'cirurgias', 'avaliacoes', 'boletim', 'qualidade'];
+
+var TELAS_DO_PERFIL = {
+  chefe: ['painel', 'escala', 'quadro', 'cirurgias', 'avaliacoes', 'boletim', 'qualidade',
+    'horas', 'financeiro', 'repasse', 'indicadores', 'painel_qualidade', 'estrutura',
+    'anestesistas', 'clinica', 'integridade', 'log', 'usuarios', 'dados'],
+  anestesista: TELAS_DE_OPERACAO.concat(['painel_qualidade']),
+  secretaria: TELAS_DE_OPERACAO.concat(['horas', 'financeiro', 'repasse', 'indicadores', 'anestesistas', 'clinica'])
+};
+
+/** O perfil abre esta tela? (Perfil desconhecido não abre nenhuma.) */
+function perfilPodeVerTela(perfil, tela) {
+  var p = perfilCanonico(perfil);
+  return !!p && TELAS_DO_PERFIL[p].indexOf(tela) >= 0;
+}
+
+/** Vê dinheiro (valores, pagamentos, nota fiscal, repasse) e dados de contato dos colegas. */
+function perfilVeFinanceiro(perfil) {
+  var p = perfilCanonico(perfil);
+  return p === 'chefe' || p === 'secretaria';
+}
+
+/** Coordenação: configura as definições clínicas e compara profissionais entre si. */
+function perfilEhCoordenacao(perfil) {
+  return perfilCanonico(perfil) === 'chefe';
+}
+
+/* -------------------------------------------------------------- operações -- */
+
+/**
+ * Grupo de cada operação do store que muda dados. Os grupos definem quem faz
+ * (PERFIS_DO_GRUPO). Operação fora desta lista é negada a quem não é chefe.
+ */
+var GRUPO_DA_MUTACAO = {
+  adicionarCirurgia: 'operacao', atualizarCirurgia: 'operacao', removerCirurgia: 'operacao',
+  atualizarAvaliacao: 'operacao', ajustarEscala: 'operacao', aplicarRemanejamento: 'operacao',
+
+  salvarAnestesista: 'cadastro', definirEscalaBase: 'cadastro', definirModoEscalaBase: 'cadastro',
+  salvarConfigClinica: 'cadastro',
+
+  salvarDespesasRepasse: 'financeiro', registrarPagamentoRepasse: 'financeiro',
+  removerPagamentoRepasse: 'financeiro', atualizarParticipantesRepasse: 'financeiro',
+
+  criarBoletim: 'boletim', salvarBoletim: 'boletim', alterarLinhaBoletim: 'boletim',
+  finalizarBoletim: 'boletim', reabrirBoletim: 'boletim', descartarBoletim: 'boletim',
+
+  criarFichaQualidade: 'qualidade', salvarFichaQualidade: 'qualidade', preencherFichaDoBoletim: 'qualidade',
+  alterarEventoQualidade: 'qualidade', registrarSeguimentoQualidade: 'qualidade',
+  revisarFichaQualidade: 'qualidade', concluirFichaQualidade: 'qualidade',
+  reabrirFichaQualidade: 'qualidade', descartarFichaQualidade: 'qualidade',
+
+  salvarRegistroEstrutura: 'coordenacao', removerRegistroEstrutura: 'coordenacao', salvarConfigQualidade: 'coordenacao',
+
+  reparar: 'sistema', salvarConfigLog: 'sistema',
+
+  // Só o próprio servidor aplica (rotação mensal do LOG): nenhum perfil manda isto pela rede.
+  arquivarLogAte: 'interna'
+};
+
+var PERFIS_DO_GRUPO = {
+  operacao: ['chefe', 'anestesista', 'secretaria'],
+  cadastro: ['chefe', 'secretaria'],
+  financeiro: ['chefe', 'secretaria'],
+  boletim: ['chefe', 'anestesista'],
+  qualidade: ['chefe', 'anestesista', 'secretaria'],
+  coordenacao: ['chefe'],
+  sistema: ['chefe'],
+  interna: []
+};
+
+/**
+ * O que só o Anestesista chefe faz (estrutura, definições clínicas e reparo geral). Sai da tabela
+ * acima: não existe uma segunda lista para esquecer de atualizar.
+ */
+var MUTACOES_SO_ADMIN = Object.keys(GRUPO_DA_MUTACAO).filter(function (nome) {
+  var quem = PERFIS_DO_GRUPO[GRUPO_DA_MUTACAO[nome]];
+  return quem.length === 1 && quem[0] === 'chefe';
+});
+
+/**
+ * Campos que o anestesista não pode enviar (nem receber): dinheiro das cirurgias
+ * e das avaliações, e os dados de contato e a chave PIX do cadastro.
+ */
+var CAMPOS_FINANCEIROS = {
+  CIRURGIAS: ['valor', 'pago', 'dataPagamento', 'nf'],
+  AVALIACOES_PRE: ['valor', 'pago', 'dataPagamento', 'nf'],
+  ANESTESISTAS: ['pix', 'telefone', 'email']
+};
+
+/** Em qual argumento de cada operação vêm os campos restritos, e de que aba. */
+var ARGUMENTO_RESTRITO = {
+  adicionarCirurgia: { arg: 0, aba: 'CIRURGIAS' },
+  atualizarCirurgia: { arg: 1, aba: 'CIRURGIAS' },
+  atualizarAvaliacao: { arg: 1, aba: 'AVALIACOES_PRE' },
+  salvarAnestesista: { arg: 0, aba: 'ANESTESISTAS' }
+};
+
+function camposRestritosEnviados(nome, args) {
+  var regra = ARGUMENTO_RESTRITO[nome];
+  var alvo = regra && Array.isArray(args) ? args[regra.arg] : null;
+  if (!regra || !alvo || typeof alvo !== 'object') return [];
+  return CAMPOS_FINANCEIROS[regra.aba].filter(function (c) {
+    return Object.prototype.hasOwnProperty.call(alvo, c);
+  });
+}
+
+/**
+ * Quem assina o boletim é quem entrou no sistema: cada login de anestesista ou de chefe é ligado a um anestesista
+ * do cadastro, e o boletim sai no nome e no CRM dele. Devolve { anestesista: { id, nome, crm } | null }.
+ */
+function contextoDeAssinatura(anestesistaId, anestesistas) {
+  var id = txt(anestesistaId);
+  var a = id ? (anestesistas || []).filter(function (x) { return txt(x.id) === id; })[0] : null;
+  return { anestesista: a ? { id: txt(a.id), nome: txt(a.nome), crm: txt(a.crm) } : null };
+}
+
+function assinaturaConfere(contexto, args) {
+  var eu = contexto && contexto.anestesista;
+  if (!eu) {
+    return { ok: false, motivo: 'vinculo', erro: 'O seu usuário não está ligado a um anestesista do cadastro. Peça ao Anestesista chefe para ligar (tela Usuários) antes de assinar um boletim.' };
+  }
+  var a = (Array.isArray(args) && args[1] && typeof args[1] === 'object') ? args[1] : {};
+  if (!mesmoTexto(a.nome, eu.nome)) {
+    return { ok: false, motivo: 'vinculo', erro: 'O boletim só pode ser assinado por quem entrou no sistema: ele sai em nome de ' + eu.nome + '.' };
+  }
+  if (!vazio(eu.crm) && !mesmoTexto(a.crm, eu.crm)) {
+    return { ok: false, motivo: 'vinculo', erro: 'O CRM da assinatura tem de ser o do seu cadastro (' + eu.crm + ').' };
+  }
+  return { ok: true };
+}
+
+/**
+ * O perfil pode mandar esta operação com estes argumentos?
+ * `contexto` (só no modo servidor) vem de contextoDeAssinatura: sem ele (um computador só, sem login) a assinatura é livre.
+ * Devolve { ok: true } ou { ok: false, motivo: 'perfil'|'campo'|'interna'|'vinculo', erro }.
+ */
+function perfilPodeExecutar(perfil, nome, args, contexto) {
+  var p = perfilCanonico(perfil);
+  var grupo = GRUPO_DA_MUTACAO[nome];
+  if (grupo === 'interna') {
+    return { ok: false, motivo: 'interna', erro: 'Esta operação é só do próprio servidor.' };
+  }
+  if (!p) return { ok: false, motivo: 'perfil', erro: 'Seu perfil de acesso não existe mais. Fale com o administrador.' };
+  var permitidos = grupo ? PERFIS_DO_GRUPO[grupo] : ['chefe'];
+  if (permitidos.indexOf(p) < 0) {
+    return { ok: false, motivo: 'perfil', erro: 'O seu perfil (' + PERFIS[p].rotulo + ') não faz esta operação.' };
+  }
+  if (!perfilVeFinanceiro(p)) {
+    var proibidos = camposRestritosEnviados(nome, args);
+    if (proibidos.length) {
+      return { ok: false, motivo: 'campo', erro: 'O seu perfil (' + PERFIS[p].rotulo + ') não altera dados financeiros nem de contato (' +
+        proibidos.join(', ') + ').' };
+    }
+  }
+  if (nome === 'finalizarBoletim' && contexto) return assinaturaConfere(contexto, args);
+  return { ok: true };
+}
+
+/* ------------------------------------------------------------ o que chega -- */
+
+function semOsCampos(registro, campos) {
+  var copia = {};
+  Object.keys(registro || {}).forEach(function (k) {
+    if (campos.indexOf(k) < 0) copia[k] = registro[k];
+  });
+  return copia;
+}
+
+/**
+ * O estado que este perfil recebe. Não altera o original.
+ *   chefe        tudo (devolve o mesmo objeto).
+ *   secretaria   tudo, menos o LOG de auditoria.
+ *   anestesista  sem dinheiro (cirurgias e avaliações), sem repasses, sem PIX,
+ *                telefone e e-mail do cadastro, e sem o LOG.
+ */
+function projetarEstadoParaPerfil(estado, perfil) {
+  var p = perfilCanonico(perfil) || 'anestesista';
+  if (p === 'chefe') return estado;
+  var saida = Object.assign({}, estado);
+  saida.log = [];
+  if (p === 'secretaria') return saida;
+  saida.repasses = [];
+  saida.cirurgias = (estado.cirurgias || []).map(function (c) { return semOsCampos(c, CAMPOS_FINANCEIROS.CIRURGIAS); });
+  saida.avaliacoes = (estado.avaliacoes || []).map(function (a) { return semOsCampos(a, CAMPOS_FINANCEIROS.AVALIACOES_PRE); });
+  saida.anestesistas = (estado.anestesistas || []).map(function (a) { return semOsCampos(a, CAMPOS_FINANCEIROS.ANESTESISTAS); });
+  return saida;
+}
+
+/**
+ * Um comando do diário, como este perfil pode recebê-lo para reexecutar na tela
+ * dele (as telas reexecutam o que os outros gravaram). Quem não vê dinheiro:
+ *   - não recebe os comandos de repasse (viram { oculto: true });
+ *   - recebe os outros sem os campos restritos;
+ *   - recarrega os dados quando o comando é um reparo geral.
+ * Não altera o original.
+ */
+function redigirComandoParaPerfil(entrada, perfil) {
+  var p = perfilCanonico(perfil) || 'anestesista';
+  if (p === 'chefe' || p === 'secretaria') return entrada;
+  var grupo = GRUPO_DA_MUTACAO[entrada.nome];
+  if (grupo === 'financeiro') return { revisao: entrada.revisao, oculto: true };
+  if (entrada.nome === 'reparar') return { revisao: entrada.revisao, oculto: true, recarregar: true };
+  var regra = ARGUMENTO_RESTRITO[entrada.nome];
+  if (!regra || !Array.isArray(entrada.args)) return entrada;
+  var copia = Object.assign({}, entrada);
+  copia.args = entrada.args.map(function (a, i) {
+    return i === regra.arg && a && typeof a === 'object' ? semOsCampos(a, CAMPOS_FINANCEIROS[regra.aba]) : a;
+  });
+  return copia;
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    PERFIS: PERFIS,
+    ORDEM_DOS_PERFIS: ORDEM_DOS_PERFIS,
+    TELAS_DO_PERFIL: TELAS_DO_PERFIL,
+    GRUPO_DA_MUTACAO: GRUPO_DA_MUTACAO,
+    PERFIS_DO_GRUPO: PERFIS_DO_GRUPO,
+    MUTACOES_SO_ADMIN: MUTACOES_SO_ADMIN,
+    CAMPOS_FINANCEIROS: CAMPOS_FINANCEIROS,
+    perfilCanonico: perfilCanonico,
+    perfilPodeVerTela: perfilPodeVerTela,
+    perfilVeFinanceiro: perfilVeFinanceiro,
+    perfilEhCoordenacao: perfilEhCoordenacao,
+    perfilPodeExecutar: perfilPodeExecutar,
+    contextoDeAssinatura: contextoDeAssinatura,
+    projetarEstadoParaPerfil: projetarEstadoParaPerfil,
+    redigirComandoParaPerfil: redigirComandoParaPerfil
   };
 }
 
@@ -11674,7 +12466,8 @@ var core = window;
     // Um símbolo de cada arquivo restante do core: script que não carregou (rede,
     // disco) derrubava a partida mais adiante, com tela vazia e sem mensagem.
     'chaveMes', 'classificarTipoCirurgia', 'novoUid', 'lerBoletim', 'leitorQualidade',
-    'ITENS_ESTRUTURA', 'calcularRepasse', 'configQualidadePadrao', 'copiasParaApagar', 'calcularDashboard'
+    'ITENS_ESTRUTURA', 'calcularRepasse', 'configQualidadePadrao', 'copiasParaApagar', 'calcularDashboard',
+    'perfilPodeExecutar', 'contextoDeAssinatura', 'lerConfigLog'
   ];
 
   var faltando = obrigatorios.filter(function (n) { return typeof window[n] === 'undefined'; });
@@ -13795,7 +14588,7 @@ var DADOS = (function () {
     return (Array.isArray(lista) ? lista : []).filter(function (r) {
       return r && typeof r === 'object' && /^\d{4}-\d{2}$/.test(String(r.mes));
     }).map(function (r) {
-      return {
+      var limpo = {
         mes: String(r.mes),
         despesas: typeof r.despesas === 'number' && isFinite(r.despesas) ? r.despesas : null,
         obs: valorSimples(r.obs),
@@ -13805,6 +14598,14 @@ var DADOS = (function () {
           return sanearRegistro(p, ['idAnestesista', 'nome', 'pix', 'valor', 'data', 'registradoPor', 'registradoEm']);
         })
       };
+      // Grupo que divide o mês (core/09b_repasse.js). Ausente em registro antigo: continua ausente,
+      // senão um backup velho passaria a "ter grupo guardado" vazio e dividiria por zero.
+      if (Array.isArray(r.participantes)) {
+        limpo.participantes = r.participantes.filter(function (g) {
+          return g && typeof g === 'object' && !Array.isArray(g);
+        }).map(function (g) { return sanearRegistro(g, ['id', 'nome']); });
+      }
+      return limpo;
     });
   }
 
@@ -13837,6 +14638,8 @@ var DADOS = (function () {
     // Definições clínicas do módulo de qualidade: o próprio core reconstrói
     // (limiares fora de faixa, metas estranhas e referências vazias somem).
     base.config.qualidade = lerConfigQualidade(cfg.qualidade);
+    // Arquivo mensal e limpeza do LOG: valor fora da faixa volta ao padrão.
+    base.config.log = lerConfigLog(cfg.log);
 
     base.anestesistas = sanearLista(o.anestesistas, 'ANESTESISTAS');
     base.escalaBase = sanearLista(o.escalaBase, 'ESCALA_BASE');
@@ -13911,7 +14714,9 @@ var DADOS = (function () {
           nome: String(x.meta.nome || 'exame.pdf').slice(0, 200),
           tamanho: Number(x.meta.tamanho) || 0,
           criadoEm: String(x.meta.criadoEm || ''),
-          criadoPor: String(x.meta.criadoPor || '').slice(0, 80)
+          criadoPor: String(x.meta.criadoPor || '').slice(0, 80),
+          // A impressão digital de quando foi anexado: quem importa confere o arquivo com ela.
+          sha256: /^[0-9a-f]{64}$/.test(String(x.meta.sha256 || '')) ? String(x.meta.sha256) : ''
         },
         conteudo: x.conteudo
       };
@@ -17107,9 +17912,10 @@ var SERVIDOR = (function () {
     definirEscalaBase: 'escala-base', definirModoEscalaBase: 'modo da escala-base', aplicarRemanejamento: 'remanejamento',
     salvarConfigClinica: 'dados da clínica', salvarDespesasRepasse: 'despesas do repasse',
     registrarPagamentoRepasse: 'registro de repasse', removerPagamentoRepasse: 'desfazer repasse',
+    atualizarParticipantesRepasse: 'grupo do repasse',
     criarBoletim: 'criar boletim', salvarBoletim: 'campo do boletim', alterarLinhaBoletim: 'registro do boletim',
     finalizarBoletim: 'assinatura do boletim', reabrirBoletim: 'reabertura do boletim', descartarBoletim: 'descartar boletim',
-    reparar: 'reparo dos dados'
+    reparar: 'reparo dos dados', salvarConfigLog: 'ajuste do LOG', arquivarLogAte: 'arquivo do LOG'
   };
 
   /* =============================================================== rede */
@@ -17128,7 +17934,8 @@ var SERVIDOR = (function () {
   }
 
   function semente() { return (Date.now().toString(36) + Math.random().toString(36).slice(2, 10)).slice(0, 20); }
-  function agoraDoServidor() { return agoraTexto(new Date(Date.now() + desvio)); }
+  // Hora de BRASÍLIA (não a do fuso deste computador): é assim que o servidor a lê.
+  function agoraDoServidor() { return agoraTextoBrasilia(new Date(Date.now() + desvio)); }
 
   /* ============================================================ partida */
 
@@ -17185,6 +17992,7 @@ var SERVIDOR = (function () {
   function envolver(store) {
     originais = {};
     store.usuario = usuario.nome;
+    store.login = usuario.login;
     MUTACOES_STORE.forEach(function (nome) {
       var original = store[nome];
       originais[nome] = original;
@@ -17198,12 +18006,15 @@ var SERVIDOR = (function () {
         if (app && app.store !== store) {
           return { ok: false, erros: [{ campo: '', msg: 'Os dados foram atualizados enquanto esta janela estava aberta. Feche-a e abra de novo.' }], avisos: [] };
         }
-        if (MUTACOES_SO_ADMIN.indexOf(nome) >= 0 && usuario.papel !== 'admin') {
-          return { ok: false, erros: [{ campo: '', msg: 'Só o administrador do sistema pode fazer isso.' }], avisos: [] };
+        // O servidor confere de novo (e é ele quem decide); aqui só se poupa a ida e volta.
+        var perm = perfilPodeExecutar(usuario.papel, nome, args, contextoDeAssinatura(usuario.anestesistaId, store.estado.anestesistas));
+        if (!perm.ok) {
+          return { ok: false, erros: [{ campo: '', msg: perm.erro }], avisos: [] };
         }
         var copia = JSON.parse(JSON.stringify(args));
         var ctx = { agora: agoraDoServidor(), semente: semente() };
         store.usuario = usuario.nome;
+        store.login = usuario.login;
         var r = executarComContexto(ctx, function () { return original.apply(store, args); });
         if (nome === 'reparar' || (r && r.ok)) {
           fila.push({ nome: nome, args: copia, contexto: ctx, hoje: hoje });
@@ -17294,7 +18105,7 @@ var SERVIDOR = (function () {
     } else if (corpo.motivo === 'relogio') {
       UI.atencao('Relógio deste computador fora da hora', 'Acerte a data e a hora do computador e refaça: ' + nomes + '.', 0);
     } else if (resposta && resposta.status === 403) {
-      UI.erro('Sem permissão', (corpo.erro || 'Só o administrador pode fazer isso.') + ' Não foi salvo: ' + nomes + '.', 0);
+      UI.erro('Sem permissão', (corpo.erro || 'O seu perfil não faz isto.') + ' Não foi salvo: ' + nomes + '.', 0);
     } else {
       UI.atencao('Outra pessoa gravou no mesmo instante',
         'Para não gravar por cima do trabalho dela, isto não foi salvo: ' + nomes +
@@ -17316,13 +18127,23 @@ var SERVIDOR = (function () {
       var st = app.store;
       for (var i = 0; i < r.corpo.comandos.length; i++) {
         var c = r.corpo.comandos[i];
-        if (c.revisao !== confirmada + 1 || !originais[c.nome]) { recarregar(); return; }
+        if (c.revisao !== confirmada + 1) { recarregar(); return; }
+        // Comando que o servidor não mostra a este perfil (repasse, para quem não vê dinheiro): só
+        // acompanha a revisão. Reparo geral manda recarregar.
+        if (c.oculto) {
+          if (c.recarregar) { recarregar(); return; }
+          confirmada = c.revisao;
+          continue;
+        }
+        if (!originais[c.nome]) { recarregar(); return; }
         st.usuario = c.usuario;
+        st.login = c.login || '';
         var res = null;
         try {
           res = executarComContexto(c.contexto, function () { return originais[c.nome].apply(st, c.args); });
         } catch (e) { res = null; }
         st.usuario = usuario.nome;
+        st.login = usuario.login;
         if (!(c.nome === 'reparar' || (res && res.ok))) { recarregar(); return; }
         confirmada = c.revisao;
         quem[c.usuario] = true;
@@ -17361,7 +18182,7 @@ var SERVIDOR = (function () {
       var motivos = { importar: 'importou um backup', 'apagar-tudo': 'apagou os dados', restaurar: 'restaurou uma cópia' };
       recarregar({ aviso: d.motivo === 'dia'
         ? ['Virou o dia', 'Os dados foram atualizados para a data de hoje.']
-        : ['Dados substituídos', (d.usuario || 'O administrador') + ' ' + (motivos[d.motivo] || 'substituiu os dados') + '.'] });
+        : ['Dados substituídos', (d.usuario || 'O Anestesista chefe') + ' ' + (motivos[d.motivo] || 'substituiu os dados') + '.'] });
     });
     fonte.addEventListener('anexos', function (ev) {
       var d = JSON.parse(ev.data);
@@ -17441,7 +18262,7 @@ var SERVIDOR = (function () {
     });
     var form = UI.formulario(campos);
     var aviso = el('div', { class: 'aviso aviso-erro', hidden: true, role: 'alert' });
-    var botao = el('button', { class: 'btn btn-primario entrada-botao', type: 'submit' }, primeiro ? 'Criar administrador e entrar' : 'Entrar');
+    var botao = el('button', { class: 'btn btn-primario entrada-botao', type: 'submit' }, primeiro ? 'Criar o Anestesista chefe e entrar' : 'Entrar');
 
     function mostrarErro(msg) { UI.preencher(aviso, [icone('alerta'), el('div', { class: 'aviso-corpo' }, msg)]); aviso.hidden = false; }
 
@@ -17474,7 +18295,7 @@ var SERVIDOR = (function () {
         el('div', { class: 'marca-bloco' },
           el('img', { class: 'marca-logo', src: window.LOGO_MARCA_URL || 'public/the-one-logo.png', alt: 'THE ONE', width: 172, height: 96 })),
         el('div', null, [el('h1', null, 'Gestão de Anestesia'), el('div', { class: 't-pq t-medio' }, primeiro
-          ? 'Primeiro acesso: crie o administrador do sistema' : 'Entre com seu usuário da clínica')])
+          ? 'Primeiro acesso: crie o Anestesista chefe, que cuida de usuários e de tudo o mais' : 'Entre com seu usuário da clínica')])
       ]),
       formulario
     ])));
@@ -17529,7 +18350,7 @@ var SERVIDOR = (function () {
   function menuConta() {
     UI.abrirModal({
       titulo: usuario.nome,
-      sub: 'Login ' + usuario.login + ' · ' + (usuario.papel === 'admin' ? 'administrador' : 'equipe'),
+      sub: 'Login ' + usuario.login + ' · ' + (PERFIS[usuario.papel] ? PERFIS[usuario.papel].rotulo : usuario.papel),
       tamanho: 'estreito',
       corpo: [el('p', { class: 'sem-margem t-pq t-medio' },
         'As alterações que você faz vão para o LOG com o seu nome. Os dados ficam no servidor da clínica.')],
@@ -17603,6 +18424,21 @@ var SERVIDOR = (function () {
     },
     apagarTudo: function () {
       return pedir('POST', '/api/apagar-tudo', { confirmacao: 'APAGAR' }).then(function (r) { return exigirOk(r, 'Não foi apagado.'); });
+    },
+    // Auditoria por usuário e arquivo mensal do LOG (só o chefe; ver server/auditoria.js).
+    acessos: function (filtro) {
+      var q = Object.keys(filtro || {}).filter(function (k) { return filtro[k]; })
+        .map(function (k) { return k + '=' + encodeURIComponent(filtro[k]); }).join('&');
+      return pedir('GET', '/api/auditoria/acessos' + (q ? '?' + q : '')).then(function (r) { return exigirOk(r, 'Sem acesso.'); });
+    },
+    arquivosDeLog: function () { return pedir('GET', '/api/auditoria/arquivos').then(function (r) { return exigirOk(r, 'Sem acesso.'); }); },
+    rotacionarLogs: function () { return pedir('POST', '/api/auditoria/rotacionar', {}).then(function (r) { return exigirOk(r, 'Rotação não feita.'); }); },
+    conferirArquivosDeLog: function () { return pedir('POST', '/api/auditoria/conferir', {}).then(function (r) { return exigirOk(r, 'Conferência não feita.'); }); },
+    baixarArquivoDeLog: function (id, formato) {
+      return pedir('GET', '/api/auditoria/arquivos/' + encodeURIComponent(id) + (formato === 'jsonl' ? '?formato=jsonl' : '')).then(function (r) {
+        if (!r.ok) exigirOk(r, 'Arquivo não encontrado.');
+        return r.corpo instanceof Blob ? r.corpo : new Blob([JSON.stringify(r.corpo)], { type: 'application/json' });
+      });
     }
   };
 
@@ -17620,7 +18456,9 @@ var SERVIDOR = (function () {
     ativo: function () { return ativo; },
     usuario: function () { return usuario; },
     hoje: function () { return hoje; },
-    ehAdmin: function () { return !!(usuario && usuario.papel === 'admin'); },
+    perfil: function () { return usuario ? usuario.papel : ''; },
+    ehChefe: function () { return !!(usuario && usuario.papel === 'chefe'); },
+    ehAdmin: function () { return !!(usuario && usuario.papel === 'chefe'); },   // nome antigo de ehChefe
     pendentes: function () { return fila.length; }
   };
 })();
@@ -17718,7 +18556,9 @@ TELAS.painel = (function () {
     var d = store.dashboard(app.mes, app.ano);
     var k = d.kpis;
     var pend = store.pendencias({ mes: app.mes, ano: app.ano });
-    var integridade = app.integridade();
+    // Quem não abre a tela de Integridade (nem a de Horas) não vê alerta que mande para lá.
+    var integridade = app.podeVer('integridade') ? app.integridade() : { erros: [], avisos: [] };
+    var veFin = app.veFinanceiro();
 
     var raiz = el('div', { class: 'pilha' });
 
@@ -17737,8 +18577,10 @@ TELAS.painel = (function () {
         itens.push(el('li', null, [
           el('strong', null, pend.length + ' ' +
             (pend.length === 1 ? 'cirurgia realizada' : 'cirurgias realizadas')),
-          ' sem horário real preenchido — ',
-          el('a', { href: '#', onclick: function (e) { e.preventDefault(); app.ir('horas'); } }, 'fechar horas')
+          ' sem horário real preenchido',
+          app.podeVer('horas')
+            ? [' — ', el('a', { href: '#', onclick: function (e) { e.preventDefault(); app.ir('horas'); } }, 'fechar horas')]
+            : ' — avise a secretaria ou o chefe para fechar as horas'
         ]));
       }
 
@@ -17779,8 +18621,8 @@ TELAS.painel = (function () {
       })
     ]));
 
-    /* ---- KPIs financeiros -------------------------------------------- */
-    raiz.appendChild(el('div', { class: 'grade grade-4' }, [
+    /* ---- KPIs financeiros (só para quem vê dinheiro) ------------------ */
+    if (veFin) raiz.appendChild(el('div', { class: 'grade grade-4' }, [
       kpi({ rotulo: 'Faturado no mês', valor: UI.moedaZero(k.totalFaturado), valorPq: true,
             nota: 'anestesias + avaliações' }),
       kpi({ rotulo: 'Recebido', valor: UI.moedaZero(k.totalRecebido), valorPq: true,
@@ -17793,7 +18635,7 @@ TELAS.painel = (function () {
     ]));
 
     /* ---- Composição do faturamento ----------------------------------- */
-    raiz.appendChild(el('div', { class: 'cartao' }, [
+    if (veFin) raiz.appendChild(el('div', { class: 'cartao' }, [
       cabecalhoCartao('Composição do faturamento', nomeMes(app.mes) + ' de ' + app.ano),
       el('div', { class: 'cartao-corpo' }, [
         GFX.empilhada([
@@ -17838,7 +18680,7 @@ TELAS.painel = (function () {
             descricao: 'Cirurgias realizadas por mês'
           }))
       ]),
-      el('div', { class: 'cartao' }, [
+      veFin ? el('div', { class: 'cartao' }, [
         cabecalhoCartao('Faturado x recebido', 'por mês, em reais'),
         el('div', { class: 'cartao-corpo' },
           GFX.agrupadas(d.receitaPorMes, {
@@ -17851,7 +18693,7 @@ TELAS.painel = (function () {
             vazio: 'Nenhum valor lançado em ' + app.ano + '.',
             descricao: 'Comparativo entre faturado e recebido por mês'
           }))
-      ])
+      ]) : null
     ]));
 
     return raiz;
@@ -19239,15 +20081,15 @@ TELAS.cirurgias = (function () {
         ]))));
 
     /* ---- Tabela ------------------------------------------------------ */
+    var veFin = app.veFinanceiro();   // Valor e Pago só para quem vê dinheiro
     raiz.appendChild(el('div', { class: 'cartao' }, [
       el('div', { class: 'cartao-corpo rente' }, UI.tabela({
         colunas: [
           { rotulo: 'ID' }, { rotulo: 'Data' }, { rotulo: 'Horário' },
           { rotulo: 'Paciente' }, { rotulo: 'Procedimento' },
           { rotulo: 'Anestesista' }, { rotulo: 'Pos.', dica: 'Posição no rodízio' },
-          { rotulo: 'Status' }, { rotulo: 'Aval. pré' },
-          { rotulo: 'Valor', num: true }, { rotulo: 'Pago' }, { rotulo: '', classe: 'acoes' }
-        ],
+          { rotulo: 'Status' }, { rotulo: 'Aval. pré' }
+        ].concat(veFin ? [{ rotulo: 'Valor', num: true }, { rotulo: 'Pago' }] : []).concat([{ rotulo: '', classe: 'acoes' }]),
         linhas: lista.slice(0, LIMITE_LINHAS).map(function (c) {
           var linha = [
             el('span', { class: 'mono t-suave' }, c.id),
@@ -19270,11 +20112,13 @@ TELAS.cirurgias = (function () {
             ]),
             UI.seloPosicao(c.posicao),
             UI.seloStatus(c.status),
-            UI.seloAvaliacao(c.statusAval),
+            UI.seloAvaliacao(c.statusAval)
+          ].concat(veFin ? [
             UI.moeda(c.valor),
             ehSim(c.pago)
               ? el('span', { class: 'selo selo-ok' }, 'Sim')
-              : el('span', { class: 'selo selo-pendente' }, 'Não'),
+              : el('span', { class: 'selo selo-pendente' }, 'Não')
+          ] : []).concat([
             el('div', { class: 'linha', style: 'justify-content:flex-end;flex-wrap:nowrap' }, [
               el('button', {
                 class: 'btn btn-plano btn-icone btn-pq' + (store.boletimDaCirurgia(c.id) ? ' com-boletim' : ''),
@@ -19291,7 +20135,7 @@ TELAS.cirurgias = (function () {
                 onclick: function (ev) { ev.stopPropagation(); excluirCirurgia(app, c); }
               }, icone('lixo'))
             ])
-          ];
+          ]);
           linha.__onclick = function () { formCirurgia(app, c); };
           if (ehPendenciaHorario(c)) linha.__classe = 'destaque-linha';
           return { celulas: linha, __onclick: linha.__onclick, __classe: linha.__classe };
@@ -19464,11 +20308,14 @@ TELAS.cirurgias = (function () {
         : 'O registro intraoperatório (técnica, fármacos, sinais vitais, intercorrências) fica no boletim anestésico. ' +
           'Use o botão "Criar boletim" abaixo.';
 
+    // Dinheiro (valor, pago, data do pagamento, nota fiscal) só para quem o vê: para os outros o campo nem
+    // existe no formulário, então nunca vai no pedido (o servidor também recusaria).
+    var veFin = app.veFinanceiro();
     var form = UI.formulario([
       fData, fStatus, fIniPrev, fFimPrev, fIniReal, fFimReal,
       fPaciente, fConvenio, fTelefone, fProc, fCirurgiao, fSala,
-      fAnest, fAvalNec, fValor, fPago, fDataPag, fNF, fObs
-    ]);
+      fAnest, fAvalNec
+    ].concat(veFin ? [fValor, fPago, fDataPag, fNF] : []).concat([fObs]));
 
     /**
      * Recalcula os campos automáticos a cada mudança relevante, usando o
@@ -19631,10 +20478,10 @@ TELAS.cirurgias = (function () {
         el('div', { class: 'campo-grupo' }, [fAvalNec.no])
       ]),
 
-      secao('Financeiro', [
+      veFin ? secao('Financeiro', [
         el('div', { class: 'campo-grupo' }, [fValor.no, fPago.no]),
         el('div', { class: 'campo-grupo mt-3' }, [fDataPag.no, fNF.no])
-      ]),
+      ]) : null,
 
       secao('Boletim anestésico', [
         el('div', { class: 'aviso aviso-info' }, [
@@ -20146,15 +20993,15 @@ TELAS.avaliacoes = (function () {
         ]))));
 
     /* ---- Tabela ------------------------------------------------------ */
+    var veFin = app.veFinanceiro();   // Valor e Pago só para quem vê dinheiro
     raiz.appendChild(el('div', { class: 'cartao' }, [
       el('div', { class: 'cartao-corpo rente' }, UI.tabela({
         colunas: [
           { rotulo: 'ID' }, { rotulo: 'Cirurgia' }, { rotulo: 'Paciente' },
           { rotulo: 'Procedimento' }, { rotulo: 'Quem avaliou' },
           { rotulo: 'Data / hora' }, { rotulo: 'Realizada' }, { rotulo: 'TCLE' },
-          { rotulo: 'Exames', dica: 'PDFs de exames anexados pela secretaria' },
-          { rotulo: 'Valor', num: true }, { rotulo: 'Pago' }, { rotulo: '', classe: 'acoes' }
-        ],
+          { rotulo: 'Exames', dica: 'PDFs de exames anexados pela secretaria' }
+        ].concat(veFin ? [{ rotulo: 'Valor', num: true }, { rotulo: 'Pago' }] : []).concat([{ rotulo: '', classe: 'acoes' }]),
         linhas: lista.slice(0, LIMITE_LINHAS).map(function (a) {
           var cir = porIdCirurgia[txt(a.idCirurgia)];
           var nExames = ANEXOS.contar(a.uid);
@@ -20183,11 +21030,13 @@ TELAS.avaliacoes = (function () {
             nExames
               ? el('span', { class: 'selo selo-info sem-ponto', title: nExames + ' PDF(s) anexado(s)' },
                   [icone('clipe', 'selo-icone'), String(nExames)])
-              : el('span', { class: 't-suave' }, '—'),
+              : el('span', { class: 't-suave' }, '—')
+          ].concat(veFin ? [
             UI.moeda(a.valor),
             ehSim(a.pago)
               ? el('span', { class: 'selo selo-ok' }, 'Sim')
-              : el('span', { class: 'selo selo-na' }, 'Não'),
+              : el('span', { class: 'selo selo-na' }, 'Não')
+          ] : []).concat([
             el('div', { class: 'linha', style: 'justify-content:flex-end;flex-wrap:nowrap' }, [
               cir ? el('button', {
                 class: 'btn btn-plano btn-icone btn-pq', title: 'Abrir a cirurgia', 'aria-label': 'Abrir a cirurgia',
@@ -20198,7 +21047,7 @@ TELAS.avaliacoes = (function () {
                 onclick: function (ev) { ev.stopPropagation(); formAvaliacao(app, a); }
               }, icone('lapis'))
             ])
-          ];
+          ]);
           return {
             celulas: linha,
             __onclick: function () { formAvaliacao(app, a); },
@@ -20248,7 +21097,10 @@ TELAS.avaliacoes = (function () {
     var fNF = UI.campo({ rotulo: 'Número da nota fiscal', nome: 'nf', valor: a.nf || '' });
     var fObs = UI.campo({ rotulo: 'Observações', nome: 'obs', tipo: 'textarea', valor: a.obs || '', largo: true, linhas: 2 });
 
-    var form = UI.formulario([fAnest, fData, fHora, fRealizada, fTcle, fValor, fPago, fDataPag, fNF, fObs]);
+    // Dinheiro só para quem o vê: para os outros o campo nem existe, então nunca vai no pedido.
+    var veFin = app.veFinanceiro();
+    var form = UI.formulario([fAnest, fData, fHora, fRealizada, fTcle]
+      .concat(veFin ? [fValor, fPago, fDataPag, fNF] : []).concat([fObs]));
 
     /* Bloco de dados espelhados: mostra o vínculo sem deixar editar. */
     var espelho = el('div', { class: 'aviso ' + (cir ? 'aviso-info' : 'aviso-erro') }, [
@@ -20303,10 +21155,10 @@ TELAS.avaliacoes = (function () {
         ]),
         secao('Exames do paciente', [blocoExames]),
         secao('Termo de consentimento (TCLE)', [blocoTcle]),
-        secao('Financeiro', [
+        veFin ? secao('Financeiro', [
           el('div', { class: 'campo-grupo' }, [fValor.no, fPago.no]),
           el('div', { class: 'campo-grupo mt-3' }, [fDataPag.no, fNF.no])
-        ]),
+        ]) : null,
         secao('Observações', [el('div', { class: 'campo-grupo' }, [fObs.no])])
       ],
       acoes: [
@@ -20633,6 +21485,10 @@ TELAS.boletim = (function () {
   function abrir(app, cirurgia) {
     var b = app.store.boletimDaCirurgia(cirurgia.id);
     if (b) { app.filtros.boletim.id = b.id; app.ir('boletim'); return; }
+    if (!app.podeFazer('criarBoletim')) {
+      UI.info('Esta cirurgia ainda não tem boletim', 'O boletim é criado e preenchido pelo anestesista. O seu perfil vê e imprime, mas não cria.');
+      return;
+    }
     UI.confirmar({
       titulo: 'Criar boletim anestésico',
       texto: 'Criar o boletim da cirurgia ' + cirurgia.id + ' — ' + UI.ou(cirurgia.paciente) + ', ' + UI.data(cirurgia.data) +
@@ -20728,10 +21584,10 @@ TELAS.boletim = (function () {
                 el('div', null, [seloBoletim(b), b ? el('div', { class: 'celula-apoio mono' }, b.id) : null]),
                 // Mesmo peso para as duas ações da linha: uma coluna de botões
                 // primários disputaria com a única ação principal da tela.
-                el('button', {
+                b || app.podeFazer('criarBoletim') ? el('button', {
                   class: 'btn btn-pq',
                   onclick: function (ev) { ev.stopPropagation(); abrir(app, c); }
-                }, b ? [icone('nota'), 'Abrir'] : [icone('mais'), 'Criar'])
+                }, b ? [icone('nota'), 'Abrir'] : [icone('mais'), 'Criar']) : el('span', { class: 't-suave' }, '—')
               ],
               __onclick: function () { abrir(app, c); }
             };
@@ -20752,7 +21608,10 @@ TELAS.boletim = (function () {
     var store = app.store;
     var id = b0.id;
     var cir = cirurgiaDe(app, b0);
-    var fechado = b0.status === BOLETIM_FINALIZADO;
+    var finalizado = b0.status === BOLETIM_FINALIZADO;
+    // Quem só vê o boletim (a secretária) o abre como um finalizado: tudo desabilitado, sem assinar nem reabrir.
+    var soLeitura = !app.podeFazer('salvarBoletim');
+    var fechado = finalizado || soLeitura;
     var atualizadores = [];
 
     function atual() { return store.boletim(id); }
@@ -21093,13 +21952,23 @@ TELAS.boletim = (function () {
       if (pend.length) { UI.atencao('Ainda falta preencher', pend.join(' · ') + '.'); return; }
       var quadro = COMP.quadroAssinatura({ rotulo: 'Área para o anestesiologista assinar' });
       var crm = crmDoCadastro(app, c.anestesista);
-      var fNome = UI.campo({ rotulo: 'Anestesiologista', nome: 'nome', valor: c.anestesista, obrigatorio: true });
-      var fCrm = UI.campo({ rotulo: 'CRM', nome: 'crm', valor: crm, obrigatorio: true, exemplo: '12345-DF',
+      // Com login (servidor da clínica ou conta de demonstração), quem assina é quem entrou: o boletim sai no nome e
+      // no CRM do anestesista ligado ao login.
+      var eu = app.temLogin() ? contextoDeAssinatura(app.idDoAssinante(), store.estado.anestesistas).anestesista : null;
+      var travado = !!eu;
+      if (travado) crm = eu.crm || crm;
+      var fNome = UI.campo({ rotulo: 'Anestesiologista', nome: 'nome', valor: travado ? eu.nome : c.anestesista, obrigatorio: true, calculado: travado,
+        dica: travado ? 'Quem assina é quem entrou no sistema.' : null });
+      var fCrm = UI.campo({ rotulo: 'CRM', nome: 'crm', valor: crm, obrigatorio: true, exemplo: '12345-DF', calculado: travado && !!(eu && eu.crm),
         dica: crm ? null : 'Vai também para o cadastro do anestesista.' });
       var form = UI.formulario([fNome, fCrm]);
 
       function confirmar(botao) {
         var d = form.dados();
+        if (app.servidor && !eu) {
+          UI.erro('Seu usuário não assina', 'Ele não está ligado a um anestesista do cadastro. Peça ao Anestesista chefe para ligar (tela Usuários).');
+          return;
+        }
         var tracos = quadro.tracos();
         if (!tracos.length) { UI.atencao('Falta a assinatura', 'Assine no quadro acima da linha.'); return; }
         botao.disabled = true;
@@ -21253,8 +22122,8 @@ TELAS.boletim = (function () {
       el('div', { class: 'cartao' }, el('div', { class: 'cartao-corpo compacto pilha-pq' }, [
         blocoSituacao,
         el('div', { class: 'pilha-pq mt-2' }, fechado ? [
-          el('button', { class: 'btn btn-primario', onclick: gerarPdf }, [icone('baixar'), 'PDF do boletim']),
-          el('button', { class: 'btn', onclick: reabrir }, [icone('lapis'), 'Reabrir para correção'])
+          el('button', { class: 'btn btn-primario', onclick: gerarPdf }, [icone('baixar'), finalizado ? 'PDF do boletim' : 'PDF (rascunho)']),
+          finalizado && !soLeitura ? el('button', { class: 'btn', onclick: reabrir }, [icone('lapis'), 'Reabrir para correção']) : null
         ] : [
           botaoFinalizar,
           el('button', { class: 'btn', onclick: gerarPdf }, [icone('baixar'), 'PDF (rascunho)']),
@@ -21516,8 +22385,10 @@ TELAS.boletim = (function () {
 
     var principal = el('div', { class: 'bol-principal pilha' }, [
       fechado ? el('div', { class: 'aviso aviso-ok', style: 'margin:0' }, [icone('cadeado'), el('div', { class: 'aviso-corpo' }, [
-        el('strong', null, 'Boletim finalizado — somente leitura'),
-        el('div', { class: 't-pq' }, 'Para corrigir, use "Reabrir para correção": o motivo fica registrado e o boletim precisa ser assinado de novo.')
+        el('strong', null, finalizado ? 'Boletim finalizado — somente leitura' : 'Boletim em preenchimento — somente leitura'),
+        el('div', { class: 't-pq' }, soLeitura
+          ? 'O seu perfil vê e imprime o boletim, mas quem preenche e assina é o anestesista.'
+          : 'Para corrigir, use "Reabrir para correção": o motivo fica registrado e o boletim precisa ser assinado de novo.')
       ])]) : null,
       secPaciente, secTecnica, secMonitor, secTempos, secSinais, secFarmacos, secFluidos, secIntercorrencias,
       secRecuperacao, secObs, historico
@@ -21706,7 +22577,7 @@ TELAS.qualidade = (function () {
       cab('Fichas de qualidade', nomeMes(app.mes) + ' de ' + app.ano, [
         el('button', { class: 'btn btn-pq', onclick: function () { baixarCSV(app, linhas); } },
           [icone('baixar'), 'CSV']),
-        el('button', { class: 'btn btn-pq', onclick: function () { app.ir('painel_qualidade'); } },
+        !app.podeVer('painel_qualidade') ? null : el('button', { class: 'btn btn-pq', onclick: function () { app.ir('painel_qualidade'); } },
           [icone('grafico'), 'Painel'])
       ]),
       el('div', { class: 'cartao-corpo compacto' }, [
@@ -23040,13 +23911,12 @@ TELAS.painel_qualidade = (function () {
 
   /**
    * A coordenação é quem configura as definições clínicas e quem compara
-   * profissionais entre si (no servidor da clínica, o administrador). Quem é
-   * da equipe vê o painel do serviço, mas não o ranking individual — a
-   * comparação é a parte do painel que mais pesa sobre uma pessoa.
-   * No computador único, quem usa é a coordenação.
+   * profissionais entre si (no servidor da clínica, o Anestesista chefe). O anestesista
+   * vê o painel do serviço, mas não o ranking individual — a comparação é a parte do
+   * painel que mais pesa sobre uma pessoa. No computador único, quem usa é a coordenação.
    */
   function ehCoordenacao(app) {
-    return !app.servidor || (typeof SERVIDOR !== 'undefined' && SERVIDOR.ehAdmin());
+    return app.ehCoordenacao();
   }
   var podeConfigurar = ehCoordenacao;
 
@@ -23415,7 +24285,7 @@ TELAS.painel_qualidade = (function () {
 
     if (!podeConfigurar(app)) return areaDaCoordenacao(
       'As definições clínicas, os limiares, as metas e as referências são configurados pelo ' +
-      'administrador do sistema da clínica.');
+      'Anestesista chefe da clínica.');
 
     var camposLimiar = {};
     var camposMeta = {};
@@ -23859,9 +24729,9 @@ TELAS.estrutura = (function () {
     return typeof v === 'number' ? String(casas ? v.toFixed(casas) : v).replace('.', ',') : String(v);
   }
 
-  /** No servidor da clínica, estrutura é da coordenação: a equipe só consulta. */
+  /** Estrutura é da coordenação (o Anestesista chefe); só ele abre esta tela no servidor da clínica. */
   function podeEditar(app) {
-    return !app.servidor || (typeof SERVIDOR !== 'undefined' && SERVIDOR.ehAdmin());
+    return app.podeFazer('salvarRegistroEstrutura');
   }
 
   function seloItem(valor) {
@@ -24682,7 +25552,10 @@ TELAS.repasse = (function () {
     raiz.appendChild(el('div', { class: 'aviso aviso-info', style: 'margin:0' }, [
       icone('dinheiro'),
       el('div', { class: 'aviso-corpo' }, [
-        el('strong', null, 'Divisão igual entre os ' + r.participantes + ' anestesistas ativos'),
+        el('strong', null, 'Divisão igual entre os ' + r.participantes + (r.participantesGuardados ? ' participantes do mês' : ' anestesistas ativos')),
+        el('div', { class: 't-pq' }, r.participantesGuardados
+          ? 'Grupo guardado quando o mês foi mexido pela primeira vez (despesas ou repasse): quem sair ou entrar depois não muda esta divisão.'
+          : 'Este mês ainda segue o cadastro de hoje. O grupo fica guardado ao salvar as despesas ou registrar o primeiro repasse.'),
         el('div', { class: 't-pq' }, f.base === 'competencia'
           ? 'Base: o que já foi recebido da produção de ' + nomeMes(app.mes) + ' (data da cirurgia), menos as despesas.'
           : 'Base: o dinheiro que entrou em ' + nomeMes(app.mes) + ' (data do pagamento), menos as despesas. ' +
@@ -24699,7 +25572,7 @@ TELAS.repasse = (function () {
             nota: r.obs || 'informe abaixo, se houver' }),
       kpi({ rotulo: 'Líquido a dividir', valor: UI.moedaZero(r.liquido), valorPq: true, tom: 'acento' }),
       kpi({ rotulo: 'Cota de cada um', valor: UI.moedaZero(cotaTipica), valorPq: true,
-            nota: r.participantes + ' ativo(s)', tom: 'ok' })
+            nota: r.participantes + (r.participantesGuardados ? ' participante(s)' : ' ativo(s)'), tom: 'ok' })
     ]));
 
     /* ---- Quitado: só quando há o que repartir e todos receberam a cota ---- */
@@ -24708,7 +25581,7 @@ TELAS.repasse = (function () {
         UI.visto(false),
         el('div', { class: 'aviso-corpo' }, [
           el('strong', null, 'Repasse de ' + nomeMes(app.mes) + ' quitado'),
-          el('div', { class: 't-pq' }, 'Os ' + r.linhas.length + ' anestesistas ativos já receberam a cota de ' +
+          el('div', { class: 't-pq' }, 'Os ' + r.linhas.length + ' anestesistas do mês já receberam a cota de ' +
             UI.moedaZero(cotaTipica) + '.')
         ])
       ]));
@@ -24755,6 +25628,10 @@ TELAS.repasse = (function () {
     /* ---- Tabela ------------------------------------------------------- */
     raiz.appendChild(el('div', { class: 'cartao' }, [
       cab('Repasse por anestesista', nomeMes(app.mes) + ' de ' + app.ano, [
+        podeAtualizarGrupo(app, r) ? el('button', {
+          class: 'btn btn-pq', title: 'Refaz o grupo do mês pelo cadastro de hoje (só enquanto ninguém recebeu)',
+          onclick: function () { atualizarGrupo(app); }
+        }, [icone('pessoas'), 'Atualizar grupo']) : null,
         el('button', { class: 'btn btn-pq', onclick: function () { baixarCSV(app, r); } }, [icone('baixar'), 'CSV'])
       ]),
       el('div', { class: 'cartao-corpo rente' }, UI.tabela({
@@ -24765,7 +25642,10 @@ TELAS.repasse = (function () {
         ],
         linhas: r.linhas.map(function (l) {
           return [
-            el('span', { class: 'celula-principal' }, l.nome),
+            el('div', { class: 'linha', style: 'gap:6px;flex-wrap:wrap' }, [
+              el('span', { class: 'celula-principal' }, l.nome),
+              l.foraDoGrupo ? el('span', { class: 'selo selo-na', title: 'Recebeu, mas não é do grupo que divide este mês' }, 'fora do grupo') : null
+            ]),
             vazio(l.pix)
               ? el('span', { class: 't-alerta t-pq', title: 'Cadastre em Anestesistas' }, 'sem chave PIX')
               : el('div', { class: 'linha', style: 'gap:4px;flex-wrap:nowrap' }, [
@@ -24775,7 +25655,7 @@ TELAS.repasse = (function () {
                     onclick: function () { copiar(l.pix); }
                   }, icone('nota'))
                 ]),
-            el('strong', null, UI.moedaZero(l.cota)),
+            l.foraDoGrupo ? el('span', { class: 't-suave' }, '—') : el('strong', null, UI.moedaZero(l.cota)),
             l.repassado ? el('span', { class: 't-ok' }, UI.moedaZero(l.repassado)) : el('span', { class: 't-suave' }, '—'),
             Math.abs(l.diferenca) < 0.005
               ? el('span', { class: 'selo selo-ok sem-ponto' }, 'quitado')
@@ -24791,11 +25671,30 @@ TELAS.repasse = (function () {
           return ['Total (' + r.linhas.length + ')', '', UI.moedaZero(cota / 100), UI.moedaZero(rep / 100),
             UI.moedaZero((cota - rep) / 100), ''];
         })(),
-        vazio: { icone: 'pessoas', titulo: 'Nenhum anestesista ativo', texto: 'Cadastre a equipe em Anestesistas.' }
+        vazio: { icone: 'pessoas', titulo: 'Nenhum anestesista no grupo', texto: 'Cadastre a equipe em Anestesistas.' }
       }))
     ]));
 
     return raiz;
+  }
+
+  /** Quem faz o repasse (chefe e secretária), e só enquanto o mês está guardado e ninguém recebeu. */
+  function podeAtualizarGrupo(app, r) {
+    return app.podeFazer('atualizarParticipantesRepasse') && r.participantesGuardados && !registroDoMes(app, r).pagamentos.length;
+  }
+
+  function atualizarGrupo(app) {
+    UI.confirmar({
+      titulo: 'Atualizar o grupo de ' + nomeMes(app.mes),
+      aviso: 'O grupo deste mês será refeito pelo cadastro de hoje: quem está ativo agora passa a dividir o mês.',
+      texto: 'Só é possível enquanto nenhum repasse foi registrado. A mudança fica no LOG.',
+      rotulo: 'Atualizar grupo'
+    }, function () {
+      var res = app.store.atualizarParticipantesRepasse(app.ano, app.mes);
+      if (!res.ok) { UI.erro('Não foi possível atualizar', res.erros[0].msg); return; }
+      app.salvarEredesenhar();
+      UI.ok('Grupo do mês atualizado', 'Anotado no LOG.');
+    });
   }
 
   /** Há valor a dividir e ninguém tem diferença a receber. */
@@ -25465,9 +26364,17 @@ TELAS.integridade = (function () {
 /* ---- js/telas/log.js ---- */
 /**
  * ============================================================================
- * TELA — Auditoria
+ * TELA — Auditoria (LOG por usuário)
  * ============================================================================
- * Trilha append-only das alterações críticas.
+ * Três visões, todas por pessoa (o login de quem fez fica em cada linha):
+ *   - Alterações: a trilha das alterações críticas (estado.log). Só cresce, nunca é
+ *     reescrita; o que passa de N meses sai da tela depois de virar arquivo conferido.
+ *   - Acessos e segurança (só no servidor da clínica): entradas, recusas, senha,
+ *     usuários, backup, exames, acessos negados, rotação do LOG.
+ *   - Arquivos e retenção (só no servidor da clínica): o arquivo mensal conferido
+ *     (SHA-256), por quanto tempo fica na tela e por quanto tempo o arquivo é guardado.
+ * Só o Anestesista chefe abre esta tela. As contas do arquivo mensal estão em
+ * core/11b_log_arquivo.js e o disco, em server/auditoria.js.
  * ============================================================================
  */
 'use strict';
@@ -25475,83 +26382,374 @@ TELAS.integridade = (function () {
 TELAS.log = (function () {
 
   var el = UI.el, icone = UI.icone;
-  var cab = COMP.cabecalhoCartao, seletor = COMP.seletor;
+  var cab = COMP.cabecalhoCartao, seletor = COMP.seletor, botaoSeg = COMP.botaoSeg;
+
+  var LIMITE_LINHAS = 400;
+
+  var ROTULOS_EVENTO = {
+    entrada: 'Entrou', saida: 'Saiu', entrada_recusada: 'Entrada recusada', entrada_bloqueada: 'Entrada bloqueada (tentativas)',
+    primeiro_acesso: 'Primeiro acesso', primeiro_acesso_recusado: 'Primeiro acesso recusado',
+    senha_trocada: 'Trocou a senha', senha_troca_travada: 'Troca de senha bloqueada',
+    usuario_criado: 'Criou usuário', usuario_alterado: 'Alterou usuário',
+    acesso_negado: 'Acesso negado', backup_baixado: 'Baixou backup', estado_substituido: 'Substituiu os dados',
+    exame_anexado: 'Anexou exame', exame_aberto: 'Abriu exame', exame_removido: 'Removeu exame',
+    log_arquivado: 'LOG arquivado', log_limpo: 'LOG limpo da tela', log_acessos_limpo: 'Acessos antigos limpos',
+    log_arquivo_apagado: 'Arquivo de LOG apagado (prazo)', log_arquivo_com_problema: 'Arquivo de LOG com problema',
+    log_rotacao_falhou: 'Rotação do LOG falhou', log_rotacao_manual: 'Rotação do LOG pedida', log_arquivos_conferidos: 'Arquivos de LOG conferidos',
+    log_arquivo_baixado: 'Baixou arquivo de LOG',
+    dados_exportados: 'Baixou todos os dados', dados_exportacao_interrompida: 'Download de todos os dados interrompido',
+    exames_com_problema: 'Exames com problema', exames_indice_refeito: 'Índice dos exames refeito',
+    exames_removidos_apagados: 'Exames removidos apagados (prazo)'
+  };
+  var EVENTOS_DE_ALERTA = ['entrada_recusada', 'entrada_bloqueada', 'acesso_negado', 'senha_troca_travada', 'primeiro_acesso_recusado',
+    'log_rotacao_falhou', 'log_arquivo_com_problema', 'exames_com_problema', 'exames_indice_refeito', 'dados_exportacao_interrompida'];
+
+  /** O que veio do servidor, guardado até a pessoa pedir de novo (nada de buscar a cada redesenho). */
+  var remoto = { usuarios: null, acessos: null, arquivos: null, erro: null, carregando: false };
+
+  function pessoas(lista) {
+    var m = {};
+    lista.forEach(function (l) {
+      var chave = txt(l.login) || ('nome:' + txt(l.usuario));
+      var p = m[chave] || (m[chave] = { chave: chave, login: txt(l.login), nome: txt(l.usuario), n: 0, ultimo: '' });
+      p.n++;
+      if (txt(l.quando) > p.ultimo) p.ultimo = txt(l.quando);
+    });
+    return Object.keys(m).map(function (k) { return m[k]; }).sort(function (a, b) { return a.nome < b.nome ? -1 : a.nome > b.nome ? 1 : 0; });
+  }
+
+  function rotuloDaPessoa(p) { return p.nome + (p.login ? ' (' + p.login + ')' : ''); }
+
+  /* ----------------------------------------------------------- peças */
+
+  function aviso(titulo, texto, tipo) {
+    return el('div', { class: 'aviso aviso-' + (tipo || 'info'), style: 'margin:0' }, [
+      icone(tipo === 'atencao' ? 'alerta' : 'escudo'),
+      el('div', { class: 'aviso-corpo' }, [el('strong', null, titulo), el('div', { class: 't-pq' }, texto)])
+    ]);
+  }
+
+  function campoData(rotulo, valor, aoMudar) {
+    return el('label', { class: 'filtro' }, [
+      el('span', { class: 'filtro-rotulo' }, rotulo),
+      el('input', { class: 'entrada', type: 'date', value: valor || '', style: 'width:150px', onchange: function (ev) { aoMudar(ev.target.value); } })
+    ]);
+  }
+
+  function seletorDePessoa(valor, lista, aoMudar) {
+    return seletor({
+      valor: valor || '', largura: '230px', rotulo: 'Pessoa',
+      opcoes: [{ valor: '', rotulo: 'Todas as pessoas' }].concat(lista.map(function (p) { return { valor: p.chave, rotulo: rotuloDaPessoa(p) }; })),
+      aoMudar: aoMudar
+    });
+  }
+
+  function abas(app, f) {
+    var itens = [['alteracoes', 'Alterações']];
+    if (app.servidor) itens.push(['acessos', 'Acessos e segurança'], ['arquivos', 'Arquivos e retenção']);
+    if (itens.length < 2) return null;
+    return el('div', { class: 'segmentado' }, itens.map(function (i) {
+      return botaoSeg(i[1], f.visao === i[0], function () { f.visao = i[0]; app.redesenhar(); });
+    }));
+  }
+
+  /* ------------------------------------------------------ alterações */
+
+  function filtroDoLog(f, todas, semPessoa) {
+    var filtro = { texto: f.texto, aba: f.aba || null, de: f.de || '', ate: f.ate || '' };
+    if (!semPessoa && f.usuario) {
+      if (f.usuario.indexOf('nome:') === 0) filtro.usuario = f.usuario.slice(5);
+      else {
+        filtro.login = f.usuario;
+        var p = pessoas(todas).filter(function (x) { return x.chave === f.usuario; })[0];
+        if (p) filtro.nome = p.nome;
+      }
+    }
+    return filtro;
+  }
+
+  function alteracoes(app) {
+    var f = app.filtros.log;
+    var todas = app.store.estado.log;
+    var lista = core.filtrarLog(todas, filtroDoLog(f, todas)).slice().reverse();
+    var quem = pessoas(core.filtrarLog(todas, filtroDoLog(f, todas, true)));
+
+    var abasDoLog = {};
+    todas.forEach(function (l) { abasDoLog[l.aba] = (abasDoLog[l.aba] || 0) + 1; });
+    var cfg = app.store.configLog();
+
+    var blocos = [
+      aviso('Trilha de auditoria por usuário — só cresce, nunca é reescrita',
+        'Registra quem mudou o quê, quando, e com que valor antes e depois, com o login de quem fez. ' +
+        'Só campos críticos entram: status, datas, horários reais, anestesista, valores, pagamento e nota fiscal. ' +
+        (app.servidor
+          ? 'A tela guarda os últimos ' + cfg.mesesNaTela + ' meses; os mais antigos ficam em arquivos mensais conferidos (aba Arquivos e retenção).'
+          : 'Neste computador o LOG fica inteiro na tela; o arquivo mensal só existe no servidor da clínica.'))
+    ];
+
+    if (quem.length) {
+      blocos.push(el('div', { class: 'cartao' }, [
+        cab('Quem mexeu', 'no período e nos filtros abaixo — clique numa pessoa para ver só o que ela fez'),
+        el('div', { class: 'cartao-corpo rente' }, UI.tabela({
+          colunas: [{ rotulo: 'Pessoa' }, { rotulo: 'Alterações', num: true }, { rotulo: 'Última' }, { rotulo: '', classe: 'acoes' }],
+          linhas: quem.map(function (p) {
+            return [
+              el('span', { class: 'celula-principal' }, rotuloDaPessoa(p)),
+              String(p.n),
+              el('span', { class: 'num t-pq' }, p.ultimo),
+              el('button', { class: 'btn btn-pq', onclick: function () { f.usuario = f.usuario === p.chave ? '' : p.chave; app.redesenhar(); } },
+                f.usuario === p.chave ? 'Ver todas' : 'Ver só esta')
+            ];
+          }),
+          vazio: { icone: 'pessoas', titulo: 'Ninguém mexeu ainda', texto: 'O LOG começa a preencher assim que alguém lançar ou alterar um registro.' }
+        }))
+      ]));
+    }
+
+    blocos.push(el('div', { class: 'cartao' }, [
+      cab('LOG', lista.length + ' de ' + todas.length + ' registro(s)', [
+        seletorDePessoa(f.usuario, pessoas(todas), function (v) { f.usuario = v; app.redesenhar(); }),
+        campoData('De', f.de, function (v) { f.de = v; app.redesenhar(); }),
+        campoData('Até', f.ate, function (v) { f.ate = v; app.redesenhar(); }),
+        el('div', { class: 'busca', style: 'width:200px' }, [
+          icone('busca'),
+          el('input', {
+            class: 'entrada', type: 'search', value: f.texto || '', placeholder: 'ID, campo, valor…',
+            'aria-label': 'Buscar no LOG',
+            oninput: function (ev) { f.texto = ev.target.value; app.redesenhar(); }
+          })
+        ]),
+        seletor({
+          valor: f.aba || '', largura: '190px',
+          opcoes: [{ valor: '', rotulo: 'Todas as abas' }].concat(
+            Object.keys(abasDoLog).sort().map(function (k) { return { valor: k, rotulo: k + ' (' + abasDoLog[k] + ')' }; })),
+          aoMudar: function (v) { f.aba = v; app.redesenhar(); }
+        }),
+        el('button', {
+          class: 'btn btn-pq', disabled: lista.length === 0,
+          onclick: function () { DADOS.baixarCSV('LOG', DADOS.matrizDaAba('LOG', lista)); UI.ok('CSV gerado'); }
+        }, [icone('baixar'), 'CSV'])
+      ]),
+      el('div', { class: 'cartao-corpo rente' }, UI.tabela({
+        colunas: [
+          { rotulo: 'Data/hora' }, { rotulo: 'Usuário' }, { rotulo: 'Aba' },
+          { rotulo: 'Registro' }, { rotulo: 'Campo alterado' },
+          { rotulo: 'Valor anterior', classeCelula: 'envolve' }, { rotulo: 'Novo valor', classeCelula: 'envolve' }
+        ],
+        linhas: lista.slice(0, LIMITE_LINHAS).map(function (l) {
+          return [
+            el('span', { class: 'num t-pq' }, l.quando),
+            el('div', null, [UI.ou(l.usuario), l.login ? el('div', { class: 'celula-apoio mono' }, l.login) : null]),
+            el('span', { class: 't-pq' }, l.aba),
+            el('span', { class: 'mono t-suave' }, UI.ou(l.idCirurgia)),
+            el('span', { class: 'celula-principal t-pq' }, l.campo),
+            el('span', { class: 't-suave t-pq' }, l.de),
+            el('span', { class: 't-forte t-pq' }, l.para)
+          ];
+        }),
+        vazio: {
+          icone: 'historico', titulo: 'Nenhuma alteração registrada',
+          texto: 'O log começa a preencher assim que você lançar ou alterar um registro.'
+        }
+      })),
+      lista.length > LIMITE_LINHAS ? el('div', { class: 'cartao-pe' },
+        'Mostrando os ' + LIMITE_LINHAS + ' mais recentes de ' + lista.length + '. Use a pessoa, o período ou a busca para chegar ao que procura.') : null
+    ]));
+
+    return blocos;
+  }
+
+  /* ----------------------------------------------------------- acessos */
+
+  function carregarAcessos(app) {
+    var f = app.filtros.log;
+    remoto.carregando = true; remoto.erro = null;
+    var login = f.usuario && f.usuario.indexOf('nome:') !== 0 ? f.usuario : '';
+    return Promise.all([
+      remoto.usuarios ? Promise.resolve(remoto.usuarios) : SERVIDOR.admin.usuarios(),
+      SERVIDOR.admin.acessos({ login: login, de: f.de, ate: f.ate, evento: f.evento, texto: f.texto })
+    ]).then(function (r) {
+      remoto.usuarios = r[0]; remoto.acessos = r[1]; remoto.carregando = false;
+      app.redesenhar();
+    }, function (e) { remoto.erro = e.message; remoto.carregando = false; app.redesenhar(); });
+  }
+
+  function acessos(app) {
+    var f = app.filtros.log;
+    if (remoto.acessos === null && !remoto.carregando && !remoto.erro) carregarAcessos(app);
+
+    var usuarios = (remoto.usuarios || []).map(function (u) { return { chave: u.login, login: u.login, nome: u.nome, n: 0 }; });
+    usuarios.push({ chave: 'sistema', login: 'sistema', nome: 'Sistema', n: 0 });
+    var dados = remoto.acessos;
+
+    var corpo = remoto.erro
+      ? aviso('Não foi possível ler os acessos', remoto.erro, 'atencao')
+      : (dados === null
+          ? el('div', { class: 'cartao-corpo t-medio' }, 'Carregando os acessos…')
+          : UI.tabela({
+              colunas: [{ rotulo: 'Data/hora' }, { rotulo: 'Pessoa' }, { rotulo: 'Perfil' }, { rotulo: 'Evento' },
+                { rotulo: 'Detalhe', classeCelula: 'envolve' }, { rotulo: 'Endereço' }],
+              linhas: dados.eventos.map(function (e) {
+                var alerta = EVENTOS_DE_ALERTA.indexOf(e.evento) >= 0;
+                return [
+                  el('span', { class: 'num t-pq' }, e.quando),
+                  el('div', null, [UI.ou(e.nome), e.login ? el('div', { class: 'celula-apoio mono' }, e.login) : null]),
+                  el('span', { class: 't-pq' }, UI.ou(e.papel && core.PERFIS[e.papel] ? core.PERFIS[e.papel].rotulo : e.papel)),
+                  el('span', { class: 'selo ' + (alerta ? 'selo-cancelada' : 'selo-na') + ' sem-ponto' }, ROTULOS_EVENTO[e.evento] || e.evento),
+                  el('span', { class: 't-pq' }, e.detalhe),
+                  el('span', { class: 'mono t-suave t-pq' }, UI.ou(e.ip))
+                ];
+              }),
+              vazio: { icone: 'historico', titulo: 'Nenhum evento com esses filtros', texto: 'Mude a pessoa, o período ou o tipo de evento.' }
+            }));
+
+    return [
+      aviso('Acessos e eventos de segurança, por usuário',
+        'Quem entrou, saiu, errou a senha, foi barrado, criou ou mudou usuário, baixou backup, anexou, abriu ou removeu exame — com o endereço de onde veio. ' +
+        'Os meses fechados saem desta lista para arquivos mensais conferidos (aba Arquivos e retenção). Nada aqui guarda senha nem dado de paciente.'),
+      el('div', { class: 'cartao' }, [
+        cab('Acessos', dados ? dados.eventos.length + ' de ' + dados.total + ' evento(s)' + (dados.total > dados.eventos.length ? ' — os mais recentes' : '') : '', [
+          seletorDePessoa(f.usuario, usuarios, function (v) { f.usuario = v; remoto.acessos = null; app.redesenhar(); }),
+          campoData('De', f.de, function (v) { f.de = v; remoto.acessos = null; app.redesenhar(); }),
+          campoData('Até', f.ate, function (v) { f.ate = v; remoto.acessos = null; app.redesenhar(); }),
+          seletor({
+            valor: f.evento || '', largura: '210px', rotulo: 'Tipo de evento',
+            opcoes: [{ valor: '', rotulo: 'Todos os eventos' }].concat(Object.keys(ROTULOS_EVENTO).map(function (k) { return { valor: k, rotulo: ROTULOS_EVENTO[k] }; })),
+            aoMudar: function (v) { f.evento = v; remoto.acessos = null; app.redesenhar(); }
+          }),
+          el('button', { class: 'btn btn-pq', onclick: function () { remoto.acessos = null; app.redesenhar(); } }, [icone('troca'), 'Atualizar'])
+        ]),
+        el('div', { class: 'cartao-corpo rente' }, corpo)
+      ])
+    ];
+  }
+
+  /* ------------------------------------------------ arquivos e retenção */
+
+  function carregarArquivos(app) {
+    remoto.carregando = true; remoto.erro = null;
+    return SERVIDOR.admin.arquivosDeLog().then(function (r) { remoto.arquivos = r; remoto.carregando = false; app.redesenhar(); },
+      function (e) { remoto.erro = e.message; remoto.carregando = false; app.redesenhar(); });
+  }
+
+  function tamanho(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1).replace('.', ',') + ' KB';
+    return (bytes / 1024 / 1024).toFixed(1).replace('.', ',') + ' MB';
+  }
+
+  function baixarArquivo(a, formato) {
+    SERVIDOR.admin.baixarArquivoDeLog(a.id, formato).then(function (blob) {
+      var nome = a.id + (formato === 'jsonl' ? '.jsonl' : '.csv');
+      return UI.salvarArquivo(nome, blob).then(function (ok) { if (ok) UI.ok('Arquivo gerado', nome); });
+    }, function (e) { UI.erro('Arquivo não gerado', e.message); });
+  }
+
+  function formConfig(app, cfg) {
+    var fMeses = UI.campo({ rotulo: 'Meses de LOG na tela', nome: 'mesesNaTela', tipo: 'number', passo: '1', min: String(core.LOG_LIMITES.mesesNaTela.min),
+      valor: cfg.mesesNaTela, dica: 'O que for mais antigo sai da tela, depois de virar arquivo conferido (12 a 60: nunca menos de um ano).' });
+    var fAnos = UI.campo({ rotulo: 'Anos de guarda do arquivo', nome: 'anosDeGuarda', tipo: 'number', passo: '1', min: '0',
+      valor: cfg.anosDeGuarda, dica: '0 = nunca apagar sozinho. Prontuário e dinheiro podem ter prazo legal: confirme com o jurídico antes de reduzir.' });
+    var form = UI.formulario([fMeses, fAnos]);
+    return el('div', null, [
+      el('div', { class: 'campo-grupo' }, [fMeses.no, fAnos.no]),
+      el('div', { class: 'linha mt-3' }, [
+        el('button', {
+          class: 'btn btn-primario btn-pq', onclick: function () {
+            var d = form.dados();
+            var r = app.store.salvarConfigLog(d.mesesNaTela, d.anosDeGuarda);
+            if (!r.ok) { form.mostrarErros(r.erros); UI.erro('Não foi possível salvar', r.erros.map(function (e) { return e.msg; }).join(' ')); return; }
+            app.salvarEredesenhar();
+            UI.ok('Prazos do LOG salvos', 'Valem a partir da próxima rotação.');
+          }
+        }, [icone('check'), 'Salvar prazos'])
+      ])
+    ]);
+  }
+
+  function arquivos(app) {
+    if (remoto.arquivos === null && !remoto.carregando && !remoto.erro) carregarArquivos(app);
+    var dados = remoto.arquivos;
+    var cfg = app.store.configLog();
+    var blocos = [
+      aviso('Arquivo mensal do LOG, conferido',
+        'Todo mês fechado vira um arquivo (um para as alterações, outro para os acessos), com o código SHA-256 do conteúdo. ' +
+        'Só depois de o arquivo estar gravado e conferido a tela e a lista de acessos são limpas dos meses mais antigos. ' +
+        'Nenhuma linha sai sem estar num arquivo conferido, e o arquivo existente nunca é reescrito.')
+    ];
+
+    if (remoto.erro) { blocos.push(aviso('Não foi possível ler os arquivos', remoto.erro, 'atencao')); return blocos; }
+
+    blocos.push(el('div', { class: 'cartao' }, [
+      cab('Prazos', 'quanto fica na tela e quanto o arquivo é guardado'),
+      el('div', { class: 'cartao-corpo' }, formConfig(app, cfg))
+    ]));
+
+    var rot = dados && dados.ultimaRotacao;
+    blocos.push(el('div', { class: 'cartao' }, [
+      cab('Rotação mensal', rot ? 'última em ' + rot.quando + (rot.ok ? '' : ' — com falha') : 'ainda não rodou', [
+        el('button', {
+          class: 'btn btn-pq', onclick: function () {
+            UI.confirmar({
+              titulo: 'Arquivar e limpar agora?',
+              aviso: 'Os meses fechados viram arquivo conferido; o que passou de ' + cfg.mesesNaTela + ' meses sai da tela.',
+              texto: 'O que sair da tela já estará num arquivo conferido, que você baixa nesta aba. O servidor faz isto sozinho todo mês.',
+              rotulo: 'Arquivar e limpar'
+            }, function () {
+              SERVIDOR.admin.rotacionarLogs().then(function (r) {
+                if (r.erros && r.erros.length) UI.atencao('Rotação com falha', r.erros.join(' '), 0);
+                else UI.ok('Rotação concluída', r.criados + ' arquivo(s) novo(s), ' + r.podados + ' linha(s) saíram da tela.');
+                remoto.arquivos = null; remoto.acessos = null; app.redesenhar();
+              }, function (e) { UI.erro('Rotação não feita', e.message); });
+            });
+          }
+        }, [icone('troca'), 'Arquivar e limpar agora']),
+        el('button', {
+          class: 'btn btn-pq', onclick: function () {
+            SERVIDOR.admin.conferirArquivosDeLog().then(function (r) {
+              if (r.ok) UI.ok('Arquivos conferidos', r.conferem + ' de ' + r.total + ' conferem com o SHA-256.');
+              else UI.erro('Arquivo que não confere', r.problemas.map(function (p) { return p.arquivo + ': ' + p.motivo; }).join(' · '), 0);
+              remoto.arquivos = null; app.redesenhar();
+            }, function (e) { UI.erro('Conferência não feita', e.message); });
+          }
+        }, [icone('escudo'), 'Conferir os arquivos'])
+      ]),
+      el('div', { class: 'cartao-corpo rente' }, dados === null
+        ? el('div', { class: 'cartao-corpo t-medio' }, 'Carregando os arquivos…')
+        : UI.tabela({
+            colunas: [{ rotulo: 'Mês' }, { rotulo: 'Conteúdo' }, { rotulo: 'Linhas', num: true }, { rotulo: 'Tamanho', num: true },
+              { rotulo: 'SHA-256' }, { rotulo: 'Conferido em' }, { rotulo: '', classe: 'acoes' }],
+            linhas: dados.arquivos.map(function (a) {
+              return [
+                el('span', { class: 'celula-principal' }, a.mes + (a.parte > 1 ? ' (parte ' + a.parte + ')' : '')),
+                el('span', { class: 't-pq' }, a.tipo === 'alteracoes' ? 'Alterações' : 'Acessos e segurança'),
+                String(a.entradas),
+                tamanho(a.tamanho || 0),
+                el('span', { class: 'mono t-pq', title: a.sha256 }, a.sha256.slice(0, 16) + '…'),
+                el('div', null, [
+                  el('span', { class: 'num t-pq' }, a.verificadoEm || '—'),
+                  a.verificadoOk === false ? el('div', { class: 't-perigo t-pq' }, a.problema || 'não confere') : null
+                ]),
+                el('div', { class: 'linha', style: 'justify-content:flex-end;flex-wrap:nowrap' }, [
+                  el('button', { class: 'btn btn-pq', onclick: function () { baixarArquivo(a, 'csv'); } }, [icone('baixar'), 'CSV']),
+                  el('button', { class: 'btn btn-plano btn-pq', title: 'Uma linha por registro, para guardar ou importar noutro sistema', onclick: function () { baixarArquivo(a, 'jsonl'); } }, 'JSON')
+                ])
+              ];
+            }),
+            rodape: ['Total', '', '', tamanho(dados.tamanhoTotal || 0), '', '', ''],
+            vazio: { icone: 'historico', titulo: 'Nenhum arquivo ainda', texto: 'O primeiro arquivo nasce quando o primeiro mês fechar (a partir do dia 2 do mês seguinte).' }
+          }))
+    ]));
+    return blocos;
+  }
+
+  /* ----------------------------------------------------------- render */
 
   function log(app) {
     var f = app.filtros.log;
-    var todas = app.store.estado.log;
-
-    var lista = core.filtrarLog(todas, {
-      texto: f.texto, aba: f.aba || null
-    }).slice().reverse();
-
-    var abas = {};
-    todas.forEach(function (l) { abas[l.aba] = (abas[l.aba] || 0) + 1; });
-
-    return el('div', { class: 'pilha' }, [
-      el('div', { class: 'aviso aviso-info', style: 'margin:0' }, [
-        icone('escudo'),
-        el('div', { class: 'aviso-corpo' }, [
-          el('strong', null, 'Trilha de auditoria — só cresce, nunca é reescrita'),
-          el('div', { class: 't-pq' },
-            'Registra quem mudou o quê, quando, e com que valor antes e depois. ' +
-            'Só campos críticos entram: status, datas, horários reais, anestesista, valores, pagamento e nota fiscal. ' +
-            'Alterar uma observação não polui o log.')
-        ])
-      ]),
-
-      el('div', { class: 'cartao' }, [
-        cab('LOG', lista.length + ' de ' + todas.length + ' registro(s)', [
-          el('div', { class: 'busca', style: 'width:220px' }, [
-            icone('busca'),
-            el('input', {
-              class: 'entrada', type: 'search', value: f.texto || '', placeholder: 'ID, campo, valor…',
-              'aria-label': 'Buscar no LOG',
-              oninput: function (ev) { f.texto = ev.target.value; app.redesenhar(); }
-            })
-          ]),
-          seletor({
-            valor: f.aba || '', largura: '190px',
-            opcoes: [{ valor: '', rotulo: 'Todas as abas' }].concat(
-              Object.keys(abas).sort().map(function (k) {
-                return { valor: k, rotulo: k + ' (' + abas[k] + ')' };
-              })),
-            aoMudar: function (v) { f.aba = v; app.redesenhar(); }
-          }),
-          el('button', {
-            class: 'btn btn-pq', disabled: lista.length === 0,
-            onclick: function () {
-              DADOS.baixarCSV('LOG', DADOS.matrizDaAba('LOG', lista));
-              UI.ok('CSV gerado');
-            }
-          }, [icone('baixar'), 'CSV'])
-        ]),
-        el('div', { class: 'cartao-corpo rente' }, UI.tabela({
-          colunas: [
-            { rotulo: 'Data/hora' }, { rotulo: 'Usuário' }, { rotulo: 'Aba' },
-            { rotulo: 'Registro' }, { rotulo: 'Campo alterado' },
-            { rotulo: 'Valor anterior', classeCelula: 'envolve' }, { rotulo: 'Novo valor', classeCelula: 'envolve' }
-          ],
-          linhas: lista.slice(0, 400).map(function (l) {
-            return [
-              el('span', { class: 'num t-pq' }, l.quando),
-              UI.ou(l.usuario),
-              el('span', { class: 't-pq' }, l.aba),
-              el('span', { class: 'mono t-suave' }, UI.ou(l.idCirurgia)),
-              el('span', { class: 'celula-principal t-pq' }, l.campo),
-              el('span', { class: 't-suave t-pq' }, l.de),
-              el('span', { class: 't-forte t-pq' }, l.para)
-            ];
-          }),
-          vazio: {
-            icone: 'historico', titulo: 'Nenhuma alteração registrada',
-            texto: 'O log começa a preencher assim que você lançar ou alterar um registro.'
-          }
-        })),
-        lista.length > 400 ? el('div', { class: 'cartao-pe' },
-          'Mostrando os 400 mais recentes de ' + lista.length + '.') : null
-      ])
-    ]);
+    if (!app.servidor && f.visao !== 'alteracoes') f.visao = 'alteracoes';
+    var visao = f.visao === 'acessos' ? acessos(app) : f.visao === 'arquivos' ? arquivos(app) : alteracoes(app);
+    return el('div', { class: 'pilha' }, [abas(app, f)].concat(visao));
   }
 
   return {
@@ -25564,13 +26762,12 @@ TELAS.log = (function () {
 /* ---- js/telas/usuarios.js ---- */
 /**
  * ============================================================================
- * TELA — Usuários (modo servidor, só administrador)
+ * TELA — Usuários (modo servidor, só o Anestesista chefe)
  * ============================================================================
- * Quem entra no sistema da clínica e com que papel:
- *   - administrador: tudo, inclusive usuários, cadastro (e CHAVE PIX),
- *     escala-base, dados da clínica, repasse, backup e restauração;
- *   - equipe: a operação do dia a dia (cirurgias, avaliações, substituições
- *     na escala, boletins).
+ * Quem entra no sistema da clínica e com que perfil (core/12b_permissoes.js):
+ *   - Anestesista chefe: poder total, inclusive usuários, backup e restauração;
+ *   - Anestesista: painel de operação e painel de qualidade, sem dinheiro;
+ *   - Secretária: operação e gestão, sem painel de qualidade nem administração.
  * Ninguém é apagado: quem sai do grupo é desativado (o LOG continua com o
  * nome). Senha nova derruba as sessões abertas da pessoa.
  * ============================================================================
@@ -25601,23 +26798,23 @@ TELAS.usuarios = (function () {
     var eu = SERVIDOR.usuario();
     return el('div', { class: 'pilha' }, [
       el('div', { class: 'aviso aviso-info', style: 'margin:0' }, [icone('info'), el('div', { class: 'aviso-corpo' }, [
-        el('strong', null, 'Papéis'),
-        el('div', { class: 't-pq' }, 'Administrador: tudo, inclusive usuários, cadastro e CHAVE PIX, escala-base, dados da clínica, ' +
-          'repasse e backup. Equipe: cirurgias, avaliações, substituições na escala e boletins. Quem sai do grupo é ' +
-          'desativado — o nome continua no LOG.')
+        el('strong', null, 'Perfis de acesso'),
+        el('div', { class: 't-pq' }, core.ORDEM_DOS_PERFIS.map(function (p) { return core.PERFIS[p].rotulo + ': ' + core.PERFIS[p].resumo; }).join(' ') +
+          ' Quem sai do grupo é desativado — o nome continua no LOG. Mudar o perfil de alguém derruba as sessões dela: ela entra de novo com o perfil novo.')
       ])]),
       el('div', { class: 'cartao' }, [
         cab('Usuários do sistema', lista.length + ' cadastrado(s)', [
           el('button', { class: 'btn btn-primario btn-pq', onclick: function () { form(app, null); } }, [icone('mais'), 'Novo usuário'])
         ]),
         el('div', { class: 'cartao-corpo rente' }, UI.tabela({
-          colunas: [{ rotulo: 'Nome' }, { rotulo: 'Login' }, { rotulo: 'Papel' }, { rotulo: 'Situação' }, { rotulo: '', classe: 'acoes' }],
+          colunas: [{ rotulo: 'Nome' }, { rotulo: 'Login' }, { rotulo: 'Perfil' }, { rotulo: 'Assina como' }, { rotulo: 'Situação' }, { rotulo: '', classe: 'acoes' }],
           linhas: lista.map(function (u) {
             return {
               celulas: [
                 el('span', { class: 'celula-principal' }, u.nome + (u.login === eu.login ? ' (você)' : '')),
                 el('span', { class: 'mono' }, u.login),
-                u.papel === 'admin' ? el('span', { class: 'selo selo-info' }, 'administrador') : el('span', { class: 'selo selo-na' }, 'equipe'),
+                el('span', { class: u.papel === 'chefe' ? 'selo selo-info' : 'selo selo-na' }, (core.PERFIS[u.papel] || { rotulo: u.papel }).rotulo),
+                el('span', { class: 't-pq' }, nomeDoVinculo(app, u)),
                 u.ativo ? el('span', { class: 'selo selo-ok' }, 'ativo') : el('span', { class: 'selo selo-cancelada' }, 'desativado'),
                 el('button', { class: 'btn btn-plano btn-icone btn-pq', title: 'Editar', 'aria-label': 'Editar ' + u.nome,
                   onclick: function (ev) { ev.stopPropagation(); form(app, u); } }, icone('lapis'))
@@ -25630,16 +26827,26 @@ TELAS.usuarios = (function () {
     ]);
   }
 
+  /** O anestesista do cadastro a que o login está ligado (quem assina boletim); '—' para a secretária. */
+  function nomeDoVinculo(app, u) {
+    var a = u.anestesistaId ? app.store.estado.anestesistas.filter(function (x) { return x.id === u.anestesistaId; })[0] : null;
+    return a ? a.nome : (u.papel === 'secretaria' ? '—' : (u.anestesistaId ? u.anestesistaId : 'não assina'));
+  }
+
   function form(app, u) {
     var novo = !u;
-    u = u || { papel: 'equipe', ativo: true };
+    u = u || { papel: 'anestesista', ativo: true };
     var campos = [
       UI.campo({ rotulo: 'Nome', nome: 'nome', valor: u.nome || '', obrigatorio: true, largo: true,
         dica: 'Como vai aparecer no LOG.' }),
       novo ? UI.campo({ rotulo: 'Login', nome: 'login', obrigatorio: true, exemplo: 'ex.: secretaria',
         dica: 'Letras minúsculas, números, ponto ou hífen. Não muda depois.' }) : null,
-      UI.campo({ rotulo: 'Papel', nome: 'papel', tipo: 'select', vazioPermitido: false, valor: u.papel,
-        opcoes: [{ valor: 'equipe', rotulo: 'Equipe' }, { valor: 'admin', rotulo: 'Administrador' }] }),
+      UI.campo({ rotulo: 'Assina boletim como (anestesista do cadastro)', nome: 'anestesistaId', tipo: 'select', vazioPermitido: true, valor: u.anestesistaId || '',
+        opcoes: app.store.estado.anestesistas.filter(function (a) { return a.ativo === 'Sim'; }).map(function (a) { return { valor: a.id, rotulo: a.nome }; }),
+        dica: 'Anestesista e chefe só assinam boletim se estiverem ligados a um anestesista: o boletim sai no nome e no CRM dele. A secretária não assina.' }),
+      UI.campo({ rotulo: 'Perfil de acesso', nome: 'papel', tipo: 'select', vazioPermitido: false, valor: u.papel,
+        opcoes: core.ORDEM_DOS_PERFIS.map(function (p) { return { valor: p, rotulo: core.PERFIS[p].rotulo }; }),
+        dica: 'Mudar o perfil de quem já usa o sistema derruba as sessões abertas dela.' }),
       novo ? null : UI.campo({ rotulo: 'Situação', nome: 'ativo', tipo: 'select', vazioPermitido: false, valor: u.ativo ? 'sim' : 'nao',
         opcoes: [{ valor: 'sim', rotulo: 'Ativo' }, { valor: 'nao', rotulo: 'Desativado (não entra mais)' }] }),
       UI.campo({ rotulo: novo ? 'Senha inicial' : 'Nova senha (deixe em branco para manter)', nome: 'senha', tipo: 'password',
@@ -25650,7 +26857,7 @@ TELAS.usuarios = (function () {
 
     function salvar(botao) {
       var d = f.dados();
-      var pedido = { nome: d.nome, papel: d.papel };
+      var pedido = { nome: d.nome, papel: d.papel, anestesistaId: d.anestesistaId || '' };
       if (novo) { pedido.novo = true; pedido.login = d.login; }
       else { pedido.login = u.login; pedido.ativo = d.ativo === 'sim'; }
       if (d.senha) pedido.senha = d.senha;
@@ -25838,6 +27045,15 @@ TELAS.dados = (function () {
           blocoCopias
         ]) : null,
 
+        admin ? secao('Baixar todos os dados', [
+          el('p', { class: 't-pq t-medio' }, 'Um arquivo .zip com tudo: os dados (que voltam para o sistema), as planilhas, todos os ' +
+            'PDFs de exame (também os removidos ainda no prazo), o LOG e a impressão digital (SHA-256) de cada arquivo, para conferir ' +
+            'anos depois. O servidor guarda cópias e exames removidos por ' + Math.round(R.mesesMensais / 12) + ' anos: para guardar ' +
+            'mais que isso, baixe de tempos em tempos e guarde o pacote fora do servidor. Tem dados de pacientes.'),
+          el('button', { class: 'btn btn-primario', onclick: function () { baixarTudoDoServidor(); } },
+            [icone('baixar'), 'Baixar todos os dados (.zip)'])
+        ]) : null,
+
         admin ? secao('Backup em arquivo', [
           el('p', { class: 't-pq t-medio' }, 'Um arquivo .json com tudo; o completo leva os PDFs de exame. Guarde fora do ' +
             'servidor (pendrive, nuvem da clínica): é a proteção contra perder o computador. Tem dados de pacientes.'),
@@ -25888,6 +27104,18 @@ TELAS.dados = (function () {
     }, function (e) { UI.erro('Backup não gerado', e.message); });
   }
 
+  /**
+   * Todos os dados num .zip. O navegador baixa direto do servidor, aos poucos, para o disco: o pacote (anos de PDFs)
+   * nunca passa inteiro pela memória da página. Se a conexão cair, o navegador mostra o download como falho.
+   */
+  function baixarTudoDoServidor() {
+    var a = el('a', { href: '/api/exportar-tudo', download: true, style: 'display:none' });
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    UI.info('O download começou', 'O pacote sai aos poucos; com muitos exames, leva alguns minutos. Acompanhe pelos downloads do navegador.');
+  }
+
   function importarNoServidor() {
     escolherArquivo(function (texto, nome) {
       var r = DADOS.importarJSON(texto);
@@ -25903,6 +27131,10 @@ TELAS.dados = (function () {
       }, function () {
         SERVIDOR.admin.importar(new Blob([texto], { type: 'application/json' })).then(function (res) {
           UI.ok('Backup importado', resumo + (res.pdfs ? ' · ' + res.pdfs + ' PDF(s) novo(s)' : ''));
+          if (res.pdfsRecusados) {
+            UI.atencao('PDFs recusados', res.pdfsRecusados + ' PDF(s) do arquivo não conferem com a impressão digital registrada ' +
+              '(o arquivo se estragou) e ficaram de fora. Detalhes na Auditoria.');
+          }
         }, function (e) { UI.erro('Não foi importado', e.message); });
       });
     });
@@ -26209,6 +27441,9 @@ TELAS.dados = (function () {
  * telas vazias. Tudo aqui é fictício e marcado: o paciente se chama
  * "EXEMPLO · Paciente NN" e o cirurgião "Dr(a). Exemplo". O botão "Tirar
  * exemplos" da faixa do topo remove tudo de uma vez.
+ *
+ * Também traz as três contas de demonstração (Anestesista chefe, Anestesista
+ * e Secretária), cada uma com o seu login e o seu nível de acesso.
  * ============================================================================
  */
 'use strict';
@@ -26666,7 +27901,173 @@ var DEMO = (function () {
     UI.ok('Exemplos removidos', ids.length + ' cirurgia(s) de exemplo saíram. O sistema está limpo para testar.');
   }
 
-  return { popular: popular, limpar: limpar, MARCA: MARCA };
+  /* ------------------------------------------------ contas de demonstração -- */
+
+  /**
+   * Os três perfis do sistema da clínica (core/12b_permissoes.js), cada um com o seu login, para quem visita
+   * ver o que cada um enxerga e faz. As senhas aparecem na própria tela de entrada: é uma demonstração
+   * pública e não protege nada. No sistema da clínica, o chefe cria as contas (tela Usuários), a senha fica
+   * em scrypt e quem corta o que cada perfil recebe é o servidor.
+   *
+   * `cadastro`: posição, entre os anestesistas ativos do cadastro, de quem este login assina o boletim
+   * (a secretária não assina).
+   */
+  var CONTAS = [
+    { login: 'chefe', senha: 'chefe2026', perfil: 'chefe', nome: 'Anestesista chefe (demonstração)', cadastro: 0 },
+    { login: 'anestesista', senha: 'anestesista2026', perfil: 'anestesista', nome: 'Anestesista (demonstração)', cadastro: 1 },
+    { login: 'secretaria', senha: 'secretaria2026', perfil: 'secretaria', nome: 'Secretária (demonstração)', cadastro: null }
+  ];
+
+  // Por aba do navegador: fechar a aba sai da conta; recarregar a página não.
+  var CHAVE_SESSAO = 'anestesia.demo.login';
+  var sessaoEmMemoria = '';
+
+  function lerSessao() {
+    try { return sessionStorage.getItem(CHAVE_SESSAO) || ''; } catch (e) { return sessaoEmMemoria; }
+  }
+
+  function gravarSessao(login) {
+    sessaoEmMemoria = login || '';
+    try {
+      if (login) sessionStorage.setItem(CHAVE_SESSAO, login);
+      else sessionStorage.removeItem(CHAVE_SESSAO);
+    } catch (e) { /* janela privada: vale só até recarregar */ }
+  }
+
+  function contaPorLogin(login) {
+    var l = txt(login).toLowerCase();
+    return CONTAS.filter(function (c) { return c.login === l; })[0] || null;
+  }
+
+  /** Quem entrou nesta aba (ou null). */
+  function contaAtiva() { return contaPorLogin(lerSessao()); }
+
+  /** ID do anestesista do cadastro em nome de quem esta conta assina o boletim ('' para a secretária). */
+  function idDoAssinante(conta, anestesistas) {
+    if (!conta || conta.cadastro === null) return '';
+    var ativos = (anestesistas || []).filter(function (a) { return ehSim(a.ativo); });
+    var a = ativos[conta.cadastro] || ativos[0];
+    return a ? txt(a.id) : '';
+  }
+
+  /** Promessa que se cumpre com a conta de quem entrou (na hora, se esta aba já tinha entrado). */
+  function entrar() {
+    var ja = contaAtiva();
+    if (ja) return Promise.resolve(ja);
+    return new Promise(function (resolver) { telaDeEntrada(resolver); });
+  }
+
+  /** Tela de entrada (sem a casca do sistema), com as três contas à vista. */
+  function telaDeEntrada(aoEntrar) {
+    var el = UI.el, icone = UI.icone;
+    document.title = 'Entrar — ' + CONFIG.NOME_SISTEMA;
+
+    var fLogin = UI.campo({ rotulo: 'Login', nome: 'login', obrigatorio: true });
+    var fSenha = UI.campo({ rotulo: 'Senha', nome: 'senha', tipo: 'password', obrigatorio: true });
+    fLogin.input.setAttribute('autocomplete', 'username');
+    fLogin.input.setAttribute('autocapitalize', 'none');
+    fSenha.input.setAttribute('autocomplete', 'current-password');
+    var form = UI.formulario([fLogin, fSenha]);
+    var aviso = el('div', { class: 'aviso aviso-erro', hidden: true, role: 'alert' });
+    var botao = el('button', { class: 'btn btn-primario entrada-botao', type: 'submit' }, 'Entrar');
+    var pagina = null;
+
+    function usar(conta) {
+      fLogin.input.value = conta.login;
+      fSenha.input.value = conta.senha;
+      aviso.hidden = true;
+      form.limparErros();
+      botao.focus();
+    }
+
+    var formulario = el('form', {
+      class: 'pilha-pq', novalidate: true,
+      onsubmit: function (ev) {
+        ev.preventDefault();
+        aviso.hidden = true;
+        form.limparErros();
+        var d = form.dados();
+        if (!txt(d.login)) { fLogin.erro('Informe o login.'); fLogin.input.focus(); return; }
+        if (!d.senha) { fSenha.erro('Informe a senha.'); fSenha.input.focus(); return; }
+        var conta = contaPorLogin(d.login);
+        if (!conta || conta.senha !== d.senha) {
+          UI.preencher(aviso, [icone('alerta'), el('div', { class: 'aviso-corpo' },
+            'Login ou senha não conferem. Use uma das três contas de demonstração abaixo.')]);
+          aviso.hidden = false;
+          return;
+        }
+        gravarSessao(conta.login);
+        if (pagina && pagina.parentNode) pagina.parentNode.removeChild(pagina);
+        aoEntrar(conta);
+      }
+    }, [fLogin.no, fSenha.no, aviso, botao]);
+
+    var contas = el('ul', { class: 'entrada-contas', 'aria-label': 'Contas de demonstração' }, CONTAS.map(function (c) {
+      var p = PERFIS[c.perfil];
+      return el('li', { class: 'entrada-conta' }, [
+        el('div', { class: 'entrada-conta-texto' }, [
+          el('strong', null, p.rotulo),
+          el('div', { class: 't-mpq t-medio' }, p.resumo),
+          el('div', { class: 't-mpq entrada-conta-senha' }, [
+            'Login ', el('code', { class: 'mono' }, c.login), ' · senha ', el('code', { class: 'mono' }, c.senha)
+          ])
+        ]),
+        el('button', {
+          class: 'btn btn-pq', type: 'button', 'aria-label': 'Usar a conta ' + p.rotulo,
+          onclick: function () { usar(c); }
+        }, 'Usar')
+      ]);
+    }));
+
+    pagina = el('main', { class: 'entrada-pagina' }, el('div', { class: 'cartao entrada-cartao entrada-demo' }, [
+      el('div', { class: 'entrada-marca' }, [
+        el('div', { class: 'marca-bloco' },
+          el('img', { class: 'marca-logo', src: window.LOGO_MARCA_URL || 'public/the-one-logo.png', alt: 'THE ONE', width: 172, height: 96 })),
+        el('div', null, [el('h1', null, 'Gestão de Anestesia'),
+          el('div', { class: 't-pq t-medio' }, 'Demonstração: entre com um dos três perfis de acesso')])
+      ]),
+      formulario,
+      el('h2', { class: 'entrada-demo-titulo' }, 'Contas de demonstração'),
+      contas,
+      el('p', { class: 't-mpq t-suave entrada-demo-nota' },
+        'As senhas estão aqui de propósito: é uma página pública, e o que você lança fica só neste navegador. ' +
+        'No sistema da clínica, cada pessoa tem a sua senha e quem corta o que cada perfil vê é o servidor.')
+    ]));
+    document.body.appendChild(pagina);
+    setTimeout(function () { fLogin.input.focus(); }, 30);
+  }
+
+  function sair() {
+    gravarSessao('');
+    location.reload();
+  }
+
+  /** Menu da conta (rodapé da barra lateral). */
+  function menuConta(app) {
+    var el = UI.el, icone = UI.icone;
+    var c = contaAtiva();
+    if (!c) return;
+    var p = PERFIS[c.perfil];
+    var assina = contextoDeAssinatura(idDoAssinante(c, app.store.estado.anestesistas), app.store.estado.anestesistas).anestesista;
+    UI.abrirModal({
+      titulo: c.nome,
+      sub: 'Login ' + c.login + ' · ' + p.rotulo,
+      tamanho: 'estreito',
+      corpo: [
+        el('p', { class: 'sem-margem t-pq t-medio' }, p.resumo),
+        assina ? el('p', { class: 't-pq t-medio mt-2' }, 'Assina o boletim como ' + assina.nome + (assina.crm ? ' (CRM ' + assina.crm + ')' : '') + '.') : null
+      ],
+      acoes: [
+        el('div', { class: 'espaco' }),
+        el('button', { class: 'btn btn-perigo', onclick: sair }, [icone('voltar'), 'Sair e trocar de perfil'])
+      ]
+    });
+  }
+
+  return {
+    popular: popular, limpar: limpar, MARCA: MARCA,
+    CONTAS: CONTAS, entrar: entrar, contaAtiva: contaAtiva, idDoAssinante: idDoAssinante, menuConta: menuConta, sair: sair
+  };
 })();
 
 </script>
@@ -26736,7 +28137,7 @@ var APP = (function () {
     anestesistas: 'Cadastro mestre da equipe',
     clinica: 'Identificação da clínica e texto do termo de consentimento',
     integridade: 'Verificação de consistência dos dados',
-    log: 'Trilha de auditoria das alterações críticas',
+    log: 'LOG por usuário: alterações, acessos e o arquivo mensal conferido',
     usuarios: 'Quem entra no sistema da clínica, com que papel'
   };
 
@@ -26756,6 +28157,26 @@ var APP = (function () {
     /** Outra aba gravou por cima: esta para de salvar até recarregar. */
     bloqueadaPorOutraAba: false,
 
+    /**
+     * O que esta pessoa pode (core/12b_permissoes.js: a mesma tabela que o servidor usa para decidir).
+     * Aqui só se esconde o que ela não pode usar; quem protege os dados é o servidor. Computador
+     * único não tem login: quem usa é o Anestesista chefe. A versão online tem uma conta de
+     * demonstração por perfil (demo_online.js).
+     */
+    contaDemo: null,
+    perfil: function () { return app.servidor ? SERVIDOR.perfil() : (app.contaDemo ? app.contaDemo.perfil : 'chefe'); },
+    /** Tem login (servidor da clínica ou conta de demonstração): o boletim sai no nome de quem entrou. */
+    temLogin: function () { return !!(app.servidor || app.contaDemo); },
+    /** ID, no cadastro, do anestesista ligado a quem entrou ('' sem vínculo ou sem login). */
+    idDoAssinante: function () {
+      if (app.servidor) return SERVIDOR.usuario().anestesistaId || '';
+      return app.contaDemo && app.store ? DEMO.idDoAssinante(app.contaDemo, app.store.estado.anestesistas) : '';
+    },
+    podeVer: function (tela) { return perfilPodeVerTela(app.perfil(), tela); },
+    veFinanceiro: function () { return perfilVeFinanceiro(app.perfil()); },
+    ehCoordenacao: function () { return perfilEhCoordenacao(app.perfil()); },
+    podeFazer: function (operacao) { return perfilPodeExecutar(app.perfil(), operacao, []).ok; },
+
     filtros: {
       cirurgias:   { texto: '', status: '', anestesista: '', todosOsMeses: false },
       avaliacoes:  { texto: '', situacao: '', anestesista: '', todosOsMeses: false },
@@ -26768,7 +28189,7 @@ var APP = (function () {
       estrutura:   { texto: '', todosOsMeses: false },
       financeiro:  { texto: '', situacao: '', tipo: '', todosOsMeses: false },
       repasse:     { base: 'caixa' },
-      log:         { texto: '', aba: '' }
+      log:         { texto: '', aba: '', visao: 'alteracoes', usuario: '', de: '', ate: '', evento: '' }
     }
   };
 
@@ -26789,14 +28210,26 @@ var APP = (function () {
     // No servidor da clínica os dados vêm de lá (com login); fora dele, deste navegador.
     SERVIDOR.detectar().then(function (m) {
       if (m.modo === 'local') {
-        return GUARDA.carregar().then(function (lido) { tirarCarregando(); partir(lido); },
-          function (e) { tirarCarregando(); partir({ estado: null, erro: e }); });
+        return entrarNaDemonstracao(tirarCarregando).then(function () {
+          return GUARDA.carregar().then(function (lido) { tirarCarregando(); partir(lido); },
+            function (e) { tirarCarregando(); partir({ estado: null, erro: e }); });
+        });
       }
       tirarCarregando();
       if (m.modo === 'entrada') SERVIDOR.telaDeEntrada(m);
       else if (m.modo === 'fora') SERVIDOR.telaForaDoAr();
       else partirServidor(m);
     }).catch(falhaNaPartida);
+  }
+
+  /**
+   * Versão online: cada perfil tem o seu login de demonstração (demo_online.js), e a tela de entrada
+   * vem antes de tudo. Fora dela (computador único) não há entrada.
+   */
+  function entrarNaDemonstracao(tirarCarregando) {
+    if (!window.MODO_ONLINE || typeof DEMO === 'undefined') return Promise.resolve(null);
+    if (!DEMO.contaAtiva()) tirarCarregando();
+    return DEMO.entrar().then(function (conta) { app.contaDemo = conta; return conta; });
   }
 
   /**
@@ -26849,14 +28282,12 @@ var APP = (function () {
     inicial.corrompido = lido.corrompido;
     inicial.semIndexedDB = lido.semIndexedDB;
     inicial.migrado = lido.migrado;
-    trocarEstado(inicial.estado, inicial.origem);
 
     // Versão online de demonstração: sem dado salvo neste navegador, abre
     // com cirurgias de EXEMPLO para quem visita ver o sistema funcionando.
-    if (window.MODO_ONLINE && inicial.origem === 'seed' && typeof DEMO !== 'undefined') {
-      DEMO.popular(app.store);
-      salvar();
-    }
+    var comExemplos = !!(window.MODO_ONLINE && inicial.origem === 'seed' && typeof DEMO !== 'undefined');
+    trocarEstado(inicial.estado, inicial.origem, comExemplos);
+    if (comExemplos) salvar();
 
     /* 3. Preferências de tela. O mês abre no mês atual; o escolhido na
           última sessão só vale se foi hoje (recarregar a página no meio do
@@ -26942,7 +28373,7 @@ var APP = (function () {
    * Único jeito de substituir o estado inteiro (partida, importar backup,
    * apagar tudo). Cria o store, liga os efeitos colaterais e invalida cache.
    */
-  function trocarEstado(estado, origem) {
+  function trocarEstado(estado, origem, comExemplos) {
     var opcoes = { usuario: carregarUsuario(), horizonte: 'movel' };
     // No servidor: o nome é o do login e "hoje" é o do servidor — é o que faz
     // o comando executado aqui e lá dar exatamente o mesmo resultado.
@@ -26950,10 +28381,33 @@ var APP = (function () {
     app.store = criarStore(estado, opcoes);
     app.store.aoMudar(aoGravar);
     app.store.recalcular();
+    // Os exemplos são do sistema, não de quem entrou: entram antes da trava do perfil.
+    if (comExemplos) DEMO.popular(app.store);
     if (app.servidor) SERVIDOR.envolver(app.store);
+    else if (app.contaDemo) conferirPerfil(app.store);
     app.origemDados = origem;
     app.revisao++;
     garantirMesValido();
+  }
+
+  /**
+   * Conta de demonstração: o LOG leva o nome e o login dela, e cada operação passa pela mesma tabela
+   * de perfis que o servidor usa (core/12b_permissoes.js), com a assinatura do boletim presa a quem
+   * entrou. Não há servidor para cortar os dados — é demonstração e tudo fica neste navegador; no
+   * sistema da clínica quem decide é o servidor.
+   */
+  function conferirPerfil(store) {
+    store.usuario = app.contaDemo.nome;
+    store.login = app.contaDemo.login;
+    MUTACOES_STORE.forEach(function (nome) {
+      var original = store[nome];
+      store[nome] = function () {
+        var args = Array.prototype.slice.call(arguments);
+        var perm = perfilPodeExecutar(app.perfil(), nome, args, contextoDeAssinatura(app.idDoAssinante(), store.estado.anestesistas));
+        if (!perm.ok) return { ok: false, erros: [{ campo: '', msg: perm.erro }], avisos: [] };
+        return original.apply(store, args);
+      };
+    });
   }
 
   /**
@@ -27046,10 +28500,10 @@ var APP = (function () {
           class: 'btn btn-primario',
           onclick: function () { TELAS.cirurgias.form(app, null); }
         }, [icone('mais'), el('span', { class: 'rotulo-botao' }, 'Nova cirurgia')]),
-        el('button', {
+        app.podeVer('dados') ? el('button', {
           class: 'btn btn-icone', title: 'Dados e backup', 'aria-label': 'Dados e backup',
           onclick: function () { TELAS.dados.abrir(app); }
-        }, icone('baixar')),
+        }, icone('baixar')) : null,
         el('button', {
           class: 'btn btn-icone', title: 'Alternar tema claro/escuro', 'aria-label': 'Alternar tema claro/escuro',
           onclick: function () { UI.alternarTema(); redesenhar(); }
@@ -27073,9 +28527,14 @@ var APP = (function () {
       icone('info'),
       el('div', { style: 'flex:1;min-width:0' }, [
         el('strong', null, 'Versão online de demonstração. '),
+        app.contaDemo ? 'Você entrou como ' + PERFIS[app.contaDemo.perfil].rotulo + '. ' : null,
         'O que você lançar aqui fica só neste navegador. As cirurgias marcadas EXEMPLO são fictícias.'
       ]),
-      typeof DEMO !== 'undefined' ? el('button', {
+      app.contaDemo ? el('button', {
+        class: 'btn btn-pq', onclick: function () { DEMO.sair(); }
+      }, [icone('troca'), 'Trocar de perfil']) : null,
+      // Tirar os exemplos apaga boletins (prontuário, mesmo fictício): só o chefe.
+      typeof DEMO !== 'undefined' && app.perfil() === 'chefe' ? el('button', {
         class: 'btn btn-pq', onclick: function () { DEMO.limpar(app); }
       }, [icone('lixo'), 'Tirar exemplos']) : null
     ]) : null;
@@ -27095,7 +28554,11 @@ var APP = (function () {
         app.servidor ? SERVIDOR.noDeStatus() : null,
         el('button', {
           class: 'nav-item',
-          onclick: function () { if (app.servidor) SERVIDOR.menuConta(); else formUsuario(); }
+          onclick: function () {
+            if (app.servidor) SERVIDOR.menuConta();
+            else if (app.contaDemo) DEMO.menuConta(app);
+            else formUsuario();
+          }
         }, [icone('pessoas', 'nav-icone'), el('span', { id: 'rotulo-usuario' }, app.store.usuario)])
       ])
     ]);
@@ -27122,9 +28585,9 @@ var APP = (function () {
     montarNav();
   }
 
-  /** Telas que esta pessoa vê (Usuários: só administrador, só no servidor). */
+  /** Telas que esta pessoa vê: as do perfil dela (Usuários só existe no servidor da clínica). */
   function telasVisiveis() {
-    return TELAS_DEF.filter(function (t) { return !t.soAdminServidor || (app.servidor && SERVIDOR.ehAdmin()); });
+    return TELAS_DEF.filter(function (t) { return (!t.soAdminServidor || app.servidor) && app.podeVer(t.chave); });
   }
 
   function montarNav() {

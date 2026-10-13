@@ -567,9 +567,10 @@ TELAS.boletim = (function () {
       if (pend.length) { UI.atencao('Ainda falta preencher', pend.join(' · ') + '.'); return; }
       var quadro = COMP.quadroAssinatura({ rotulo: 'Área para o anestesiologista assinar' });
       var crm = crmDoCadastro(app, c.anestesista);
-      // No servidor da clínica, quem assina é quem entrou: o boletim sai no nome e no CRM do anestesista ligado ao login.
-      var eu = app.servidor ? contextoDeAssinatura(SERVIDOR.usuario().anestesistaId, store.estado.anestesistas).anestesista : null;
-      var travado = !!(app.servidor && eu);
+      // Com login (servidor da clínica ou conta de demonstração), quem assina é quem entrou: o boletim sai no nome e
+      // no CRM do anestesista ligado ao login.
+      var eu = app.temLogin() ? contextoDeAssinatura(app.idDoAssinante(), store.estado.anestesistas).anestesista : null;
+      var travado = !!eu;
       if (travado) crm = eu.crm || crm;
       var fNome = UI.campo({ rotulo: 'Anestesiologista', nome: 'nome', valor: travado ? eu.nome : c.anestesista, obrigatorio: true, calculado: travado,
         dica: travado ? 'Quem assina é quem entrou no sistema.' : null });

@@ -1635,6 +1635,18 @@ body.arrastando-quadro { user-select: none; -webkit-user-select: none; cursor: g
 .entrada-marca .marca-bloco { border-radius: var(--r2); }
 .entrada-marca h1 { font-size: 18px; margin: 0 0 2px; }
 .entrada-botao { width: 100%; justify-content: center; margin-top: var(--e2); }
+/* Versão online: as três contas de demonstração, à vista na entrada. */
+.entrada-cartao.entrada-demo { width: min(480px, 100%); }
+.entrada-demo-titulo { font-size: var(--t-3); margin: var(--e5) 0 var(--e2); }
+.entrada-contas { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--e2); }
+.entrada-conta {
+  display: flex; align-items: center; gap: var(--e3);
+  padding: var(--e2) var(--e3); border: 1px solid var(--borda); border-radius: var(--r1);
+  background: var(--superficie-2);
+}
+.entrada-conta-texto { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.entrada-conta-senha { margin-top: 2px; overflow-wrap: anywhere; }
+.entrada-demo-nota { margin: var(--e3) 0 0; }
 .status-servidor {
   display: flex; align-items: center; gap: 7px; margin: 0 0 var(--e2);
   padding: 6px 10px; border-radius: var(--r1); font-size: var(--t-1);

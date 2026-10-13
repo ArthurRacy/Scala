@@ -2,9 +2,9 @@
 
 Documento de passagem entre conversas. Diz o que o sistema é, como está
 montado, o que já foi feito, as regras que não podem ser quebradas e o que
-ainda falta. Atualizado em **07/10/2026**.
+ainda falta. Atualizado em **13/10/2026**.
 
-- Estado atual: **829 testes, todos passando** (`node qa`; a suíte inteira leva alguns minutos).
+- Estado atual: **855 testes, todos passando** (`node qa`; a suíte inteira leva alguns minutos).
 - Versão online publicada: **versão 10** (com o módulo de qualidade e segurança).
 
 ---
@@ -170,6 +170,12 @@ Regras de concorrência e de acesso:
   - `secretaria`: operação e gestão, sem painel de qualidade, sem criar/editar/assinar
     boletim e sem as telas de administração.
   - `admin` e `equipe` (nomes antigos) continuam entendidos: viram chefe e anestesista.
+  - **Versão online (GitHub Pages):** desde 13/10/2026 pede login, com uma conta de demonstração por
+    perfil (`chefe`/`chefe2026`, `anestesista`/`anestesista2026`, `secretaria`/`secretaria2026`, à vista
+    na tela de entrada; `DEMO.CONTAS` em `webapp/js/demo_online.js`). A tela esconde pelo perfil e
+    `conferirPerfil` (06_app) passa cada operação por `perfilPodeExecutar`, com a assinatura do boletim
+    presa ao 1º (chefe) ou 2º (anestesista) anestesista ativo do cadastro. Não há corte de dados (tudo
+    fica no navegador): é demonstração. Computador único continua sem login (chefe).
 - O marcador `webapp/js/00_modo.js` diz `false` no arquivo; o servidor Node
   responde `true` nesse mesmo endereço.
 
@@ -321,6 +327,9 @@ Regras de concorrência e de acesso:
     `docs/RUNBOOK.md`, `deploy/` (modelos, não testados numa máquina) e `.github/workflows/testes.yml`. **Volume:** até 2.500
     cirurgias por mês não cabe no desenho de hoje (`docs/ESCALA_E_BANCO.md`): banco relacional, tela por mês e boletim/ficha por
     registro, **aguardando aprovação**.
+14. **Três logins na versão online** (13/10/2026): a página do GitHub Pages abre numa tela de entrada com as contas
+    Anestesista chefe, Anestesista e Secretária, cada uma com o seu nível de acesso (seção 4, "Perfis"). Testes em `qa/39`.
+    O Artifact (seção 7) **não** foi republicado e continua sem login.
 
 ## 9. Pendências e ideias (nada bloqueando)
 
@@ -377,13 +386,13 @@ Regras de concorrência e de acesso:
     8091). Não afeta o navegador da pessoa usuária;
   - a pasta de teste do servidor ficou no scratchpad.
 - **Documentação** atualizada: README (seções de boletim, qualidade, servidor e
-  segurança), docs/QA.md (tabela por arquivo, 829 testes), docs/KANBAN.md,
+  segurança), docs/QA.md (tabela por arquivo, 855 testes), docs/KANBAN.md,
   docs/QUALIDADE.md e docs/QUALIDADE_INDICADORES.md (este é **gerado**: rode
   `node tools/gerar_docs_qualidade.js` depois de mudar o catálogo).
 
 ## 10. Primeiros passos sugeridos para o próximo chat
 
-1. Rodar `node qa` e confirmar 829 de 829.
+1. Rodar `node qa` e confirmar 855 de 855.
 2. Ler `README.md` (visão de uso) e a seção 3 deste arquivo (invariantes).
 3. Antes de mexer no store, conferir as listas `MUTACOES_*` e o contexto de
    execução.

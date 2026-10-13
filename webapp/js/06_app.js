@@ -85,9 +85,18 @@ var APP = (function () {
     /**
      * O que esta pessoa pode (core/12b_permissoes.js: a mesma tabela que o servidor usa para decidir).
      * Aqui só se esconde o que ela não pode usar; quem protege os dados é o servidor. Computador
-     * único e versão online não têm login: quem usa é o Anestesista chefe.
+     * único não tem login: quem usa é o Anestesista chefe. A versão online tem uma conta de
+     * demonstração por perfil (demo_online.js).
      */
-    perfil: function () { return app.servidor ? SERVIDOR.perfil() : 'chefe'; },
+    contaDemo: null,
+    perfil: function () { return app.servidor ? SERVIDOR.perfil() : (app.contaDemo ? app.contaDemo.perfil : 'chefe'); },
+    /** Tem login (servidor da clínica ou conta de demonstração): o boletim sai no nome de quem entrou. */
+    temLogin: function () { return !!(app.servidor || app.contaDemo); },
+    /** ID, no cadastro, do anestesista ligado a quem entrou ('' sem vínculo ou sem login). */
+    idDoAssinante: function () {
+      if (app.servidor) return SERVIDOR.usuario().anestesistaId || '';
+      return app.contaDemo && app.store ? DEMO.idDoAssinante(app.contaDemo, app.store.estado.anestesistas) : '';
+    },
     podeVer: function (tela) { return perfilPodeVerTela(app.perfil(), tela); },
     veFinanceiro: function () { return perfilVeFinanceiro(app.perfil()); },
     ehCoordenacao: function () { return perfilEhCoordenacao(app.perfil()); },
@@ -126,14 +135,26 @@ var APP = (function () {
     // No servidor da clínica os dados vêm de lá (com login); fora dele, deste navegador.
     SERVIDOR.detectar().then(function (m) {
       if (m.modo === 'local') {
-        return GUARDA.carregar().then(function (lido) { tirarCarregando(); partir(lido); },
-          function (e) { tirarCarregando(); partir({ estado: null, erro: e }); });
+        return entrarNaDemonstracao(tirarCarregando).then(function () {
+          return GUARDA.carregar().then(function (lido) { tirarCarregando(); partir(lido); },
+            function (e) { tirarCarregando(); partir({ estado: null, erro: e }); });
+        });
       }
       tirarCarregando();
       if (m.modo === 'entrada') SERVIDOR.telaDeEntrada(m);
       else if (m.modo === 'fora') SERVIDOR.telaForaDoAr();
       else partirServidor(m);
     }).catch(falhaNaPartida);
+  }
+
+  /**
+   * Versão online: cada perfil tem o seu login de demonstração (demo_online.js), e a tela de entrada
+   * vem antes de tudo. Fora dela (computador único) não há entrada.
+   */
+  function entrarNaDemonstracao(tirarCarregando) {
+    if (!window.MODO_ONLINE || typeof DEMO === 'undefined') return Promise.resolve(null);
+    if (!DEMO.contaAtiva()) tirarCarregando();
+    return DEMO.entrar().then(function (conta) { app.contaDemo = conta; return conta; });
   }
 
   /**
@@ -186,14 +207,12 @@ var APP = (function () {
     inicial.corrompido = lido.corrompido;
     inicial.semIndexedDB = lido.semIndexedDB;
     inicial.migrado = lido.migrado;
-    trocarEstado(inicial.estado, inicial.origem);
 
     // Versão online de demonstração: sem dado salvo neste navegador, abre
     // com cirurgias de EXEMPLO para quem visita ver o sistema funcionando.
-    if (window.MODO_ONLINE && inicial.origem === 'seed' && typeof DEMO !== 'undefined') {
-      DEMO.popular(app.store);
-      salvar();
-    }
+    var comExemplos = !!(window.MODO_ONLINE && inicial.origem === 'seed' && typeof DEMO !== 'undefined');
+    trocarEstado(inicial.estado, inicial.origem, comExemplos);
+    if (comExemplos) salvar();
 
     /* 3. Preferências de tela. O mês abre no mês atual; o escolhido na
           última sessão só vale se foi hoje (recarregar a página no meio do
@@ -279,7 +298,7 @@ var APP = (function () {
    * Único jeito de substituir o estado inteiro (partida, importar backup,
    * apagar tudo). Cria o store, liga os efeitos colaterais e invalida cache.
    */
-  function trocarEstado(estado, origem) {
+  function trocarEstado(estado, origem, comExemplos) {
     var opcoes = { usuario: carregarUsuario(), horizonte: 'movel' };
     // No servidor: o nome é o do login e "hoje" é o do servidor — é o que faz
     // o comando executado aqui e lá dar exatamente o mesmo resultado.
@@ -287,10 +306,33 @@ var APP = (function () {
     app.store = criarStore(estado, opcoes);
     app.store.aoMudar(aoGravar);
     app.store.recalcular();
+    // Os exemplos são do sistema, não de quem entrou: entram antes da trava do perfil.
+    if (comExemplos) DEMO.popular(app.store);
     if (app.servidor) SERVIDOR.envolver(app.store);
+    else if (app.contaDemo) conferirPerfil(app.store);
     app.origemDados = origem;
     app.revisao++;
     garantirMesValido();
+  }
+
+  /**
+   * Conta de demonstração: o LOG leva o nome e o login dela, e cada operação passa pela mesma tabela
+   * de perfis que o servidor usa (core/12b_permissoes.js), com a assinatura do boletim presa a quem
+   * entrou. Não há servidor para cortar os dados — é demonstração e tudo fica neste navegador; no
+   * sistema da clínica quem decide é o servidor.
+   */
+  function conferirPerfil(store) {
+    store.usuario = app.contaDemo.nome;
+    store.login = app.contaDemo.login;
+    MUTACOES_STORE.forEach(function (nome) {
+      var original = store[nome];
+      store[nome] = function () {
+        var args = Array.prototype.slice.call(arguments);
+        var perm = perfilPodeExecutar(app.perfil(), nome, args, contextoDeAssinatura(app.idDoAssinante(), store.estado.anestesistas));
+        if (!perm.ok) return { ok: false, erros: [{ campo: '', msg: perm.erro }], avisos: [] };
+        return original.apply(store, args);
+      };
+    });
   }
 
   /**
@@ -410,9 +452,14 @@ var APP = (function () {
       icone('info'),
       el('div', { style: 'flex:1;min-width:0' }, [
         el('strong', null, 'Versão online de demonstração. '),
+        app.contaDemo ? 'Você entrou como ' + PERFIS[app.contaDemo.perfil].rotulo + '. ' : null,
         'O que você lançar aqui fica só neste navegador. As cirurgias marcadas EXEMPLO são fictícias.'
       ]),
-      typeof DEMO !== 'undefined' ? el('button', {
+      app.contaDemo ? el('button', {
+        class: 'btn btn-pq', onclick: function () { DEMO.sair(); }
+      }, [icone('troca'), 'Trocar de perfil']) : null,
+      // Tirar os exemplos apaga boletins (prontuário, mesmo fictício): só o chefe.
+      typeof DEMO !== 'undefined' && app.perfil() === 'chefe' ? el('button', {
         class: 'btn btn-pq', onclick: function () { DEMO.limpar(app); }
       }, [icone('lixo'), 'Tirar exemplos']) : null
     ]) : null;
@@ -432,7 +479,11 @@ var APP = (function () {
         app.servidor ? SERVIDOR.noDeStatus() : null,
         el('button', {
           class: 'nav-item',
-          onclick: function () { if (app.servidor) SERVIDOR.menuConta(); else formUsuario(); }
+          onclick: function () {
+            if (app.servidor) SERVIDOR.menuConta();
+            else if (app.contaDemo) DEMO.menuConta(app);
+            else formUsuario();
+          }
         }, [icone('pessoas', 'nav-icone'), el('span', { id: 'rotulo-usuario' }, app.store.usuario)])
       ])
     ]);

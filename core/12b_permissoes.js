@@ -24,7 +24,9 @@
  * GRUPO_DA_MUTACAO é recusada para todo perfil que não seja o chefe. Uma
  * operação nova esquecida aqui nasce fechada, não aberta (teste em qa/25).
  *
- * Computador único e versão online não têm login: ali quem usa é o chefe.
+ * Computador único não tem login: ali quem usa é o chefe. A versão online de
+ * demonstração tem uma conta por perfil (webapp/js/demo_online.js) e confere
+ * as operações por esta mesma tabela, só no navegador.
  * ============================================================================
  */
 

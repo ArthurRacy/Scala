@@ -9,6 +9,9 @@
  * telas vazias. Tudo aqui é fictício e marcado: o paciente se chama
  * "EXEMPLO · Paciente NN" e o cirurgião "Dr(a). Exemplo". O botão "Tirar
  * exemplos" da faixa do topo remove tudo de uma vez.
+ *
+ * Também traz as três contas de demonstração (Anestesista chefe, Anestesista
+ * e Secretária), cada uma com o seu login e o seu nível de acesso.
  * ============================================================================
  */
 'use strict';
@@ -466,5 +469,171 @@ var DEMO = (function () {
     UI.ok('Exemplos removidos', ids.length + ' cirurgia(s) de exemplo saíram. O sistema está limpo para testar.');
   }
 
-  return { popular: popular, limpar: limpar, MARCA: MARCA };
+  /* ------------------------------------------------ contas de demonstração -- */
+
+  /**
+   * Os três perfis do sistema da clínica (core/12b_permissoes.js), cada um com o seu login, para quem visita
+   * ver o que cada um enxerga e faz. As senhas aparecem na própria tela de entrada: é uma demonstração
+   * pública e não protege nada. No sistema da clínica, o chefe cria as contas (tela Usuários), a senha fica
+   * em scrypt e quem corta o que cada perfil recebe é o servidor.
+   *
+   * `cadastro`: posição, entre os anestesistas ativos do cadastro, de quem este login assina o boletim
+   * (a secretária não assina).
+   */
+  var CONTAS = [
+    { login: 'chefe', senha: 'chefe2026', perfil: 'chefe', nome: 'Anestesista chefe (demonstração)', cadastro: 0 },
+    { login: 'anestesista', senha: 'anestesista2026', perfil: 'anestesista', nome: 'Anestesista (demonstração)', cadastro: 1 },
+    { login: 'secretaria', senha: 'secretaria2026', perfil: 'secretaria', nome: 'Secretária (demonstração)', cadastro: null }
+  ];
+
+  // Por aba do navegador: fechar a aba sai da conta; recarregar a página não.
+  var CHAVE_SESSAO = 'anestesia.demo.login';
+  var sessaoEmMemoria = '';
+
+  function lerSessao() {
+    try { return sessionStorage.getItem(CHAVE_SESSAO) || ''; } catch (e) { return sessaoEmMemoria; }
+  }
+
+  function gravarSessao(login) {
+    sessaoEmMemoria = login || '';
+    try {
+      if (login) sessionStorage.setItem(CHAVE_SESSAO, login);
+      else sessionStorage.removeItem(CHAVE_SESSAO);
+    } catch (e) { /* janela privada: vale só até recarregar */ }
+  }
+
+  function contaPorLogin(login) {
+    var l = txt(login).toLowerCase();
+    return CONTAS.filter(function (c) { return c.login === l; })[0] || null;
+  }
+
+  /** Quem entrou nesta aba (ou null). */
+  function contaAtiva() { return contaPorLogin(lerSessao()); }
+
+  /** ID do anestesista do cadastro em nome de quem esta conta assina o boletim ('' para a secretária). */
+  function idDoAssinante(conta, anestesistas) {
+    if (!conta || conta.cadastro === null) return '';
+    var ativos = (anestesistas || []).filter(function (a) { return ehSim(a.ativo); });
+    var a = ativos[conta.cadastro] || ativos[0];
+    return a ? txt(a.id) : '';
+  }
+
+  /** Promessa que se cumpre com a conta de quem entrou (na hora, se esta aba já tinha entrado). */
+  function entrar() {
+    var ja = contaAtiva();
+    if (ja) return Promise.resolve(ja);
+    return new Promise(function (resolver) { telaDeEntrada(resolver); });
+  }
+
+  /** Tela de entrada (sem a casca do sistema), com as três contas à vista. */
+  function telaDeEntrada(aoEntrar) {
+    var el = UI.el, icone = UI.icone;
+    document.title = 'Entrar — ' + CONFIG.NOME_SISTEMA;
+
+    var fLogin = UI.campo({ rotulo: 'Login', nome: 'login', obrigatorio: true });
+    var fSenha = UI.campo({ rotulo: 'Senha', nome: 'senha', tipo: 'password', obrigatorio: true });
+    fLogin.input.setAttribute('autocomplete', 'username');
+    fLogin.input.setAttribute('autocapitalize', 'none');
+    fSenha.input.setAttribute('autocomplete', 'current-password');
+    var form = UI.formulario([fLogin, fSenha]);
+    var aviso = el('div', { class: 'aviso aviso-erro', hidden: true, role: 'alert' });
+    var botao = el('button', { class: 'btn btn-primario entrada-botao', type: 'submit' }, 'Entrar');
+    var pagina = null;
+
+    function usar(conta) {
+      fLogin.input.value = conta.login;
+      fSenha.input.value = conta.senha;
+      aviso.hidden = true;
+      form.limparErros();
+      botao.focus();
+    }
+
+    var formulario = el('form', {
+      class: 'pilha-pq', novalidate: true,
+      onsubmit: function (ev) {
+        ev.preventDefault();
+        aviso.hidden = true;
+        form.limparErros();
+        var d = form.dados();
+        if (!txt(d.login)) { fLogin.erro('Informe o login.'); fLogin.input.focus(); return; }
+        if (!d.senha) { fSenha.erro('Informe a senha.'); fSenha.input.focus(); return; }
+        var conta = contaPorLogin(d.login);
+        if (!conta || conta.senha !== d.senha) {
+          UI.preencher(aviso, [icone('alerta'), el('div', { class: 'aviso-corpo' },
+            'Login ou senha não conferem. Use uma das três contas de demonstração abaixo.')]);
+          aviso.hidden = false;
+          return;
+        }
+        gravarSessao(conta.login);
+        if (pagina && pagina.parentNode) pagina.parentNode.removeChild(pagina);
+        aoEntrar(conta);
+      }
+    }, [fLogin.no, fSenha.no, aviso, botao]);
+
+    var contas = el('ul', { class: 'entrada-contas', 'aria-label': 'Contas de demonstração' }, CONTAS.map(function (c) {
+      var p = PERFIS[c.perfil];
+      return el('li', { class: 'entrada-conta' }, [
+        el('div', { class: 'entrada-conta-texto' }, [
+          el('strong', null, p.rotulo),
+          el('div', { class: 't-mpq t-medio' }, p.resumo),
+          el('div', { class: 't-mpq entrada-conta-senha' }, [
+            'Login ', el('code', { class: 'mono' }, c.login), ' · senha ', el('code', { class: 'mono' }, c.senha)
+          ])
+        ]),
+        el('button', {
+          class: 'btn btn-pq', type: 'button', 'aria-label': 'Usar a conta ' + p.rotulo,
+          onclick: function () { usar(c); }
+        }, 'Usar')
+      ]);
+    }));
+
+    pagina = el('main', { class: 'entrada-pagina' }, el('div', { class: 'cartao entrada-cartao entrada-demo' }, [
+      el('div', { class: 'entrada-marca' }, [
+        el('div', { class: 'marca-bloco' },
+          el('img', { class: 'marca-logo', src: window.LOGO_MARCA_URL || 'public/the-one-logo.png', alt: 'THE ONE', width: 172, height: 96 })),
+        el('div', null, [el('h1', null, 'Gestão de Anestesia'),
+          el('div', { class: 't-pq t-medio' }, 'Demonstração: entre com um dos três perfis de acesso')])
+      ]),
+      formulario,
+      el('h2', { class: 'entrada-demo-titulo' }, 'Contas de demonstração'),
+      contas,
+      el('p', { class: 't-mpq t-suave entrada-demo-nota' },
+        'As senhas estão aqui de propósito: é uma página pública, e o que você lança fica só neste navegador. ' +
+        'No sistema da clínica, cada pessoa tem a sua senha e quem corta o que cada perfil vê é o servidor.')
+    ]));
+    document.body.appendChild(pagina);
+    setTimeout(function () { fLogin.input.focus(); }, 30);
+  }
+
+  function sair() {
+    gravarSessao('');
+    location.reload();
+  }
+
+  /** Menu da conta (rodapé da barra lateral). */
+  function menuConta(app) {
+    var el = UI.el, icone = UI.icone;
+    var c = contaAtiva();
+    if (!c) return;
+    var p = PERFIS[c.perfil];
+    var assina = contextoDeAssinatura(idDoAssinante(c, app.store.estado.anestesistas), app.store.estado.anestesistas).anestesista;
+    UI.abrirModal({
+      titulo: c.nome,
+      sub: 'Login ' + c.login + ' · ' + p.rotulo,
+      tamanho: 'estreito',
+      corpo: [
+        el('p', { class: 'sem-margem t-pq t-medio' }, p.resumo),
+        assina ? el('p', { class: 't-pq t-medio mt-2' }, 'Assina o boletim como ' + assina.nome + (assina.crm ? ' (CRM ' + assina.crm + ')' : '') + '.') : null
+      ],
+      acoes: [
+        el('div', { class: 'espaco' }),
+        el('button', { class: 'btn btn-perigo', onclick: sair }, [icone('voltar'), 'Sair e trocar de perfil'])
+      ]
+    });
+  }
+
+  return {
+    popular: popular, limpar: limpar, MARCA: MARCA,
+    CONTAS: CONTAS, entrar: entrar, contaAtiva: contaAtiva, idDoAssinante: idDoAssinante, menuConta: menuConta, sair: sair
+  };
 })();
