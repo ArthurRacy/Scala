@@ -165,6 +165,9 @@ module.exports = function (t, core, dados) {
           return pegarCru(base, '/api/estado', { Cookie: cli.cookie(), 'X-Anestesia': '1' }).then(function (puro) {
             igual(puro.headers['content-encoding'], undefined);
             var a = JSON.parse(zlib.gunzipSync(g.corpo).toString('utf8')), b = JSON.parse(puro.corpo.toString('utf8'));
+            // salvoEm é a hora de cada resposta: dois pedidos que atravessam a virada do segundo diferem nele.
+            delete a.estado.salvoEm;
+            delete b.estado.salvoEm;
             igual(core.jsonCanonico(a.estado), core.jsonCanonico(b.estado), 'o mesmo estado');
             verdadeiro(g.corpo.length < puro.corpo.length / 3, 'comprimiu de verdade: ' + g.corpo.length + ' contra ' + puro.corpo.length);
           });
