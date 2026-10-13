@@ -6,7 +6,7 @@
  *   - primeiro acesso, entrada, sessão, CSRF, trava por tentativas
  *   - comando reexecutado no servidor chega EXATAMENTE ao estado da tela
  *   - concorrência: criar é recusado se alguém gravou no meio; editar passa
- *   - papéis: equipe não mexe em cadastro nem em usuários
+ *   - perfis: o anestesista não mexe em cadastro nem em usuários (os três perfis em qa/26)
  *   - anexos: PDF de verdade, leitura, remoção, cascada com a avaliação
  *   - disco: reiniciar mantém tudo; o diário reaplica o que faltou
  *   - SSE, backup e importação
@@ -47,7 +47,8 @@ module.exports = function (t, core, dados) {
   function cliente(base) {
     var cookie = '';
     function pedir(metodo, caminho, corpo, extra) {
-      var h = Object.assign({ 'X-Anestesia': '1' }, extra || {});
+      // Connection: close: cada pedido abre a sua conexão (ver qa/_servidor_util.js).
+      var h = Object.assign({ 'X-Anestesia': '1', Connection: 'close' }, extra || {});
       if (cookie) h.Cookie = cookie;
       var body;
       if (corpo !== undefined) {
@@ -67,7 +68,7 @@ module.exports = function (t, core, dados) {
       post: function (c, corpo, h) { return pedir('POST', c, corpo, h); },
       del: function (c, h) { return pedir('DELETE', c, undefined, h); },
       semCabecalho: function (c, corpo) {
-        return fetch(base + c, { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie }, body: JSON.stringify(corpo) })
+        return fetch(base + c, { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie, Connection: 'close' }, body: JSON.stringify(corpo) })
           .then(function (r) { return r.status; });
       }
     };
@@ -85,7 +86,7 @@ module.exports = function (t, core, dados) {
   /** Réplica do estado do servidor + envio de comandos, como a tela faz. */
   function replica(cli) {
     return cli.get('/api/estado').then(function (r) {
-      var st = core.criarStore(DADOS.sanearEstado(r.corpo.estado), { usuario: r.corpo.usuario.nome, horizonte: 'movel', hoje: r.corpo.hoje });
+      var st = core.criarStore(DADOS.sanearEstado(r.corpo.estado), { usuario: r.corpo.usuario.nome, login: r.corpo.usuario.login, horizonte: 'movel', hoje: r.corpo.hoje });
       st.recalcular();
       var rep = { store: st, revisao: r.corpo.revisao, hoje: r.corpo.hoje };
       var n = 0;
@@ -155,7 +156,7 @@ module.exports = function (t, core, dados) {
           falso(/senha-forte-1/.test(usuarios), 'senha nunca em texto');
           return cli.get('/api/eu');
         }).then(function (r) {
-          igual(r.corpo.usuario.papel, 'admin');
+          igual(r.corpo.usuario.papel, 'chefe');
           return cli.post('/api/sair', {});
         }).then(function () { return cli.get('/api/estado'); }).then(function (r) {
           igual(r.status, 401, 'depois de sair');
@@ -200,6 +201,9 @@ module.exports = function (t, core, dados) {
           }).then(function () {
             return rep.comando('alterarLinhaBoletim', 'BOL0001', 'sinais', { acao: 'adicionar', linha: { hora: '07:05', pas: '120', pad: '80' } });
           }).then(function () {
+            // Quem assina é quem entrou: o login do administrador é ligado ao anestesista do cadastro (A06).
+            return cli.post('/api/usuarios', { login: 'admin', anestesistaId: 'A06' });
+          }).then(function () {
             return rep.comando('finalizarBoletim', 'BOL0001', { tracos: [[[0.1, 0.2], [0.5, 0.6]]], nome: 'Fabrício Tavares', crm: '1234-DF' });
           }).then(function (x) {
             verdadeiro(x.resp.corpo.ok, JSON.stringify(x.resp.corpo));
@@ -238,31 +242,31 @@ module.exports = function (t, core, dados) {
       });
     });
 
-    it('papéis: a equipe opera, mas não mexe no cadastro nem nos usuários', function () {
+    it('perfis: o anestesista opera, mas não mexe no cadastro nem nos usuários', function () {
       return comServidor(function (adm, srv, pasta, base) {
         var eq = cliente(base), req;
         return administrador(adm, pasta).then(function () {
-          return adm.post('/api/usuarios', { novo: true, login: 'secretaria', nome: 'Secretaria', papel: 'equipe', senha: 'secretaria-1' });
+          return adm.post('/api/usuarios', { novo: true, login: 'dra', nome: 'Doutora', papel: 'anestesista', senha: 'secretaria-1' });
         }).then(function (r) {
           igual(r.status, 200, JSON.stringify(r.corpo));
-          return eq.post('/api/entrar', { login: 'secretaria', senha: 'secretaria-1' });
+          return eq.post('/api/entrar', { login: 'dra', senha: 'secretaria-1' });
         }).then(function () { return replica(eq); }).then(function (r) {
           req = r;
           return req.comando('salvarAnestesista', { id: 'A01', pix: 'golpe@x.com' });
         }).then(function (x) {
-          igual(x.resp.status, 403, 'chave PIX só pelo administrador');
+          igual(x.resp.status, 403, 'cadastro e chave PIX não são do anestesista');
           return eq.get('/api/usuarios');
         }).then(function (r) {
           igual(r.status, 403);
           return req.comando('adicionarCirurgia', CIRURGIA);
         }).then(function (x) {
           verdadeiro(x.resp.corpo.ok, 'lançar cirurgia pode');
-          return adm.post('/api/usuarios', { login: 'secretaria', ativo: false });
+          return adm.post('/api/usuarios', { login: 'dra', ativo: false });
         }).then(function () { return eq.get('/api/estado'); }).then(function (r) {
           igual(r.status, 401, 'desativado perde a sessão na hora');
-          return adm.post('/api/usuarios', { login: 'admin', papel: 'equipe' });
+          return adm.post('/api/usuarios', { login: 'admin', papel: 'anestesista' });
         }).then(function (r) {
-          igual(r.status, 400, 'o único administrador não perde o papel');
+          igual(r.status, 400, 'o único chefe não perde o perfil');
         });
       });
     });
@@ -314,11 +318,11 @@ module.exports = function (t, core, dados) {
       });
     });
 
-    it('papéis: a equipe preenche a ficha; estrutura e configuração clínica são do administrador', function () {
+    it('perfis: o anestesista preenche a ficha; estrutura e configuração clínica são do chefe', function () {
       return comServidor(function (adm, srv, pasta, base) {
         var eq = cliente(base), req;
         return administrador(adm, pasta).then(function () {
-          return adm.post('/api/usuarios', { novo: true, login: 'anest', nome: 'Anestesista', papel: 'equipe', senha: 'anestesista-1' });
+          return adm.post('/api/usuarios', { novo: true, login: 'anest', nome: 'Anestesista', papel: 'anestesista', senha: 'anestesista-1' });
         }).then(function () { return eq.post('/api/entrar', { login: 'anest', senha: 'anestesista-1' }); })
           .then(function () { return replica(eq); }).then(function (r) {
             req = r;
@@ -331,10 +335,10 @@ module.exports = function (t, core, dados) {
             verdadeiro(x.resp.corpo.ok, 'preencher pode');
             return req.comando('salvarRegistroEstrutura', { data: '2026-10-05', turno: 'Manhã', unidade: 'CC' });
           }).then(function (x) {
-            igual(x.resp.status, 403, 'estrutura só pelo administrador');
+            igual(x.resp.status, 403, 'estrutura só pelo chefe');
             return req.comando('salvarConfigQualidade', { limiares: { spo2: 80 } });
           }).then(function (x) {
-            igual(x.resp.status, 403, 'configuração clínica só pelo administrador');
+            igual(x.resp.status, 403, 'configuração clínica só pelo chefe');
             return adm.get('/api/estado');
           }).then(function (r) {
             igual(r.corpo.estado.estrutura.length, 0, 'a recusa não deixou rastro');
@@ -371,7 +375,9 @@ module.exports = function (t, core, dados) {
           return cli.get('/api/anexos');
         }).then(function (r) {
           igual(r.corpo.metas.length, 0, 'saiu com a avaliação');
-          igual(fs.readdirSync(path.join(pasta, 'anexos', 'removidos')).length, 1, 'mas fica guardado em removidos/');
+          var removidos = fs.readdirSync(path.join(pasta, 'anexos', 'removidos'));
+          igual(removidos.filter(function (n) { return /\.pdf$/.test(n); }).length, 1, 'mas fica guardado em removidos/');
+          igual(removidos.filter(function (n) { return /\.json$/.test(n); }).length, 1, 'com a ficha (de que avaliação era, quem removeu)');
         });
       });
     });
@@ -427,11 +433,11 @@ module.exports = function (t, core, dados) {
           var cookie;
           return cli.get('/api/eu').then(function () {
             // O cliente guarda o cookie internamente: pega-o de novo pelo login.
-            return fetch(base + '/api/entrar', { method: 'POST', headers: { 'X-Anestesia': '1', 'Content-Type': 'application/json' },
+            return fetch(base + '/api/entrar', { method: 'POST', headers: { 'X-Anestesia': '1', 'Content-Type': 'application/json', Connection: 'close' },
               body: JSON.stringify({ login: 'admin', senha: 'senha-forte-1' }) });
           }).then(function (r) {
             cookie = r.headers.get('set-cookie').split(';')[0];
-            return fetch(base + '/api/eventos', { headers: { Cookie: cookie }, signal: controle.signal });
+            return fetch(base + '/api/eventos', { headers: { Cookie: cookie, Connection: 'close' }, signal: controle.signal });
           }).then(function (r) {
             var leitor = r.body.getReader(), texto = '';
             function ler() {

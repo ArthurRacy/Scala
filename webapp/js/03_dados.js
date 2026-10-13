@@ -187,7 +187,7 @@ var DADOS = (function () {
     return (Array.isArray(lista) ? lista : []).filter(function (r) {
       return r && typeof r === 'object' && /^\d{4}-\d{2}$/.test(String(r.mes));
     }).map(function (r) {
-      return {
+      var limpo = {
         mes: String(r.mes),
         despesas: typeof r.despesas === 'number' && isFinite(r.despesas) ? r.despesas : null,
         obs: valorSimples(r.obs),
@@ -197,6 +197,14 @@ var DADOS = (function () {
           return sanearRegistro(p, ['idAnestesista', 'nome', 'pix', 'valor', 'data', 'registradoPor', 'registradoEm']);
         })
       };
+      // Grupo que divide o mês (core/09b_repasse.js). Ausente em registro antigo: continua ausente,
+      // senão um backup velho passaria a "ter grupo guardado" vazio e dividiria por zero.
+      if (Array.isArray(r.participantes)) {
+        limpo.participantes = r.participantes.filter(function (g) {
+          return g && typeof g === 'object' && !Array.isArray(g);
+        }).map(function (g) { return sanearRegistro(g, ['id', 'nome']); });
+      }
+      return limpo;
     });
   }
 
@@ -229,6 +237,8 @@ var DADOS = (function () {
     // Definições clínicas do módulo de qualidade: o próprio core reconstrói
     // (limiares fora de faixa, metas estranhas e referências vazias somem).
     base.config.qualidade = lerConfigQualidade(cfg.qualidade);
+    // Arquivo mensal e limpeza do LOG: valor fora da faixa volta ao padrão.
+    base.config.log = lerConfigLog(cfg.log);
 
     base.anestesistas = sanearLista(o.anestesistas, 'ANESTESISTAS');
     base.escalaBase = sanearLista(o.escalaBase, 'ESCALA_BASE');
@@ -303,7 +313,9 @@ var DADOS = (function () {
           nome: String(x.meta.nome || 'exame.pdf').slice(0, 200),
           tamanho: Number(x.meta.tamanho) || 0,
           criadoEm: String(x.meta.criadoEm || ''),
-          criadoPor: String(x.meta.criadoPor || '').slice(0, 80)
+          criadoPor: String(x.meta.criadoPor || '').slice(0, 80),
+          // A impressão digital de quando foi anexado: quem importa confere o arquivo com ela.
+          sha256: /^[0-9a-f]{64}$/.test(String(x.meta.sha256 || '')) ? String(x.meta.sha256) : ''
         },
         conteudo: x.conteudo
       };

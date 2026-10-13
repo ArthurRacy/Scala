@@ -128,7 +128,8 @@ arquivos.forEach(function (arquivo) {
 
 /* ------------------------------------------------------------ relatório -- */
 
-t.aguardar(20000).then(function () {
+// Os testes assíncronos (servidor, disco) correm juntos e disputam o mesmo processo: o teto é do conjunto, não de um teste.
+t.aguardar(60000).then(function () {
   console.log(t.relatorio('QA — ' + core.CONFIG.NOME_SISTEMA + ' v' + core.CONFIG.VERSAO));
   var r = t.resumo();
   process.exit(r.falhou === 0 ? 0 : 1);

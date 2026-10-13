@@ -158,7 +158,7 @@ TELAS.qualidade = (function () {
       cab('Fichas de qualidade', nomeMes(app.mes) + ' de ' + app.ano, [
         el('button', { class: 'btn btn-pq', onclick: function () { baixarCSV(app, linhas); } },
           [icone('baixar'), 'CSV']),
-        el('button', { class: 'btn btn-pq', onclick: function () { app.ir('painel_qualidade'); } },
+        !app.podeVer('painel_qualidade') ? null : el('button', { class: 'btn btn-pq', onclick: function () { app.ir('painel_qualidade'); } },
           [icone('grafico'), 'Painel'])
       ]),
       el('div', { class: 'cartao-corpo compacto' }, [

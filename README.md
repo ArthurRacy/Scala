@@ -20,6 +20,20 @@ não existe "a conta do site", "a conta do servidor" e "a conta da planilha".
 fictícios de exemplo; o que cada pessoa lança fica só no navegador dela. **Não use
 dado real de paciente nela.**
 
+A demonstração pede login, com uma conta para cada perfil de acesso (as senhas
+aparecem na própria tela de entrada, de propósito):
+
+| Perfil | Login | Senha | O que vê e faz |
+|---|---|---|---|
+| Anestesista chefe | `chefe` | `chefe2026` | Tudo: financeiro, repasse, qualidade, estrutura, cadastro, integridade, auditoria e backup |
+| Anestesista | `anestesista` | `anestesista2026` | Operação (escala, quadro, cirurgias, avaliações, boletim, ficha de qualidade) e painel de qualidade; **sem dinheiro** e sem os contatos dos colegas |
+| Secretária | `secretaria` | `secretaria2026` | Operação e gestão (horas, financeiro, repasse, indicadores, cadastro, clínica); **não cria nem assina boletim**, sem painel de qualidade e sem administração |
+
+"Trocar de perfil", na faixa do topo, volta para a entrada. Chefe e anestesista
+assinam o boletim em nome de um anestesista do cadastro (o 1º e o 2º ativos). Na
+demonstração tudo roda no navegador; no servidor da clínica quem corta os dados de
+cada perfil é o servidor, e cada pessoa tem a sua senha.
+
 ---
 
 ## Começar em 30 segundos
@@ -176,6 +190,13 @@ node qa
 - Divisão igual do resultado do mês entre os participantes, pela base de
   **caixa** (o que entrou) ou **competência** (o que foi produzido), com
   despesas do mês descontadas e centavos distribuídos sem sobra.
+- **O grupo que divide o mês fica guardado** na primeira vez que o mês é mexido
+  (despesas ou primeiro repasse): desativar ou cadastrar alguém depois não muda a
+  cota de meses já mexidos, e o repasse já pago a quem saiu continua na tela. Quem
+  recebeu sem ser do grupo aparece numa linha à parte ("fora do grupo"). O
+  administrador pode refazer o grupo pelo cadastro de hoje ("Atualizar grupo"),
+  mas só enquanto ninguém recebeu naquele mês. Mês ainda sem gravação segue o
+  cadastro de hoje.
 - Registro de cada pagamento feito (PIX do cadastro ao lado) e a diferença
   que falta repassar a cada um.
 
@@ -185,9 +206,35 @@ node qa
   da conferência de fidelidade com a planilha original, e a instalação do
   Apps Script cria os cabeçalhos no fim da aba, sem mexer no resto.
 
-### Auditoria
+### Auditoria (LOG por usuário)
 - Trilha **append-only** de alterações críticas: quem, quando, qual campo,
-  valor antes e depois. Observação e sala não poluem o log.
+  valor antes e depois. Observação e sala não poluem o log. Cada linha leva o
+  **login** de quem fez, além do nome (o nome pode mudar; o login não).
+- **No servidor da clínica** (só o Anestesista chefe, tela *Auditoria*), três visões:
+  - *Alterações*: o LOG, filtrável por **pessoa** e por período, com "quem mexeu"
+    (quantas alterações cada um fez) e exportação em CSV (com a coluna LOGIN);
+  - *Acessos e segurança*: entradas, saídas, senha errada, bloqueio por tentativas,
+    acesso negado (operação ou tela que o perfil não faz), criação e mudança de
+    usuário, troca de senha, backup, restauração, e quem anexou, abriu ou removeu
+    exame — com o endereço de onde veio (`logs/acessos.jsonl`). Nunca guarda senha
+    nem dado de paciente;
+  - *Arquivos e retenção*: o **arquivo mensal**.
+- **Arquivo mensal conferido e limpeza automática.** Todo mês fechado (a partir do
+  dia 2 do mês seguinte) o LOG de alterações e o de acessos viram um arquivo
+  comprimido em `logs/` (`alteracoes_AAAA-MM.jsonl.gz` e `acessos_AAAA-MM.jsonl.gz`),
+  com o **SHA-256** do conteúdo, **lido de volta e conferido** antes de valer. Só
+  depois disso o que passou de **6 meses** (ajustável, 1 a 36) sai da tela e da lista
+  de acessos, e fica no lugar uma linha "LOG ARQUIVADO" que diz onde estão as linhas.
+  Nenhuma linha sai sem estar num arquivo conferido; um arquivo existente nunca é
+  reescrito (linha nova de mês já arquivado vai para uma "parte" nova); se a gravação
+  do arquivo falhar, **nada** sai da tela. O arquivo é guardado por **5 anos**
+  (ajustável, 0 a 30; **0 = nunca apagar sozinho**) e depois é apagado, com o apagamento
+  anotado nos acessos. Os arquivos baixam em CSV (planilha) ou JSON por linha, e
+  *Conferir os arquivos* recalcula o SHA-256 de todos. O servidor faz tudo sozinho na
+  partida, a cada 6 horas e na virada do dia; há também o botão *Arquivar e limpar
+  agora*. **Prontuário e dinheiro podem ter prazo de guarda legal que não é do sistema
+  decidir: confirme com o jurídico antes de reduzir os prazos.** No computador único e
+  na versão online o LOG fica inteiro na tela (o arquivo mensal é do servidor).
 
 ---
 
@@ -229,15 +276,37 @@ computadores entram. Deixe a janela aberta; Ctrl+C grava tudo e desliga.
 Na primeira vez, o Windows pergunta sobre o firewall: permita só em
 **redes privadas**.
 
+- **Fuso horário**: o servidor trabalha sempre no **horário de Brasília**
+  (`America/Sao_Paulo`), mesmo que o computador ou a nuvem esteja em UTC, e a
+  tela manda a hora de Brasília em cada comando, qualquer que seja o fuso do
+  computador dela. A janela do servidor mostra o fuso e o dia em uso. Para outro
+  fuso, defina `FUSO_DO_SERVIDOR` (ex.: `America/Manaus`) antes de ligar.
 - **Primeiro acesso**: sem nenhum usuário, a janela mostra um código de uso
   único (também em `dados_servidor/PRIMEIRO_ACESSO.txt`). Com ele, a tela de
   entrada cria o administrador.
-- **Usuários e papéis** (Cadastro › Usuários, só administrador):
-  *administrador* faz tudo, inclusive usuários, cadastro e CHAVE PIX,
-  escala-base, dados da clínica, repasse e backup; *equipe* faz a operação do
-  dia a dia (cirurgias, avaliações, substituições, boletins). Quem sai do
-  grupo é desativado — o nome continua no LOG. O LOG registra cada alteração
-  com o nome de quem entrou.
+- **Usuários e perfis de acesso** (Cadastro › Usuários, só o Anestesista chefe).
+  Três perfis; quem decide é o **servidor** (a tela só esconde o que a pessoa
+  não pode usar), pela tabela única de `core/12b_permissoes.js`:
+
+  | | Anestesista chefe | Anestesista | Secretária |
+  |---|---|---|---|
+  | Operação (escala, quadro do dia, cirurgias, avaliações pré, ficha de qualidade) | tudo | tudo, **sem dinheiro** | tudo |
+  | Boletim anestésico | cria, edita, assina, reabre | cria, edita, assina | **só vê e imprime** |
+  | Horas, financeiro, repasse, indicadores | tudo | — | tudo |
+  | Cadastro de anestesistas (com PIX), escala-base, clínica e termo | tudo | — | tudo |
+  | Painel de qualidade | tudo (inclusive a comparação entre profissionais) | vê, sem a comparação | — |
+  | Estrutura e configuração clínica da qualidade | tudo | — | — |
+  | Usuários, Auditoria, Integridade, Dados e backup | tudo | — | — |
+
+  O anestesista **nunca recebe dinheiro**: o servidor tira valor, pago, data do
+  pagamento e nota fiscal das cirurgias e das avaliações, os repasses, o LOG e a
+  chave PIX, o telefone e o e-mail dos colegas — do estado e dos comandos que
+  chegam a ele (a tela dele reexecuta os comandos dos outros já cortados; um teste
+  confere que o estado visível chega idêntico ao do servidor). Os nomes antigos
+  continuam entendidos: `admin` vira chefe e `equipe` vira anestesista (o arquivo
+  de usuários é regravado ao subir). Mudar o perfil de alguém derruba as sessões
+  dela. Quem sai do grupo é desativado — o nome continua no LOG. O LOG registra
+  cada alteração com o nome de quem entrou.
 - **Como fica tudo igual**: cada tela aplica a alteração na hora e manda o
   *comando* ao servidor, que o reexecuta com o mesmo core, a mesma hora e a
   mesma semente de identificadores — e chega ao mesmo estado; as outras telas
@@ -248,11 +317,16 @@ Na primeira vez, o Windows pergunta sobre o firewall: permita só em
 - **Onde ficam os dados** (`dados_servidor/`, ou `--dados D:\pasta`):
   `estado.json` (gravação atômica), `diario.jsonl` (cada comando é gravado
   antes de ser confirmado — uma queda de luz não perde nada), `copias/`
-  (uma por dia por 35 dias, a primeira de cada mês por 24 meses, marcos de
-  antes de importar/restaurar por 400 dias), `anexos/` (PDFs de exame;
-  removidos ficam 400 dias em `removidos/`), `usuarios.json` (senhas em
-  scrypt), `acessos.log`. Copie essa pasta para fora do computador de tempos
-  em tempos, ou use Dados e backup › Exportar com PDFs.
+  (uma por dia por 35 dias, a primeira de cada mês por 36 meses, marcos de
+  antes de importar/restaurar por 400 dias), `anexos/` (PDFs de exame, cada
+  um com a sua ficha `<id>.json` com o SHA-256; o `indice.json` é refeito das
+  fichas se se perder; removidos ficam 3 anos, contados da remoção, em
+  `removidos/`), `usuarios.json` (senhas em scrypt), `logs/` (acessos por
+  usuário e o arquivo mensal do LOG, ver *Auditoria*). Os exames são
+  conferidos na partida e a cada dia (problema vira alerta na Auditoria).
+  Copie essa pasta para fora do computador de tempos em tempos, ou use
+  Dados e backup › **Baixar todos os dados** (um .zip com tudo, escrito aos
+  poucos, sem limite de tamanho, com `SHA256SUMS.txt` para conferir).
 - **Levar os dados de um navegador para o servidor**: no modo de um
   computador só, *Exportar com PDFs*; no servidor, o administrador usa
   *Importar backup*.
@@ -262,7 +336,7 @@ Na primeira vez, o Windows pergunta sobre o firewall: permita só em
 1. Abra a planilha no Google Sheets.
 2. **Extensões → Apps Script**.
 3. Copie, nesta ordem, cada arquivo de `core/` (`00_config.js` até
-   `12_store.js`, incluindo `02b_calendario.js`, `05b_procedimentos.js`,
+   `12b_permissoes.js`, incluindo `02b_calendario.js`, `05b_procedimentos.js`, `11b_log_arquivo.js`,
    `06b_boletim.js` e `09b_repasse.js`) e depois cada arquivo de `apps-script/` (`90_` a `92_`).
    A ordem importa: o Apps Script concatena os arquivos por nome.
 4. Salve, recarregue a planilha e use o menu **⚕ Anestesia →
@@ -316,7 +390,9 @@ core/                 Regras de negócio — roda em Node, navegador e Apps Scri
   10_dashboard.js       KPIs e séries de gráfico
   10b_retencao.js       Quanto tempo cada cópia de segurança fica
   11_log.js             Trilha de auditoria
+  11b_log_arquivo.js    Arquivo mensal e limpeza do LOG (as contas: meses, corte, prazo, texto)
   12_store.js           Estado, transações e integridade
+  12b_permissoes.js     Os três perfis: quem vê e faz o quê, e o corte do que chega a cada um
   index.js              Carregador (só no Node)
 
 webapp/               Interface — sem framework, sem build, sem CDN
@@ -347,16 +423,17 @@ apps-script/          Camada Google Sheets
   92_gatilhos.gs        Menu, onEdit (criação automática), ações manuais
   appsscript.json
 
-qa/                   667 testes, sem dependência externa
+qa/                   855 testes, sem dependência externa
   index.js              Executor  —  node qa  |  node qa 05
   _runner.js            Arnês de testes
   _mock_sheets.js       Google Sheets de mentira, para testar a ponte
-  01..24_*.test.js
+  01..37_*.test.js
 
 server/               Modo servidor (Node puro, sem npm install)
   servidor.js           HTTP, login, comandos, SSE, anexos, backup
   armazem.js            Disco: estado atômico, diário, cópias, PDFs
   contas.js             Usuários (scrypt), sessões, trava por tentativas
+  auditoria.js          Acessos por usuário, arquivo mensal do LOG (SHA-256), limpeza e prazo de guarda
 
 tools/                Utilitários Python
   servir.py             Sobe o web app
@@ -367,9 +444,13 @@ tools/                Utilitários Python
   verificar_schema.js   Confere o schema contra a planilha
   gerar_exemplos_qualidade.js  Ficha, relatório, planilhas e PPTX de exemplo (saida/exemplos_qualidade/)
   gerar_docs_qualidade.js      Catálogo de indicadores para a aprovação clínica
+  verificar_nomes.js    Acusa nome usado sem existir (navegador, Node, servidor, Apps Script); roda no qa/30
+  aleatorio_store.js    Sorteia operações com dado normal e absurdo e confere o que nunca pode acontecer (o qa/33 roda a versão curta)
+  redefinir_senha.js    Senha temporária para quem perdeu a senha (com o servidor fechado; ver docs/RUNBOOK.md)
   corrigir_planilha.py  Aplica as correções no .xlsx
 
 data/                 Dados extraídos da planilha (gerados)
+deploy/               Modelos para colocar no ar: HTTPS (Caddy), serviço que reabre sozinho, backup fora da máquina
 docs/                 Documentação
 saida/                Arquivos gerados para uso (planilha corrigida)
 Abrir sistema.bat     Atalho do Windows: um computador só (Python)
@@ -427,6 +508,11 @@ git add -A && git commit -m "Atualiza a página online" && git push
   funciona de verdade, e as divergências encontradas na planilha
 - [docs/KANBAN.md](docs/KANBAN.md) — situação de cada tarefa e onde ela mora
 - [docs/QA.md](docs/QA.md) — o que a bateria de testes cobre
+- [docs/QA_GERAL.md](docs/QA_GERAL.md) — QA geral de 05/10/2026: contas conferidas por fora, achados, arquitetura, retenção de um ano
+- [docs/COLOCAR_NO_AR.md](docs/COLOCAR_NO_AR.md) — lista do que fazer para colocar no ar (decisões, contas, desenvolvimento, testes, virada, 30 dias)
+- [docs/ESCALA_E_BANCO.md](docs/ESCALA_E_BANCO.md) — o que 2.500 cirurgias por mês exigem, como resolver, e alternativas ao Supabase
+- [docs/RUNBOOK.md](docs/RUNBOOK.md) — o que fazer quando cai, o disco enche, o relógio erra, a senha do chefe some
+- [docs/AUDITORIA_PRODUCAO.md](docs/AUDITORIA_PRODUCAO.md) — auditoria para produção com Supabase (fases 0 a 3) e decisões
 - [docs/QUALIDADE.md](docs/QUALIDADE.md) — módulo de qualidade e segurança:
   regras, permissões, proteção de dados, checklist de aprovação
 - [docs/QUALIDADE_INDICADORES.md](docs/QUALIDADE_INDICADORES.md) — definição,
@@ -467,8 +553,9 @@ git add -A && git commit -m "Atualiza a página online" && git push
 - **Servidor da clínica**: login com senha (scrypt, sal por usuário), sessão
   em cookie HttpOnly + SameSite=Strict que cai após 12 h sem uso, trava de 15
   minutos depois de 5 senhas erradas, cabeçalho próprio + mesma origem em
-  toda gravação (CSRF), papéis admin/equipe conferidos no servidor, pasta de
-  dados nunca servida, registro de entradas em `acessos.log`. **Use só na
+  toda gravação (CSRF), perfis (chefe, anestesista, secretária) conferidos no servidor — que
+  também corta o dinheiro do que o anestesista recebe —, pasta de
+  dados nunca servida, registro de acessos por usuário em `logs/acessos.jsonl`. **Use só na
   rede interna** — nunca abra a porta para a internet. Para HTTPS, coloque
   `chave.pem` e `certificado.pem` em `dados_servidor/https/`.
 

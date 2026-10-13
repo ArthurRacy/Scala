@@ -62,7 +62,8 @@ var core = window;
     // Um símbolo de cada arquivo restante do core: script que não carregou (rede,
     // disco) derrubava a partida mais adiante, com tela vazia e sem mensagem.
     'chaveMes', 'classificarTipoCirurgia', 'novoUid', 'lerBoletim', 'leitorQualidade',
-    'ITENS_ESTRUTURA', 'calcularRepasse', 'configQualidadePadrao', 'copiasParaApagar', 'calcularDashboard'
+    'ITENS_ESTRUTURA', 'calcularRepasse', 'configQualidadePadrao', 'copiasParaApagar', 'calcularDashboard',
+    'perfilPodeExecutar', 'contextoDeAssinatura', 'lerConfigLog'
   ];
 
   var faltando = obrigatorios.filter(function (n) { return typeof window[n] === 'undefined'; });

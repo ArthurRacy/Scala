@@ -27,9 +27,9 @@ TELAS.estrutura = (function () {
     return typeof v === 'number' ? String(casas ? v.toFixed(casas) : v).replace('.', ',') : String(v);
   }
 
-  /** No servidor da clínica, estrutura é da coordenação: a equipe só consulta. */
+  /** Estrutura é da coordenação (o Anestesista chefe); só ele abre esta tela no servidor da clínica. */
   function podeEditar(app) {
-    return !app.servidor || (typeof SERVIDOR !== 'undefined' && SERVIDOR.ehAdmin());
+    return app.podeFazer('salvarRegistroEstrutura');
   }
 
   function seloItem(valor) {

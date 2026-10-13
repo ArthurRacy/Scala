@@ -293,7 +293,10 @@ var SCHEMA = {
       { col: 'D', rotulo: 'ID_CIRURGIA',    campo: 'idCirurgia', tipo: 'texto', origem: 'AUTO' },
       { col: 'E', rotulo: 'CAMPO ALTERADO', campo: 'campo',      tipo: 'texto', origem: 'AUTO' },
       { col: 'F', rotulo: 'VALOR ANTERIOR', campo: 'de',         tipo: 'texto', origem: 'AUTO' },
-      { col: 'G', rotulo: 'NOVO VALOR',     campo: 'para',       tipo: 'texto', origem: 'AUTO' }
+      { col: 'G', rotulo: 'NOVO VALOR',     campo: 'para',       tipo: 'texto', origem: 'AUTO' },
+      // Quem fez, pelo login (que não muda), além do nome (que pode mudar). Coluna extra: fica fora da
+      // conferência com a planilha; vale no servidor da clínica e nas exportações do sistema.
+      { col: 'H', rotulo: 'LOGIN',          campo: 'login',      tipo: 'texto', origem: 'AUTO', extra: true }
     ]
   }
 };

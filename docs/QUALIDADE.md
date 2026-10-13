@@ -174,13 +174,14 @@ estatístico de risco; com poucos casos a taxa é instável.
 ## Acesso e proteção de dados
 
 - **Modo servidor da clínica**: login individual (scrypt), sessão em cookie
-  HttpOnly, trava após 5 senhas erradas, `acessos.log`, backups com retenção —
-  os mesmos do resto do sistema.
-- **Papéis**: *equipe* (anestesistas, secretaria) cria, preenche, conclui e
-  reabre fichas, registra acompanhamento e vê o painel do serviço. *Admin*
-  (coordenação) também registra **estrutura**, altera a **configuração
-  clínica** e usa a **comparação por profissional**. O servidor recusa com 403 o
-  que a equipe não pode — a tela esconder o botão é só cortesia. Quem entra com
+  HttpOnly, trava após 5 senhas erradas, acessos por usuário em `logs/acessos.jsonl`,
+  backups com retenção — os mesmos do resto do sistema.
+- **Perfis** (`core/12b_permissoes.js`): o *Anestesista* e a *Secretária* criam,
+  preenchem, concluem e reabrem fichas e registram acompanhamento; o *Anestesista* também
+  vê o **painel de qualidade** (a Secretária não). O *Anestesista chefe* (coordenação)
+  também registra **estrutura**, altera a **configuração clínica** e usa a **comparação
+  por profissional**. O servidor recusa com 403 o que o perfil não pode — a tela
+  esconder o botão é só cortesia. Quem entra com
   o nome de um anestesista do cadastro vê primeiro os próprios atendimentos
   (*Só os meus atendimentos*).
 - **Rastreabilidade**: toda gravação vai para o LOG (autor, data, hora, campo);

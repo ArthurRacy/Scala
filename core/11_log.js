@@ -77,6 +77,8 @@ function novaEntradaLog(dados) {
   return {
     quando: dados.quando || agoraTexto(),
     usuario: txt(dados.usuario) || CONFIG.USUARIO_PADRAO,
+    // O login de quem fez (o store carimba o do usuário atual ao gravar). Vazio em entrada de antes do login existir.
+    login: txt(dados.login),
     aba: txt(dados.aba),
     idCirurgia: txt(dados.idCirurgia),
     campo: txt(dados.campo),
@@ -177,8 +179,10 @@ function logExclusao(abaLogica, registro, contexto) {
 }
 
 /**
- * Filtra o log. Aceita { idCirurgia, aba, usuario, campo, de, ate, texto }.
+ * Filtra o log. Aceita { idCirurgia, aba, usuario, login, nome, campo, de, ate, texto }.
  * `de`/`ate` comparam a parte de data do timestamp.
+ * `login` filtra por pessoa: a entrada com login tem de ter este login; a entrada antiga, de antes de o
+ * login ser gravado, vale pelo `nome` (se vier).
  */
 function filtrarLog(log, filtro) {
   filtro = filtro || {};
@@ -187,6 +191,10 @@ function filtrarLog(log, filtro) {
     if (filtro.idCirurgia && !mesmoTexto(l.idCirurgia, filtro.idCirurgia)) return false;
     if (filtro.aba && !mesmoTexto(l.aba, filtro.aba)) return false;
     if (filtro.usuario && !mesmoTexto(l.usuario, filtro.usuario)) return false;
+    if (filtro.login) {
+      if (!vazio(l.login)) { if (!mesmoTexto(l.login, filtro.login)) return false; }
+      else if (!filtro.nome || !mesmoTexto(l.usuario, filtro.nome)) return false;
+    }
     if (filtro.campo && !mesmoTexto(l.campo, filtro.campo)) return false;
 
     var dia = txt(l.quando).slice(0, 10);
@@ -194,7 +202,7 @@ function filtrarLog(log, filtro) {
     if (filtro.ate && dia > paraData(filtro.ate)) return false;
 
     if (filtro.texto) {
-      var alvo = normalizar([l.aba, l.idCirurgia, l.campo, l.de, l.para, l.usuario].join(' '));
+      var alvo = normalizar([l.aba, l.idCirurgia, l.campo, l.de, l.para, l.usuario, l.login].join(' '));
       if (alvo.indexOf(normalizar(filtro.texto)) < 0) return false;
     }
     return true;

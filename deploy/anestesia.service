@@ -1,0 +1,35 @@
+# Serviço do Linux (systemd) que mantém o sistema aberto e o reabre sozinho se cair. MODELO — não foi testado numa máquina de
+# verdade; confira os caminhos antes de usar.
+#
+#   sudo useradd --system --home /var/lib/anestesia --shell /usr/sbin/nologin anestesia
+#   sudo mkdir -p /var/lib/anestesia && sudo chown anestesia: /var/lib/anestesia
+#   (copie o projeto para /opt/anestesia; o Node 22 ou mais novo em /usr/bin/node)
+#   sudo cp deploy/anestesia.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now anestesia
+#   sudo journalctl -u anestesia -f        (ver o que o servidor escreve)
+
+[Unit]
+Description=Sistema de anestesia (servidor da clinica)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=anestesia
+WorkingDirectory=/opt/anestesia
+# Atrás do Caddy (deploy/Caddyfile): só aceita pedido da própria máquina e confia no IP e no HTTPS que o proxy informa.
+Environment=ATRAS_DE_PROXY=1
+ExecStart=/usr/bin/node server/servidor.js --host 127.0.0.1 --porta 8080 --dados /var/lib/anestesia
+Restart=always
+RestartSec=3
+# Ao desligar, o sistema grava tudo antes de sair.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+# Só pode escrever na pasta de dados.
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/anestesia
+
+[Install]
+WantedBy=multi-user.target

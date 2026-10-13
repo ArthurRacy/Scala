@@ -2,9 +2,9 @@
 
 Documento de passagem entre conversas. Diz o que o sistema é, como está
 montado, o que já foi feito, as regras que não podem ser quebradas e o que
-ainda falta. Atualizado em **01/10/2026**.
+ainda falta. Atualizado em **13/10/2026**.
 
-- Estado atual: **667 testes, todos passando** (`node qa`).
+- Estado atual: **855 testes, todos passando** (`node qa`; a suíte inteira leva alguns minutos).
 - Versão online publicada: **versão 10** (com o módulo de qualidade e segurança).
 
 ---
@@ -90,12 +90,28 @@ docs/        REGRAS_DE_NEGOCIO.md, QA.md, KANBAN.md
    - `agoraTexto()` e `novoUid()` respeitam o `CONTEXTO_EXECUCAO` de
      `executarComContexto(ctx, fn)`, em `core/02_util.js`.
    - O "hoje" do store vem por opção (`hoje`).
+   - **Fuso:** o servidor trabalha sempre em Brasília (`process.env.TZ` no `server/servidor.js`)
+     e a tela manda `agora` em Brasília (`agoraTextoBrasilia`); nunca ler a hora de um comando
+     no fuso de quem a lê.
    - Não introduzir `Date.now()` nem `Math.random()` novos dentro de operações
      do store sem passar pelo contexto.
 9. **Toda operação nova do store que muda dados** tem de entrar em
-   `MUTACOES_STORE`, e, se for o caso, em `MUTACOES_SO_ADMIN` e
-   `MUTACOES_SEGURAS_EM_CONCORRENCIA` (fim de `core/12_store.js`). Sem isso,
-   ela não chega ao servidor.
+   `MUTACOES_STORE` e `MUTACOES_SEGURAS_EM_CONCORRENCIA` (fim de `core/12_store.js`, esta
+   só se for o caso) **e ser classificada em `GRUPO_DA_MUTACAO` de `core/12b_permissoes.js`**
+   (quem faz). Sem classificação, só o chefe a faz; o teste 25 recusa operação nova que
+   não esteja na tabela dele. `MUTACOES_SO_ADMIN` agora sai dessa tabela (o que só o chefe
+   faz). Sem estar em `MUTACOES_STORE`, a operação não chega ao servidor.
+9b. **Perfis:** o corte do que cada perfil recebe (`projetarEstadoParaPerfil` e
+   `redigirComandoParaPerfil`) é parte do protocolo: operação nova que mexa em dinheiro ou
+   em dado de contato precisa entrar em `CAMPOS_FINANCEIROS` / `ARGUMENTO_RESTRITO`, e o
+   teste de réplica (qa/25) tem de continuar igual.
+9c. **LOG:** só cresce (append-only), com **uma única exceção**: `arquivarLogAte` (store),
+   que o próprio servidor aplica depois de o arquivo mensal estar gravado e conferido
+   (SHA-256) em `server/auditoria.js`, e que deixa uma linha "LOG ARQUIVADO" no lugar.
+   Nenhuma linha sai sem estar num arquivo conferido; arquivo existente nunca é reescrito.
+   Toda linha leva o `login` (o store carimba em `api.registrar`; a tela e o servidor
+   precisam definir `store.login` para o estado ser idêntico). Operação interna: nenhum
+   perfil a manda pela rede (`GRUPO_DA_MUTACAO`: 'interna').
 10. **Downloads** passam por `UI.salvarArquivo(nome, dados)`. Na versão online,
     usa a capacidade `downloads` do Artifact.
 11. **Qualidade (regras que não se negociam):**
@@ -122,7 +138,7 @@ docs/        REGRAS_DE_NEGOCIO.md, QA.md, KANBAN.md
 | Modo | Como | Dados |
 |---|---|---|
 | **Um computador** | `Abrir sistema.bat` ou `python tools/servir.py` → http://localhost:8080/webapp/ | IndexedDB do navegador (GUARDA, `03d_guarda.js`): cópias diárias/mensais/marcos, backup numa pasta, lembrete de backup |
-| **Servidor da clínica** | `Abrir servidor da clínica.bat` ou `node server/servidor.js [--porta 8080] [--dados pasta]` | `dados_servidor/`: estado.json atômico, diario.jsonl, copias/*.json.gz, anexos/, usuarios.json (scrypt), sessoes.json, acessos.log |
+| **Servidor da clínica** | `Abrir servidor da clínica.bat` ou `node server/servidor.js [--porta 8080] [--dados pasta]` | `dados_servidor/`: estado.json atômico, diario.jsonl, copias/*.json.gz, anexos/, usuarios.json (scrypt), sessoes.json, logs/ (acessos por usuário e arquivo mensal do LOG) |
 | **Online (demonstração)** | Artifact publicado (seção 7) | No navegador de quem visita; cirurgias e boletins de EXEMPLO |
 
 Mais o **Google Apps Script** (copiar `core/` + `apps-script/` para a
@@ -146,10 +162,20 @@ Regras de concorrência e de acesso:
   - trava após 5 senhas erradas;
   - cabeçalho `X-Anestesia` obrigatório contra CSRF;
   - primeiro acesso por código mostrado na janela do servidor.
-- **Papéis:**
-  - `admin` faz tudo: usuários, cadastro/PIX, escala-base, clínica, repasse,
-    backup e restauração;
-  - `equipe` faz a operação do dia a dia.
+- **Perfis** (decididos pelo servidor; tabela única em `core/12b_permissoes.js`):
+  - `chefe` (Anestesista chefe): poder total;
+  - `anestesista`: painel de operação e painel de qualidade, **sem dinheiro**
+    (o servidor corta valores, pagamentos, nota fiscal, repasses, LOG e PIX/telefone/e-mail
+    dos colegas do estado e dos comandos que ele recebe);
+  - `secretaria`: operação e gestão, sem painel de qualidade, sem criar/editar/assinar
+    boletim e sem as telas de administração.
+  - `admin` e `equipe` (nomes antigos) continuam entendidos: viram chefe e anestesista.
+  - **Versão online (GitHub Pages):** desde 13/10/2026 pede login, com uma conta de demonstração por
+    perfil (`chefe`/`chefe2026`, `anestesista`/`anestesista2026`, `secretaria`/`secretaria2026`, à vista
+    na tela de entrada; `DEMO.CONTAS` em `webapp/js/demo_online.js`). A tela esconde pelo perfil e
+    `conferirPerfil` (06_app) passa cada operação por `perfilPodeExecutar`, com a assinatura do boletim
+    presa ao 1º (chefe) ou 2º (anestesista) anestesista ativo do cadastro. Não há corte de dados (tudo
+    fica no navegador): é demonstração. Computador único continua sem login (chefe).
 - O marcador `webapp/js/00_modo.js` diz `false` no arquivo; o servidor Node
   responde `true` nesse mesmo endereço.
 
@@ -264,6 +290,46 @@ Regras de concorrência e de acesso:
     `min-width: 0` (nome de arquivo comprido empurrava o modal para fora de uma
     tela de 375 px). Validado em navegador (computador, 375 px, tema claro e
     escuro, teclado) e no servidor da clínica. Testes em `qa/24_*`.
+11. **Auditoria para produção** (02/10/2026, `docs/AUDITORIA_PRODUCAO.md`): relatório
+    das fases 0 a 3 e correções. Feito: grupo do repasse por mês (F02), **três perfis**
+    (chefe, anestesista, secretária; o servidor corta o dinheiro do que o anestesista
+    recebe, F08), **fuso horário** (F01: servidor sempre em Brasília), **LOG por
+    usuário** com arquivo mensal conferido e limpeza, e a intermitência do `qa/19`.
+    Decisões do dono do produto: cada clínica terá o **seu próprio sistema** (um por
+    clínica, sem multi-clínica); repasse sempre **igual**; hospedagem escolhida:
+    **Supabase Pro por clínica** (a partir de US$ 25/mês por projeto, mais o servidor
+    Node, que o Supabase não hospeda); dado real de paciente na nuvem **bloqueado até o
+    jurídico** (LGPD, guarda de prontuário). Não migrado ainda: a persistência para o
+    Supabase (ver auditoria, "Próximos passos").
+12. **QA geral e revisão de arquitetura** (05/10/2026, `docs/QA_GERAL.md` e
+    `docs/COLOCAR_NO_AR.md`): contas de dinheiro, repasse, rodízio e datas refeitas por
+    um caminho independente (`qa/32`); sorteio de mais de 31 mil operações com dado
+    absurdo (`tools/aleatorio_store.js`, `qa/33`); conferência de nomes indefinidos
+    (`tools/verificar_nomes.js`, `qa/30`). Corrigido: dado com nome `constructor` /
+    `__proto__` derrubava o recálculo (mapas sem prototype); disco cheio ou sem permissão
+    (o comando é desfeito com erro 503, importar sem gravar é desfeito, o diário não fica
+    com linha pela metade, a gravação falhando não derruba o servidor); **freios** contra
+    relógio errado (não apaga cópias nem arquivos de LOG de uma vez); **LOG na tela
+    com mínimo de 12 meses** (padrão 12, de 12 a 60) a pedido de "pelo menos um ano";
+    aviso quando mudar a escala-base deixa a mesma pessoa em duas posições; trocar a
+    escala-base deixa linha no LOG; `GET /api/saude` para monitoramento. Testes em
+    `qa/31` (núcleo) e `qa/34` (disco e freios). **Regra para o futuro:** o laço de eventos
+    do `node qa` fica preso durante os testes síncronos; teste que espera um processo filho
+    deve contar só o tempo em que o laço esteve livre (ver `qa/27`).
+13. **Decisões do dono do produto e endurecimento** (07/10/2026): **não travar o mês** (F03); **login ligado a quem assina o
+    boletim** (cada chefe/anestesista é ligado a um anestesista do cadastro na tela Usuários; o servidor recusa assinatura em
+    outro nome ou com CRM diferente do cadastro; `contextoDeAssinatura` em `core/12b_permissoes.js`); **teto de R$ 100 milhões
+    por mês e no máximo 2 casas decimais** (`LIMITE_VALOR_MES`, `erroDeTetoMensal`); **mudança de escala-base (ou de cadastro com
+    a base automática) que deixaria a mesma pessoa em duas posições no mesmo dia é recusada**; sem prejuízo no repasse (F12, nada a
+    fazer); sem registro de rascunho de boletim no LOG. Conflito de horário **também na virada do dia** (F13). Servidor: **uma só
+    cópia por pasta de dados** (`servidor.trava`, F14), `--atras-de-proxy`/`ATRAS_DE_PROXY=1` para cookie `Secure` e IP real (F06,
+    F17), limite de 30 exames por avaliação (F15), argumentos de comando seguros, respostas em gzip, `tools/redefinir_senha.js`,
+    `docs/RUNBOOK.md`, `deploy/` (modelos, não testados numa máquina) e `.github/workflows/testes.yml`. **Volume:** até 2.500
+    cirurgias por mês não cabe no desenho de hoje (`docs/ESCALA_E_BANCO.md`): banco relacional, tela por mês e boletim/ficha por
+    registro, **aguardando aprovação**.
+14. **Três logins na versão online** (13/10/2026): a página do GitHub Pages abre numa tela de entrada com as contas
+    Anestesista chefe, Anestesista e Secretária, cada uma com o seu nível de acesso (seção 4, "Perfis"). Testes em `qa/39`.
+    O Artifact (seção 7) **não** foi republicado e continua sem login.
 
 ## 9. Pendências e ideias (nada bloqueando)
 
@@ -276,8 +342,9 @@ Regras de concorrência e de acesso:
   servidor (`receberAnexo`), no backup e na abertura em outra aba. Fechar o
   formulário de cirurgia sem lançar descarta os PDFs que ainda esperavam na fila,
   como já descarta os campos.
-- **`qa/19_servidor.test.js`** continua falhando de vez em quando com
-  "fetch failed" (já registrado em `docs/QA.md`): nada a ver com as regras.
+- **Testes de servidor**: a intermitência antiga do `qa/19` ("fetch failed") foi
+  corrigida (`Connection: close` nos auxiliares, `docs/QA.md`). Os testes que sobem
+  servidor devem usar `qa/_servidor_util.js`.
 
 - **Qualidade — decisões da instituição, não do sistema** (detalhe em
   `docs/QUALIDADE.md`, seção *Decisões em aberto*):
@@ -288,9 +355,8 @@ Regras de concorrência e de acesso:
     grave 180 mmHg, jejum 8 h (sólidos) e 2 h (líquidos), TOF ≥ 0,9, antibiótico
     0 a 60 min antes da incisão (SpO₂ < 90, PAM < 65, T < 36 e dor > 7 vêm do pedido);
   - nenhuma **meta** nem **fonte normativa** vem preenchida;
-  - só existem dois papéis (equipe e admin): "anestesista" usa equipe e
-    "coordenação" usa admin; um papel de coordenação de qualidade separado seria
-    extensão pequena;
+  - a coordenação de qualidade é o Anestesista chefe (o anestesista vê o painel, sem a
+    comparação entre profissionais; estrutura e configuração são só do chefe);
   - LGPD: base legal, prazo de guarda, controlador e encarregado são da
     instituição; a versão online é demonstração (não usar dado real);
   - a comparação por profissional é **estratificação por ASA**, não modelo de
@@ -320,13 +386,13 @@ Regras de concorrência e de acesso:
     8091). Não afeta o navegador da pessoa usuária;
   - a pasta de teste do servidor ficou no scratchpad.
 - **Documentação** atualizada: README (seções de boletim, qualidade, servidor e
-  segurança), docs/QA.md (tabela por arquivo, 667 testes), docs/KANBAN.md,
+  segurança), docs/QA.md (tabela por arquivo, 855 testes), docs/KANBAN.md,
   docs/QUALIDADE.md e docs/QUALIDADE_INDICADORES.md (este é **gerado**: rode
   `node tools/gerar_docs_qualidade.js` depois de mudar o catálogo).
 
 ## 10. Primeiros passos sugeridos para o próximo chat
 
-1. Rodar `node qa` e confirmar 667 de 667.
+1. Rodar `node qa` e confirmar 855 de 855.
 2. Ler `README.md` (visão de uso) e a seção 3 deste arquivo (invariantes).
 3. Antes de mexer no store, conferir as listas `MUTACOES_*` e o contexto de
    execução.

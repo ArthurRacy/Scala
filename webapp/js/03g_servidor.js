@@ -45,9 +45,10 @@ var SERVIDOR = (function () {
     definirEscalaBase: 'escala-base', definirModoEscalaBase: 'modo da escala-base', aplicarRemanejamento: 'remanejamento',
     salvarConfigClinica: 'dados da clínica', salvarDespesasRepasse: 'despesas do repasse',
     registrarPagamentoRepasse: 'registro de repasse', removerPagamentoRepasse: 'desfazer repasse',
+    atualizarParticipantesRepasse: 'grupo do repasse',
     criarBoletim: 'criar boletim', salvarBoletim: 'campo do boletim', alterarLinhaBoletim: 'registro do boletim',
     finalizarBoletim: 'assinatura do boletim', reabrirBoletim: 'reabertura do boletim', descartarBoletim: 'descartar boletim',
-    reparar: 'reparo dos dados'
+    reparar: 'reparo dos dados', salvarConfigLog: 'ajuste do LOG', arquivarLogAte: 'arquivo do LOG'
   };
 
   /* =============================================================== rede */
@@ -66,7 +67,8 @@ var SERVIDOR = (function () {
   }
 
   function semente() { return (Date.now().toString(36) + Math.random().toString(36).slice(2, 10)).slice(0, 20); }
-  function agoraDoServidor() { return agoraTexto(new Date(Date.now() + desvio)); }
+  // Hora de BRASÍLIA (não a do fuso deste computador): é assim que o servidor a lê.
+  function agoraDoServidor() { return agoraTextoBrasilia(new Date(Date.now() + desvio)); }
 
   /* ============================================================ partida */
 
@@ -123,6 +125,7 @@ var SERVIDOR = (function () {
   function envolver(store) {
     originais = {};
     store.usuario = usuario.nome;
+    store.login = usuario.login;
     MUTACOES_STORE.forEach(function (nome) {
       var original = store[nome];
       originais[nome] = original;
@@ -136,12 +139,15 @@ var SERVIDOR = (function () {
         if (app && app.store !== store) {
           return { ok: false, erros: [{ campo: '', msg: 'Os dados foram atualizados enquanto esta janela estava aberta. Feche-a e abra de novo.' }], avisos: [] };
         }
-        if (MUTACOES_SO_ADMIN.indexOf(nome) >= 0 && usuario.papel !== 'admin') {
-          return { ok: false, erros: [{ campo: '', msg: 'Só o administrador do sistema pode fazer isso.' }], avisos: [] };
+        // O servidor confere de novo (e é ele quem decide); aqui só se poupa a ida e volta.
+        var perm = perfilPodeExecutar(usuario.papel, nome, args, contextoDeAssinatura(usuario.anestesistaId, store.estado.anestesistas));
+        if (!perm.ok) {
+          return { ok: false, erros: [{ campo: '', msg: perm.erro }], avisos: [] };
         }
         var copia = JSON.parse(JSON.stringify(args));
         var ctx = { agora: agoraDoServidor(), semente: semente() };
         store.usuario = usuario.nome;
+        store.login = usuario.login;
         var r = executarComContexto(ctx, function () { return original.apply(store, args); });
         if (nome === 'reparar' || (r && r.ok)) {
           fila.push({ nome: nome, args: copia, contexto: ctx, hoje: hoje });
@@ -232,7 +238,7 @@ var SERVIDOR = (function () {
     } else if (corpo.motivo === 'relogio') {
       UI.atencao('Relógio deste computador fora da hora', 'Acerte a data e a hora do computador e refaça: ' + nomes + '.', 0);
     } else if (resposta && resposta.status === 403) {
-      UI.erro('Sem permissão', (corpo.erro || 'Só o administrador pode fazer isso.') + ' Não foi salvo: ' + nomes + '.', 0);
+      UI.erro('Sem permissão', (corpo.erro || 'O seu perfil não faz isto.') + ' Não foi salvo: ' + nomes + '.', 0);
     } else {
       UI.atencao('Outra pessoa gravou no mesmo instante',
         'Para não gravar por cima do trabalho dela, isto não foi salvo: ' + nomes +
@@ -254,13 +260,23 @@ var SERVIDOR = (function () {
       var st = app.store;
       for (var i = 0; i < r.corpo.comandos.length; i++) {
         var c = r.corpo.comandos[i];
-        if (c.revisao !== confirmada + 1 || !originais[c.nome]) { recarregar(); return; }
+        if (c.revisao !== confirmada + 1) { recarregar(); return; }
+        // Comando que o servidor não mostra a este perfil (repasse, para quem não vê dinheiro): só
+        // acompanha a revisão. Reparo geral manda recarregar.
+        if (c.oculto) {
+          if (c.recarregar) { recarregar(); return; }
+          confirmada = c.revisao;
+          continue;
+        }
+        if (!originais[c.nome]) { recarregar(); return; }
         st.usuario = c.usuario;
+        st.login = c.login || '';
         var res = null;
         try {
           res = executarComContexto(c.contexto, function () { return originais[c.nome].apply(st, c.args); });
         } catch (e) { res = null; }
         st.usuario = usuario.nome;
+        st.login = usuario.login;
         if (!(c.nome === 'reparar' || (res && res.ok))) { recarregar(); return; }
         confirmada = c.revisao;
         quem[c.usuario] = true;
@@ -299,7 +315,7 @@ var SERVIDOR = (function () {
       var motivos = { importar: 'importou um backup', 'apagar-tudo': 'apagou os dados', restaurar: 'restaurou uma cópia' };
       recarregar({ aviso: d.motivo === 'dia'
         ? ['Virou o dia', 'Os dados foram atualizados para a data de hoje.']
-        : ['Dados substituídos', (d.usuario || 'O administrador') + ' ' + (motivos[d.motivo] || 'substituiu os dados') + '.'] });
+        : ['Dados substituídos', (d.usuario || 'O Anestesista chefe') + ' ' + (motivos[d.motivo] || 'substituiu os dados') + '.'] });
     });
     fonte.addEventListener('anexos', function (ev) {
       var d = JSON.parse(ev.data);
@@ -379,7 +395,7 @@ var SERVIDOR = (function () {
     });
     var form = UI.formulario(campos);
     var aviso = el('div', { class: 'aviso aviso-erro', hidden: true, role: 'alert' });
-    var botao = el('button', { class: 'btn btn-primario entrada-botao', type: 'submit' }, primeiro ? 'Criar administrador e entrar' : 'Entrar');
+    var botao = el('button', { class: 'btn btn-primario entrada-botao', type: 'submit' }, primeiro ? 'Criar o Anestesista chefe e entrar' : 'Entrar');
 
     function mostrarErro(msg) { UI.preencher(aviso, [icone('alerta'), el('div', { class: 'aviso-corpo' }, msg)]); aviso.hidden = false; }
 
@@ -412,7 +428,7 @@ var SERVIDOR = (function () {
         el('div', { class: 'marca-bloco' },
           el('img', { class: 'marca-logo', src: window.LOGO_MARCA_URL || 'public/the-one-logo.png', alt: 'THE ONE', width: 172, height: 96 })),
         el('div', null, [el('h1', null, 'Gestão de Anestesia'), el('div', { class: 't-pq t-medio' }, primeiro
-          ? 'Primeiro acesso: crie o administrador do sistema' : 'Entre com seu usuário da clínica')])
+          ? 'Primeiro acesso: crie o Anestesista chefe, que cuida de usuários e de tudo o mais' : 'Entre com seu usuário da clínica')])
       ]),
       formulario
     ])));
@@ -467,7 +483,7 @@ var SERVIDOR = (function () {
   function menuConta() {
     UI.abrirModal({
       titulo: usuario.nome,
-      sub: 'Login ' + usuario.login + ' · ' + (usuario.papel === 'admin' ? 'administrador' : 'equipe'),
+      sub: 'Login ' + usuario.login + ' · ' + (PERFIS[usuario.papel] ? PERFIS[usuario.papel].rotulo : usuario.papel),
       tamanho: 'estreito',
       corpo: [el('p', { class: 'sem-margem t-pq t-medio' },
         'As alterações que você faz vão para o LOG com o seu nome. Os dados ficam no servidor da clínica.')],
@@ -541,6 +557,21 @@ var SERVIDOR = (function () {
     },
     apagarTudo: function () {
       return pedir('POST', '/api/apagar-tudo', { confirmacao: 'APAGAR' }).then(function (r) { return exigirOk(r, 'Não foi apagado.'); });
+    },
+    // Auditoria por usuário e arquivo mensal do LOG (só o chefe; ver server/auditoria.js).
+    acessos: function (filtro) {
+      var q = Object.keys(filtro || {}).filter(function (k) { return filtro[k]; })
+        .map(function (k) { return k + '=' + encodeURIComponent(filtro[k]); }).join('&');
+      return pedir('GET', '/api/auditoria/acessos' + (q ? '?' + q : '')).then(function (r) { return exigirOk(r, 'Sem acesso.'); });
+    },
+    arquivosDeLog: function () { return pedir('GET', '/api/auditoria/arquivos').then(function (r) { return exigirOk(r, 'Sem acesso.'); }); },
+    rotacionarLogs: function () { return pedir('POST', '/api/auditoria/rotacionar', {}).then(function (r) { return exigirOk(r, 'Rotação não feita.'); }); },
+    conferirArquivosDeLog: function () { return pedir('POST', '/api/auditoria/conferir', {}).then(function (r) { return exigirOk(r, 'Conferência não feita.'); }); },
+    baixarArquivoDeLog: function (id, formato) {
+      return pedir('GET', '/api/auditoria/arquivos/' + encodeURIComponent(id) + (formato === 'jsonl' ? '?formato=jsonl' : '')).then(function (r) {
+        if (!r.ok) exigirOk(r, 'Arquivo não encontrado.');
+        return r.corpo instanceof Blob ? r.corpo : new Blob([JSON.stringify(r.corpo)], { type: 'application/json' });
+      });
     }
   };
 
@@ -558,7 +589,9 @@ var SERVIDOR = (function () {
     ativo: function () { return ativo; },
     usuario: function () { return usuario; },
     hoje: function () { return hoje; },
-    ehAdmin: function () { return !!(usuario && usuario.papel === 'admin'); },
+    perfil: function () { return usuario ? usuario.papel : ''; },
+    ehChefe: function () { return !!(usuario && usuario.papel === 'chefe'); },
+    ehAdmin: function () { return !!(usuario && usuario.papel === 'chefe'); },   // nome antigo de ehChefe
     pendentes: function () { return fila.length; }
   };
 })();

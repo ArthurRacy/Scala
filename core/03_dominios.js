@@ -178,6 +178,8 @@ function validarCirurgia(c, ctx) {
   var valor = paraNumero(c.valor);
   if (!vazio(c.valor) && valor === null) r.erro('valor', 'VALOR DA ANESTESIA inválido: ' + c.valor + '.');
   if (valor !== null && valor < 0) r.erro('valor', 'VALOR DA ANESTESIA não pode ser negativo.');
+  if (valor !== null && valor > LIMITE_VALOR_MES) r.erro('valor', 'VALOR DA ANESTESIA acima do teto de ' + moedaBR(LIMITE_VALOR_MES) + '.');
+  if (valor !== null && temMaisDeDuasCasas(valor)) r.erro('valor', 'VALOR DA ANESTESIA: use no máximo 2 casas decimais (centavos).');
 
   if (ehSim(c.pago) && valor === null) {
     r.aviso('valor', 'Marcado como PAGO sem VALOR DA ANESTESIA preenchido.');
@@ -187,6 +189,18 @@ function validarCirurgia(c, ctx) {
   }
 
   return r;
+}
+
+/**
+ * Teto de dinheiro: R$ 100 milhões por mês de competência (decisão do dono do produto, 05/10/2026). Cada lançamento
+ * também não passa disso. Vale para o que é digitado; o total do mês é conferido nas operações do store.
+ */
+var LIMITE_VALOR_MES = 100000000;
+
+/** Reais só têm centavos: mais de 2 casas decimais é digitação errada (o repasse trabalha em centavos inteiros). */
+function temMaisDeDuasCasas(n) {
+  var x = Number(n) * 100;
+  return Math.abs(x - Math.round(x)) > 1e-4;
 }
 
 /** Valida uma avaliação pré-anestésica. */
@@ -222,6 +236,8 @@ function validarAvaliacao(a, ctx) {
   var valor = paraNumero(a.valor);
   if (!vazio(a.valor) && valor === null) r.erro('valor', 'VALOR DA AVALIAÇÃO inválido: ' + a.valor + '.');
   if (valor !== null && valor < 0) r.erro('valor', 'VALOR DA AVALIAÇÃO não pode ser negativo.');
+  if (valor !== null && valor > LIMITE_VALOR_MES) r.erro('valor', 'VALOR DA AVALIAÇÃO acima do teto de ' + moedaBR(LIMITE_VALOR_MES) + '.');
+  if (valor !== null && temMaisDeDuasCasas(valor)) r.erro('valor', 'VALOR DA AVALIAÇÃO: use no máximo 2 casas decimais (centavos).');
 
   // A consulta pré-anestésica vem ANTES da cirurgia (ou no mesmo dia).
   if (dataValida(a.data) && dataValida(a.dataCirurgia) && paraData(a.data) > paraData(a.dataCirurgia)) {
@@ -270,6 +286,7 @@ if (typeof module !== 'undefined' && module.exports) {
     DOMINIOS: DOMINIOS, CLASSE_STATUS: CLASSE_STATUS,
     canonizar: canonizar, noDominio: noDominio, novoRelatorio: novoRelatorio,
     validarCirurgia: validarCirurgia, validarAvaliacao: validarAvaliacao,
-    validarAnestesista: validarAnestesista
+    validarAnestesista: validarAnestesista,
+    LIMITE_VALOR_MES: LIMITE_VALOR_MES, temMaisDeDuasCasas: temMaisDeDuasCasas
   };
 }

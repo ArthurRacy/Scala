@@ -38,7 +38,7 @@
  * Saída: { 'QUINTA-FEIRA': { 1: {nome, id}, ... 5: {...} }, ... }
  */
 function indexarEscalaBase(linhas) {
-  var idx = {};
+  var idx = Object.create(null);   // sem prototype: um "dia" chamado constructor não pode virar a função Object
   var diaCorrente = '';
 
   (linhas || []).forEach(function (l) {
@@ -67,7 +67,7 @@ function indexarEscalaBase(linhas) {
  */
 function diasFixosPorAnestesista(linhasEscalaBase) {
   var idx = indexarEscalaBase(linhasEscalaBase);
-  var mapa = {};
+  var mapa = Object.create(null);
 
   DOMINIOS.DIA_SEMANA_ESCALA.forEach(function (dia) {
     var bloco = idx[dia] || {};
@@ -281,7 +281,7 @@ function recalcularEfetivo(linha) {
 
 /** Mapa nome-normalizado -> anestesista, para resolver ID a partir do nome. */
 function indexarAnestesistasPorNome(anestesistas) {
-  var m = {};
+  var m = Object.create(null);
   (anestesistas || []).forEach(function (a) {
     var k = normalizar(a.nome);
     if (k) m[k] = a;
@@ -335,7 +335,8 @@ function gerarConsolidada(escalasPorMes, anestesistas, meses) {
  * XLOOKUP faz por padrão.
  */
 function indexarConsolidada(consolidada) {
-  var porChavePosicao = {}, porChaveNome = {}, porData = {};
+  // Sem prototype: data ou nome "constructor"/"__proto__" (backup estragado) não pode derrubar o recálculo.
+  var porChavePosicao = Object.create(null), porChaveNome = Object.create(null), porData = Object.create(null);
 
   (consolidada || []).forEach(function (l) {
     if (l.chavePosicao && !(l.chavePosicao in porChavePosicao)) porChavePosicao[l.chavePosicao] = l;

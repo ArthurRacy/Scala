@@ -100,6 +100,10 @@ TELAS.boletim = (function () {
   function abrir(app, cirurgia) {
     var b = app.store.boletimDaCirurgia(cirurgia.id);
     if (b) { app.filtros.boletim.id = b.id; app.ir('boletim'); return; }
+    if (!app.podeFazer('criarBoletim')) {
+      UI.info('Esta cirurgia ainda não tem boletim', 'O boletim é criado e preenchido pelo anestesista. O seu perfil vê e imprime, mas não cria.');
+      return;
+    }
     UI.confirmar({
       titulo: 'Criar boletim anestésico',
       texto: 'Criar o boletim da cirurgia ' + cirurgia.id + ' — ' + UI.ou(cirurgia.paciente) + ', ' + UI.data(cirurgia.data) +
@@ -195,10 +199,10 @@ TELAS.boletim = (function () {
                 el('div', null, [seloBoletim(b), b ? el('div', { class: 'celula-apoio mono' }, b.id) : null]),
                 // Mesmo peso para as duas ações da linha: uma coluna de botões
                 // primários disputaria com a única ação principal da tela.
-                el('button', {
+                b || app.podeFazer('criarBoletim') ? el('button', {
                   class: 'btn btn-pq',
                   onclick: function (ev) { ev.stopPropagation(); abrir(app, c); }
-                }, b ? [icone('nota'), 'Abrir'] : [icone('mais'), 'Criar'])
+                }, b ? [icone('nota'), 'Abrir'] : [icone('mais'), 'Criar']) : el('span', { class: 't-suave' }, '—')
               ],
               __onclick: function () { abrir(app, c); }
             };
@@ -219,7 +223,10 @@ TELAS.boletim = (function () {
     var store = app.store;
     var id = b0.id;
     var cir = cirurgiaDe(app, b0);
-    var fechado = b0.status === BOLETIM_FINALIZADO;
+    var finalizado = b0.status === BOLETIM_FINALIZADO;
+    // Quem só vê o boletim (a secretária) o abre como um finalizado: tudo desabilitado, sem assinar nem reabrir.
+    var soLeitura = !app.podeFazer('salvarBoletim');
+    var fechado = finalizado || soLeitura;
     var atualizadores = [];
 
     function atual() { return store.boletim(id); }
@@ -560,13 +567,23 @@ TELAS.boletim = (function () {
       if (pend.length) { UI.atencao('Ainda falta preencher', pend.join(' · ') + '.'); return; }
       var quadro = COMP.quadroAssinatura({ rotulo: 'Área para o anestesiologista assinar' });
       var crm = crmDoCadastro(app, c.anestesista);
-      var fNome = UI.campo({ rotulo: 'Anestesiologista', nome: 'nome', valor: c.anestesista, obrigatorio: true });
-      var fCrm = UI.campo({ rotulo: 'CRM', nome: 'crm', valor: crm, obrigatorio: true, exemplo: '12345-DF',
+      // Com login (servidor da clínica ou conta de demonstração), quem assina é quem entrou: o boletim sai no nome e
+      // no CRM do anestesista ligado ao login.
+      var eu = app.temLogin() ? contextoDeAssinatura(app.idDoAssinante(), store.estado.anestesistas).anestesista : null;
+      var travado = !!eu;
+      if (travado) crm = eu.crm || crm;
+      var fNome = UI.campo({ rotulo: 'Anestesiologista', nome: 'nome', valor: travado ? eu.nome : c.anestesista, obrigatorio: true, calculado: travado,
+        dica: travado ? 'Quem assina é quem entrou no sistema.' : null });
+      var fCrm = UI.campo({ rotulo: 'CRM', nome: 'crm', valor: crm, obrigatorio: true, exemplo: '12345-DF', calculado: travado && !!(eu && eu.crm),
         dica: crm ? null : 'Vai também para o cadastro do anestesista.' });
       var form = UI.formulario([fNome, fCrm]);
 
       function confirmar(botao) {
         var d = form.dados();
+        if (app.servidor && !eu) {
+          UI.erro('Seu usuário não assina', 'Ele não está ligado a um anestesista do cadastro. Peça ao Anestesista chefe para ligar (tela Usuários).');
+          return;
+        }
         var tracos = quadro.tracos();
         if (!tracos.length) { UI.atencao('Falta a assinatura', 'Assine no quadro acima da linha.'); return; }
         botao.disabled = true;
@@ -720,8 +737,8 @@ TELAS.boletim = (function () {
       el('div', { class: 'cartao' }, el('div', { class: 'cartao-corpo compacto pilha-pq' }, [
         blocoSituacao,
         el('div', { class: 'pilha-pq mt-2' }, fechado ? [
-          el('button', { class: 'btn btn-primario', onclick: gerarPdf }, [icone('baixar'), 'PDF do boletim']),
-          el('button', { class: 'btn', onclick: reabrir }, [icone('lapis'), 'Reabrir para correção'])
+          el('button', { class: 'btn btn-primario', onclick: gerarPdf }, [icone('baixar'), finalizado ? 'PDF do boletim' : 'PDF (rascunho)']),
+          finalizado && !soLeitura ? el('button', { class: 'btn', onclick: reabrir }, [icone('lapis'), 'Reabrir para correção']) : null
         ] : [
           botaoFinalizar,
           el('button', { class: 'btn', onclick: gerarPdf }, [icone('baixar'), 'PDF (rascunho)']),
@@ -983,8 +1000,10 @@ TELAS.boletim = (function () {
 
     var principal = el('div', { class: 'bol-principal pilha' }, [
       fechado ? el('div', { class: 'aviso aviso-ok', style: 'margin:0' }, [icone('cadeado'), el('div', { class: 'aviso-corpo' }, [
-        el('strong', null, 'Boletim finalizado — somente leitura'),
-        el('div', { class: 't-pq' }, 'Para corrigir, use "Reabrir para correção": o motivo fica registrado e o boletim precisa ser assinado de novo.')
+        el('strong', null, finalizado ? 'Boletim finalizado — somente leitura' : 'Boletim em preenchimento — somente leitura'),
+        el('div', { class: 't-pq' }, soLeitura
+          ? 'O seu perfil vê e imprime o boletim, mas quem preenche e assina é o anestesista.'
+          : 'Para corrigir, use "Reabrir para correção": o motivo fica registrado e o boletim precisa ser assinado de novo.')
       ])]) : null,
       secPaciente, secTecnica, secMonitor, secTempos, secSinais, secFarmacos, secFluidos, secIntercorrencias,
       secRecuperacao, secObs, historico

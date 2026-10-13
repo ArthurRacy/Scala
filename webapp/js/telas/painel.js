@@ -88,7 +88,9 @@ TELAS.painel = (function () {
     var d = store.dashboard(app.mes, app.ano);
     var k = d.kpis;
     var pend = store.pendencias({ mes: app.mes, ano: app.ano });
-    var integridade = app.integridade();
+    // Quem não abre a tela de Integridade (nem a de Horas) não vê alerta que mande para lá.
+    var integridade = app.podeVer('integridade') ? app.integridade() : { erros: [], avisos: [] };
+    var veFin = app.veFinanceiro();
 
     var raiz = el('div', { class: 'pilha' });
 
@@ -107,8 +109,10 @@ TELAS.painel = (function () {
         itens.push(el('li', null, [
           el('strong', null, pend.length + ' ' +
             (pend.length === 1 ? 'cirurgia realizada' : 'cirurgias realizadas')),
-          ' sem horário real preenchido — ',
-          el('a', { href: '#', onclick: function (e) { e.preventDefault(); app.ir('horas'); } }, 'fechar horas')
+          ' sem horário real preenchido',
+          app.podeVer('horas')
+            ? [' — ', el('a', { href: '#', onclick: function (e) { e.preventDefault(); app.ir('horas'); } }, 'fechar horas')]
+            : ' — avise a secretaria ou o chefe para fechar as horas'
         ]));
       }
 
@@ -149,8 +153,8 @@ TELAS.painel = (function () {
       })
     ]));
 
-    /* ---- KPIs financeiros -------------------------------------------- */
-    raiz.appendChild(el('div', { class: 'grade grade-4' }, [
+    /* ---- KPIs financeiros (só para quem vê dinheiro) ------------------ */
+    if (veFin) raiz.appendChild(el('div', { class: 'grade grade-4' }, [
       kpi({ rotulo: 'Faturado no mês', valor: UI.moedaZero(k.totalFaturado), valorPq: true,
             nota: 'anestesias + avaliações' }),
       kpi({ rotulo: 'Recebido', valor: UI.moedaZero(k.totalRecebido), valorPq: true,
@@ -163,7 +167,7 @@ TELAS.painel = (function () {
     ]));
 
     /* ---- Composição do faturamento ----------------------------------- */
-    raiz.appendChild(el('div', { class: 'cartao' }, [
+    if (veFin) raiz.appendChild(el('div', { class: 'cartao' }, [
       cabecalhoCartao('Composição do faturamento', nomeMes(app.mes) + ' de ' + app.ano),
       el('div', { class: 'cartao-corpo' }, [
         GFX.empilhada([
@@ -208,7 +212,7 @@ TELAS.painel = (function () {
             descricao: 'Cirurgias realizadas por mês'
           }))
       ]),
-      el('div', { class: 'cartao' }, [
+      veFin ? el('div', { class: 'cartao' }, [
         cabecalhoCartao('Faturado x recebido', 'por mês, em reais'),
         el('div', { class: 'cartao-corpo' },
           GFX.agrupadas(d.receitaPorMes, {
@@ -221,7 +225,7 @@ TELAS.painel = (function () {
             vazio: 'Nenhum valor lançado em ' + app.ano + '.',
             descricao: 'Comparativo entre faturado e recebido por mês'
           }))
-      ])
+      ]) : null
     ]));
 
     return raiz;

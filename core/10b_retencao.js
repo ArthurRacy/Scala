@@ -5,16 +5,19 @@
  * Regra única para o navegador (webapp/js/03d_guarda.js) e para o servidor
  * (server/armazem.js):
  *   - a cópia de cada dia, nos últimos 35 dias;
- *   - a primeira cópia de cada mês, por 24 meses;
- *   - marcos (a cópia tirada antes de apagar ou importar), por 400 dias.
- * Assim nada do que foi lançado some antes de um ano, nem apagado por engano.
+ *   - a primeira cópia de cada mês, por 36 meses;
+ *   - marcos (a cópia tirada antes de apagar ou importar), por 400 dias;
+ *   - o PDF de exame que alguém removeu, por 3 anos contados DA REMOÇÃO.
+ * Prazo de guarda decidido em 07/10/2026: 3 anos. Para guardar mais que isso, o chefe baixa
+ * todos os dados (Dados e backup → Baixar todos os dados) e guarda o pacote fora do sistema.
  * ============================================================================
  */
 
 var RETENCAO_COPIAS = {
   diasDiarios: 35,      // uma cópia por dia, nos últimos 35 dias
-  mesesMensais: 24,     // a primeira cópia de cada mês, por 24 meses
+  mesesMensais: 36,     // a primeira cópia de cada mês, por 36 meses (3 anos)
   diasMarcos: 400,      // cópia de antes de apagar/importar
+  diasExamesRemovidos: 1096,   // PDF de exame removido: 3 anos (com um 29 de fevereiro) a partir da remoção
   diasPasta: 60         // arquivos diários na pasta de backup do navegador (os mensais ficam)
 };
 

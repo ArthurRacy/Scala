@@ -50,7 +50,9 @@ function estadoVazio() {
       escalaBaseAuto: false,
       sequencias: { cirurgia: 0, avaliacao: 0, boletim: 0, qualidade: 0, estrutura: 0 },
       clinica: {},
-      qualidade: configQualidadePadrao()
+      qualidade: configQualidadePadrao(),
+      // Arquivo mensal e limpeza do LOG (11b_log_arquivo.js).
+      log: lerConfigLog()
     },
     anestesistas: [],
     escalaBase: [],
@@ -81,6 +83,8 @@ function criarStore(estadoInicial, opcoes) {
 
   var estado = estadoInicial || estadoVazio();
   var usuario = opcoes.usuario || CONFIG.USUARIO_PADRAO;
+  // O login de quem está mexendo: vai em toda linha do LOG, ao lado do nome (que pode mudar).
+  var login = txt(opcoes.login);
   var ouvintes = [];
   if (typeof opcoes.aoMudar === 'function') ouvintes.push(opcoes.aoMudar);
 
@@ -360,9 +364,17 @@ function criarStore(estadoInicial, opcoes) {
     });
     var saida = {};
     Object.keys(dados || {}).forEach(function (k) {
-      if (permitidos[k] === true) saida[k] = dados[k];
+      // Os campos da planilha são texto, número ou Sim/Não. Um objeto ou lista no lugar (só dá para mandar pela rede) virava
+      // "[object Object]" gravado como nome ou observação: vira vazio, e a validação cobra o que for obrigatório.
+      if (permitidos[k] === true) saida[k] = (dados[k] !== null && typeof dados[k] === 'object') ? '' : dados[k];
     });
     return saida;
+  }
+
+  /** Põe o login de quem está mexendo na linha do LOG (se ela ainda não tiver o dela). */
+  function carimbarLogin(entrada) {
+    if (login && vazio(entrada.login)) entrada.login = login;
+    return entrada;
   }
 
   /**
@@ -377,9 +389,12 @@ function criarStore(estadoInicial, opcoes) {
    *
    * Devolve { ok, erros, avisos, log, criadas, atualizadas, orfas }.
    */
+  var recalculouNaTransacao = false;   // a operação refez o derivado no meio (ver erroDeSubstituicaoEmConflito)
+
   function transacao(fn) {
     var snap = snapshot(true);
     var resultado;
+    recalculouNaTransacao = false;
 
     try {
       resultado = fn(estado, {
@@ -387,16 +402,18 @@ function criarStore(estadoInicial, opcoes) {
         proximoIdCirurgia: proximoIdCirurgia,
         proximoIdAnestesista: proximoIdAnestesista,
         registrar: function (entradas) {
-          (entradas || []).forEach(function (e) { estado.log.push(e); });
+          (entradas || []).forEach(function (e) { estado.log.push(carimbarLogin(e)); });
         }
       }) || { ok: true };
     } catch (e) {
       restaurar(snap);
+      if (recalculouNaTransacao) recalcular();
       return { ok: false, erros: [{ campo: '', msg: 'Erro interno: ' + (e && e.message ? e.message : e) }], avisos: [] };
     }
 
     if (resultado.ok === false) {
       restaurar(snap);
+      if (recalculouNaTransacao) recalcular();
       return {
         ok: false,
         erros: resultado.erros || [{ campo: '', msg: 'Operação rejeitada.' }],
@@ -409,11 +426,11 @@ function criarStore(estadoInicial, opcoes) {
 
     // Avaliações criadas pela sincronização também entram no log.
     (sync.criadas || []).forEach(function (a) {
-      estado.log.push(logCriacao('AVALIACOES_PRE', a, {
+      estado.log.push(carimbarLogin(logCriacao('AVALIACOES_PRE', a, {
         usuario: usuario,
         idCirurgia: a.idCirurgia,
         campo: 'AVALIAÇÃO CRIADA AUTOMATICAMENTE'
-      }));
+      })));
     });
 
     var saida = {
@@ -432,7 +449,9 @@ function criarStore(estadoInicial, opcoes) {
       ficha: resultado.ficha || null,
       registro: resultado.registro || null,
       // Campos copiados de outro registro (ficha preenchida a partir do boletim).
-      preenchidos: resultado.preenchidos || []
+      preenchidos: resultado.preenchidos || [],
+      // Linhas que saíram do LOG (arquivarLogAte).
+      arquivadas: resultado.arquivadas || 0
     };
 
     ouvintes.forEach(function (f) {
@@ -480,6 +499,27 @@ function criarStore(estadoInicial, opcoes) {
   /*                       OPERAÇÕES DE NEGÓCIO                           */
   /* ==================================================================== */
 
+  /**
+   * Teto de R$ 100 milhões por mês de competência (decisão do dono do produto, 05/10/2026): o total lançado no(s) mês(es)
+   * das datas dadas, em centavos. Devolve o erro ({ campo, msg }) ou null. Só olha o que foi mexido, para um mês antigo
+   * já acima do teto (se existir) não travar o resto do trabalho.
+   */
+  function erroDeTetoMensal(st, datas) {
+    var alvo = Object.create(null), soma = Object.create(null);
+    datas.forEach(function (d) { var m = paraData(d).slice(0, 7); if (m) alvo[m] = true; });
+    function somar(data, valor) {
+      var m = paraData(data).slice(0, 7), v = paraNumero(valor);
+      if (m && alvo[m] && v !== null) soma[m] = (soma[m] || 0) + Math.round(v * 100);
+    }
+    st.cirurgias.forEach(function (c) { if (cirurgiaContabilizavel(c)) somar(c.data, c.valor); });
+    st.avaliacoes.forEach(function (a) { somar(a.data || a.dataCirurgia, a.valor); });
+    var estourou = Object.keys(soma).sort().filter(function (m) { return soma[m] > LIMITE_VALOR_MES * 100; })[0];
+    return estourou
+      ? { campo: 'valor', msg: 'O total lançado em ' + estourou.slice(5, 7) + '/' + estourou.slice(0, 4) + ' passaria do teto de ' +
+          moedaBR(LIMITE_VALOR_MES) + ' por mês. Confira os valores.' }
+      : null;
+  }
+
   /** Cria uma cirurgia. `dados` traz só campos manuais. */
   function adicionarCirurgia(dados) {
     return transacao(function (st, api) {
@@ -504,6 +544,8 @@ function criarStore(estadoInicial, opcoes) {
       }
 
       st.cirurgias.push(c);
+      var teto = erroDeTetoMensal(st, [c.data]);
+      if (teto) return { ok: false, erros: [teto], avisos: rel.avisos };
       api.registrar([logCriacao('CIRURGIAS', c, { usuario: usuario, idCirurgia: c.id })]);
       return { ok: true, avisos: rel.avisos };
     });
@@ -535,6 +577,8 @@ function criarStore(estadoInicial, opcoes) {
         avaliacoesPorCirurgia: idx.avaliacoesPorCirurgia
       });
 
+      var teto = erroDeTetoMensal(st, [alvo.data]);
+      if (teto) return { ok: false, erros: [teto], avisos: rel.avisos };
       api.registrar(diffParaLog('CIRURGIAS', antes, alvo, { usuario: usuario, idCirurgia: alvo.id }));
       return { ok: true, avisos: rel.avisos };
     });
@@ -618,6 +662,8 @@ function criarStore(estadoInicial, opcoes) {
       if (!rel.ok) return { ok: false, erros: rel.erros, avisos: rel.avisos };
 
       Object.assign(alvo, mudancas);
+      var teto = erroDeTetoMensal(st, [alvo.data || alvo.dataCirurgia]);
+      if (teto) return { ok: false, erros: [teto], avisos: rel.avisos };
       api.registrar(diffParaLog('AVALIACOES_PRE', antes, alvo, {
         usuario: usuario, idCirurgia: alvo.idCirurgia
       }));
@@ -628,7 +674,8 @@ function criarStore(estadoInicial, opcoes) {
   /** Cria ou atualiza um anestesista do cadastro. */
   function salvarAnestesista(dados) {
     return transacao(function (st, api) {
-      var novo = !dados.id || !st.anestesistas.some(function (a) { return txt(a.id) === txt(dados.id); });
+      var duplicadasAntes = st.config && st.config.escalaBaseAuto ? duplicatasDaEscala(st) : null;
+      var novo =!dados.id || !st.anestesistas.some(function (a) { return txt(a.id) === txt(dados.id); });
       var alvo = novo ? null : st.anestesistas.filter(function (a) { return txt(a.id) === txt(dados.id); })[0];
 
       var candidato = Object.assign({
@@ -669,6 +716,11 @@ function criarStore(estadoInicial, opcoes) {
         api.registrar([logCriacao('ANESTESISTAS', candidato, { usuario: usuario, idCirurgia: candidato.id })]);
       }
 
+      // Com a escala-base automática, mexer no cadastro reescreve a base: se uma substituição antiga passasse a duplicar alguém, recusa.
+      if (duplicadasAntes) {
+        var conflito = erroDeSubstituicaoEmConflito(st, duplicadasAntes);
+        if (conflito) return { ok: false, erros: [conflito], avisos: rel.avisos };
+      }
       return { ok: true, avisos: rel.avisos };
     });
   }
@@ -757,13 +809,66 @@ function criarStore(estadoInicial, opcoes) {
     });
   }
 
-  /** Substitui a ESCALA_BASE inteira (as 30 linhas) de uma vez. */
+  /** Os dias em que a mesma pessoa está em duas posições: { 'AAAA-MM-DD|nome': 'dd/mm (Nome)' }. */
+  function duplicatasDaEscala(st) {
+    var vistos = Object.create(null), dups = Object.create(null);
+    (st.consolidada || []).forEach(function (l) {
+      var k = l.chaveNome;
+      if (!k) return;
+      if (vistos[k]) dups[k] = String(l.data).slice(8, 10) + '/' + String(l.data).slice(5, 7) + ' (' + txt(l.efetivo) + ')';
+      vistos[k] = true;
+    });
+    return dups;
+  }
+
+  /**
+   * Decisão do dono do produto (05/10/2026): mudança de escala-base que deixaria a MESMA pessoa em duas posições no
+   * mesmo dia é RECUSADA. `antes` = duplicatasDaEscala de antes da mudança (o que já estava duplicado não trava nada).
+   * Chame depois de mexer na base ou no cadastro; devolve o erro ({ campo, msg }) ou null.
+   */
+  function erroDeSubstituicaoEmConflito(st, antes) {
+    recalcular();   // para olhar o resultado; se for recusado, a transação refaz o cálculo depois de desfazer
+    recalculouNaTransacao = true;
+    var depois = duplicatasDaEscala(st);
+    var novas = Object.keys(depois).filter(function (k) { return !(k in antes); }).map(function (k) { return depois[k]; });
+    if (!novas.length) return null;
+    return { campo: 'substituicao', msg: 'Não foi feito: com essa mudança a mesma pessoa ficaria em duas posições no mesmo dia (' +
+      novas.slice(0, 5).join(', ') + (novas.length > 5 ? ' e mais ' + (novas.length - 5) : '') +
+      '). É uma substituição já registrada nesses dias: desfaça-a na tela Escala e tente de novo.' };
+  }
+
+  /** Os postos (dia + posição) cujo nome mudou entre duas escalas-base: { de: [...], para: [...] } para o LOG. */
+  function postosMudadosDaBase(antes, depois) {
+    var a = indexarEscalaBase(antes), b = indexarEscalaBase(depois), de = [], para = [];
+    CONFIG.DIAS_ESCALA.forEach(function (dia) {
+      CONFIG.POSICOES.forEach(function (pos) {
+        var x = txt(((a[dia] || {})[pos] || {}).nome), y = txt(((b[dia] || {})[pos] || {}).nome);
+        if (x === y) return;
+        var rotulo = dia.slice(0, 3) + ' ' + pos;
+        de.push(rotulo + ': ' + (x || '—'));
+        para.push(rotulo + ': ' + (y || '—'));
+      });
+    });
+    return { de: de, para: para };
+  }
+
+  /** Substitui a ESCALA_BASE inteira (as 30 linhas) de uma vez. As substituições já registradas continuam valendo; se alguma
+   *  fizesse a mesma pessoa ficar em duas posições no mesmo dia, a mudança é recusada. */
   function definirEscalaBase(linhas) {
-    return transacao(function (st) {
+    return transacao(function (st, api) {
       var rel = validarEscalaBase(linhas, st.anestesistas);
       if (!rel.ok) return { ok: false, erros: rel.erros, avisos: rel.avisos };
+      var duplicadasAntes = duplicatasDaEscala(st);
+      var anterior = st.escalaBase;
       st.escalaBase = JSON.parse(JSON.stringify(linhas));
-      return { ok: true, avisos: rel.avisos };
+      var conflito = erroDeSubstituicaoEmConflito(st, duplicadasAntes);
+      if (conflito) return { ok: false, erros: [conflito], avisos: rel.avisos };
+      var mudou = postosMudadosDaBase(anterior, st.escalaBase);
+      if (mudou.de.length) {
+        api.registrar([novaEntradaLog({ usuario: usuario, aba: 'CONFIGURAÇÃO', idCirurgia: 'ESCALA_BASE', campo: 'ESCALA-BASE',
+          de: mudou.de.join(' | ').slice(0, 400), para: mudou.para.join(' | ').slice(0, 400) })]);
+      }
+      return { ok: true, avisos: rel.avisos || [] };
     });
   }
 
@@ -779,6 +884,7 @@ function criarStore(estadoInicial, opcoes) {
       var depois = !!auto;
       if (antes === depois) return { ok: true };
 
+      var duplicadasAntes = duplicatasDaEscala(st);
       if (!st.config) st.config = {};
       st.config.escalaBaseAuto = depois;
 
@@ -790,6 +896,8 @@ function criarStore(estadoInicial, opcoes) {
                  ' anestesistas ativos para montar a escala-base sozinha.' }] };
         }
         st.escalaBase = nova;
+        var conflito = erroDeSubstituicaoEmConflito(st, duplicadasAntes);
+        if (conflito) return { ok: false, erros: [conflito] };
       }
 
       api.registrar([novaEntradaLog({
@@ -850,16 +958,104 @@ function criarStore(estadoInicial, opcoes) {
     });
   }
 
+  /* ---------------------------------------------------------------- LOG */
+
+  /** Como o arquivo mensal e a limpeza do LOG estão configurados (a faixa e o padrão são do core/11b). */
+  function configLog() { return lerConfigLog(estado.config && estado.config.log); }
+
+  /** Quanto tempo o LOG fica na tela e quanto tempo o arquivo mensal é guardado. Só o chefe. */
+  function salvarConfigLog(mesesNaTela, anosDeGuarda) {
+    return transacao(function (st, api) {
+      var erros = [];
+      var m = inteiroNaFaixa(mesesNaTela, LOG_LIMITES.mesesNaTela);
+      var a = inteiroNaFaixa(anosDeGuarda, LOG_LIMITES.anosDeGuarda);
+      if (m === null) erros.push({ campo: 'mesesNaTela', msg: 'Meses de LOG na tela: um número inteiro de ' + LOG_LIMITES.mesesNaTela.min + ' a ' + LOG_LIMITES.mesesNaTela.max + '.' });
+      if (a === null) erros.push({ campo: 'anosDeGuarda', msg: 'Anos de guarda do arquivo: um número inteiro de ' + LOG_LIMITES.anosDeGuarda.min + ' a ' + LOG_LIMITES.anosDeGuarda.max + ' (0 = nunca apagar sozinho).' });
+      if (erros.length) return { ok: false, erros: erros };
+      var antes = lerConfigLog(st.config.log);
+      st.config.log = { mesesNaTela: m, anosDeGuarda: a };
+      var entradas = [];
+      function mudou(campo, de, para) {
+        entradas.push(novaEntradaLog({ usuario: usuario, aba: 'CONFIGURAÇÃO', idCirurgia: 'LOG', campo: campo, de: de, para: para }));
+      }
+      if (antes.mesesNaTela !== m) mudou('LOG: MESES NA TELA', antes.mesesNaTela, m);
+      if (antes.anosDeGuarda !== a) mudou('LOG: ANOS DE GUARDA DO ARQUIVO', antes.anosDeGuarda === 0 ? 'nunca apagar' : antes.anosDeGuarda, a === 0 ? 'nunca apagar' : a);
+      api.registrar(entradas);
+      return { ok: true, semRecalculo: true };
+    });
+  }
+
+  /**
+   * Tira do LOG as linhas anteriores a `corte` (ISO) e deixa uma linha "LOG ARQUIVADO" no lugar.
+   * É a ÚNICA operação que remove linha do LOG e só o servidor a aplica (rotação mensal), DEPOIS de
+   * o arquivo com essas linhas estar gravado e conferido (server/auditoria.js). `resumo` diz onde
+   * elas estão (arquivos e SHA-256). Linha sem carimbo de data válido nunca sai.
+   */
+  function arquivarLogAte(corte, resumo) {
+    return transacao(function (st, api) {
+      var c = paraData(corte);
+      if (!c || !dataValida(c)) return { ok: false, erros: [{ campo: 'corte', msg: 'Data de corte inválida: ' + corte + '.' }] };
+      var ficam = st.log.filter(function (e) {
+        var mes = mesDoLog(e.quando);
+        return !(mes && txt(e.quando).slice(0, 10) < c);
+      });
+      var saem = st.log.length - ficam.length;
+      if (!saem) return { ok: true, semRecalculo: true, arquivadas: 0 };
+      st.log.splice(0, st.log.length);
+      ficam.forEach(function (e) { st.log.push(e); });
+      api.registrar([novaEntradaLog({
+        usuario: 'Sistema', login: 'sistema', aba: 'SISTEMA', idCirurgia: '', campo: 'LOG ARQUIVADO',
+        de: saem + ' registro(s) anteriores a ' + dataBR(c), para: txt(resumo).slice(0, 400)
+      })]);
+      return { ok: true, semRecalculo: true, arquivadas: saem };
+    });
+  }
+
   /* ------------------------------------------------------------ repasse */
 
-  function registroDoMes(st, chave) {
+  /**
+   * Registro do mês; se ainda não existe, cria e GUARDA o grupo que divide aquele mês
+   * (os ativos de agora), com uma linha no LOG. É o que impede o repasse de meses
+   * passados de mudar quando alguém é desativado depois (core/09b_repasse.js).
+   */
+  function registroDoMes(st, chave, api) {
     var reg = st.repasses.filter(function (r) { return r.mes === chave; })[0];
-    if (!reg) { reg = { mes: chave, despesas: null, obs: '', pagamentos: [] }; st.repasses.push(reg); }
+    if (!reg) {
+      reg = { mes: chave, despesas: null, obs: '', pagamentos: [], participantes: participantesAtivosDoRepasse(st.anestesistas) };
+      st.repasses.push(reg);
+      if (api) api.registrar([entradaLogRepasse(chave, 'GRUPO DO REPASSE', '', textoDoGrupo(reg.participantes))]);
+    }
     return reg;
+  }
+
+  function textoDoGrupo(grupo) {
+    return grupo.length + ' participante(s): ' + grupo.map(function (g) { return g.nome; }).join(', ');
   }
 
   function entradaLogRepasse(chave, campo, de, para, id) {
     return novaEntradaLog({ usuario: usuario, aba: 'REPASSE ' + chave, idCirurgia: id || chave, campo: campo, de: de, para: para });
+  }
+
+  /**
+   * Refaz o grupo do mês pelo cadastro de hoje (quem entrou ou foi reativado depois da
+   * primeira gravação). Só enquanto NINGUÉM recebeu: com repasse registrado, mudar o
+   * grupo mudaria a cota de quem já foi pago.
+   */
+  function atualizarParticipantesRepasse(ano, mes) {
+    return transacao(function (st, api) {
+      var info = infoMes(ano, mes);
+      if (!info) return { ok: false, erros: [{ campo: 'mes', msg: 'Mês inválido.' }] };
+      var reg = st.repasses.filter(function (r) { return r.mes === info.chave; })[0];
+      if (!reg) return { ok: false, erros: [{ campo: 'mes', msg: 'Este mês ainda não tem grupo guardado: ele é guardado ao salvar despesas ou registrar o primeiro repasse.' }] };
+      if (reg.pagamentos.length) {
+        return { ok: false, erros: [{ campo: 'pagamentos', msg: 'Já há repasse registrado neste mês: o grupo não pode mudar sem mexer na cota de quem já recebeu. Desfaça os registros primeiro, se for o caso.' }] };
+      }
+      var antes = Array.isArray(reg.participantes) ? textoDoGrupo(reg.participantes) : '(grupo ativo do dia)';
+      reg.participantes = participantesAtivosDoRepasse(st.anestesistas);
+      var depois = textoDoGrupo(reg.participantes);
+      if (antes !== depois) api.registrar([entradaLogRepasse(info.chave, 'GRUPO DO REPASSE', antes, depois)]);
+      return { ok: true };
+    });
   }
 
   /** Despesas do mês (descontadas antes da divisão) e observação. */
@@ -870,7 +1066,9 @@ function criarStore(estadoInicial, opcoes) {
       var v = vazio(despesas) ? null : paraNumero(despesas);
       if (!vazio(despesas) && v === null) return { ok: false, erros: [{ campo: 'despesas', msg: 'Despesas: valor inválido.' }] };
       if (v !== null && v < 0) return { ok: false, erros: [{ campo: 'despesas', msg: 'Despesas não podem ser negativas.' }] };
-      var reg = registroDoMes(st, info.chave);
+      if (v !== null && v > LIMITE_VALOR_MES) return { ok: false, erros: [{ campo: 'despesas', msg: 'Despesas acima do teto de ' + moedaBR(LIMITE_VALOR_MES) + '.' }] };
+      if (v !== null && temMaisDeDuasCasas(v)) return { ok: false, erros: [{ campo: 'despesas', msg: 'Despesas: use no máximo 2 casas decimais (centavos).' }] };
+      var reg = registroDoMes(st, info.chave, api);
       var antes = reg.despesas;
       reg.despesas = v;
       reg.obs = txt(obs).slice(0, 500);
@@ -898,7 +1096,7 @@ function criarStore(estadoInicial, opcoes) {
       if (!dataValida(data)) erros.push({ campo: 'data', msg: 'Informe a data do repasse.' });
       if (erros.length) return { ok: false, erros: erros };
 
-      var reg = registroDoMes(st, info.chave);
+      var reg = registroDoMes(st, info.chave, api);
       reg.pagamentos.push({
         idAnestesista: txt(a.id), nome: txt(a.nome), pix: txt(a.pix),
         valor: arredondar2(v), data: paraData(data),
@@ -1569,7 +1767,7 @@ function criarStore(estadoInicial, opcoes) {
    */
   function aplicarRemanejamento(movimentos) {
     return transacao(function (st, api) {
-      var lista = movimentos || [];
+      var lista = Array.isArray(movimentos) ? movimentos : [];
       if (!lista.length) {
         return { ok: false, erros: [{ campo: 'movimentos', msg: 'Nada a remanejar.' }] };
       }
@@ -1579,6 +1777,7 @@ function criarStore(estadoInicial, opcoes) {
 
       for (var i = 0; i < lista.length; i++) {
         var mov = lista[i];
+        if (!mov || typeof mov !== 'object') return { ok: false, erros: [{ campo: 'movimentos', msg: 'Movimento inválido (esperado: cirurgia e anestesista).' }] };
         var alvo = st.cirurgias.filter(function (c) { return txt(c.id) === txt(mov.id); })[0];
         if (!alvo) {
           return { ok: false, erros: [{ campo: 'id', msg: 'Cirurgia ' + mov.id + ' não encontrada.' }] };
@@ -1853,7 +2052,7 @@ function criarStore(estadoInicial, opcoes) {
 
   /** Visões calculadas, sempre a partir do estado atual. */
   /** Balanço de horas; `meses` padrão = o horizonte inteiro. */
-  function horas(meses) { return calcularHoras(estado.anestesistas, estado.cirurgias, meses || horizonteAtual()); }
+  function horas(meses) { return calcularHoras(estado.anestesistas, estado.cirurgias, Array.isArray(meses) ? meses : horizonteAtual()); }
 
   function financeiro(mes, ano) {
     return calcularFinanceiro(estado.cirurgias, estado.avaliacoes, mes, ano || CONFIG.ANO_REFERENCIA);
@@ -1911,6 +2110,11 @@ function criarStore(estadoInicial, opcoes) {
     estenderHorizonte: estenderHorizonte,
     get usuario() { return usuario; },
     set usuario(u) { usuario = txt(u) || CONFIG.USUARIO_PADRAO; },
+    get login() { return login; },
+    set login(v) { login = txt(v); },
+    configLog: configLog,
+    salvarConfigLog: salvarConfigLog,
+    arquivarLogAte: arquivarLogAte,
 
     aoMudar: function (fn) { if (typeof fn === 'function') ouvintes.push(fn); return store; },
 
@@ -1982,6 +2186,7 @@ function criarStore(estadoInicial, opcoes) {
 
     salvarDespesasRepasse: salvarDespesasRepasse,
     registrarPagamentoRepasse: registrarPagamentoRepasse,
+    atualizarParticipantesRepasse: atualizarParticipantesRepasse,
     removerPagamentoRepasse: removerPagamentoRepasse,
     repasse: repasse,
 
@@ -2037,10 +2242,12 @@ function criarStoreComSeed(seed, opcoes) {
 var MUTACOES_STORE = ['adicionarCirurgia', 'atualizarCirurgia', 'removerCirurgia', 'atualizarAvaliacao',
   'salvarAnestesista', 'ajustarEscala', 'definirEscalaBase', 'definirModoEscalaBase', 'aplicarRemanejamento',
   'salvarConfigClinica', 'salvarDespesasRepasse', 'registrarPagamentoRepasse', 'removerPagamentoRepasse',
+  'atualizarParticipantesRepasse',
   'criarBoletim', 'salvarBoletim', 'alterarLinhaBoletim', 'finalizarBoletim', 'reabrirBoletim', 'descartarBoletim',
   'criarFichaQualidade', 'salvarFichaQualidade', 'preencherFichaDoBoletim', 'alterarEventoQualidade', 'registrarSeguimentoQualidade',
   'revisarFichaQualidade', 'concluirFichaQualidade', 'reabrirFichaQualidade', 'descartarFichaQualidade',
   'salvarRegistroEstrutura', 'removerRegistroEstrutura', 'salvarConfigQualidade',
+  'salvarConfigLog', 'arquivarLogAte',
   'reparar'];
 
 /**
@@ -2053,16 +2260,12 @@ var MUTACOES_STORE = ['adicionarCirurgia', 'atualizarCirurgia', 'removerCirurgia
 var MUTACOES_SEGURAS_EM_CONCORRENCIA = ['atualizarCirurgia', 'atualizarAvaliacao', 'ajustarEscala', 'salvarConfigClinica',
   'salvarDespesasRepasse', 'salvarBoletim', 'alterarLinhaBoletim', 'reabrirBoletim',
   'salvarFichaQualidade', 'preencherFichaDoBoletim', 'registrarSeguimentoQualidade', 'revisarFichaQualidade', 'reabrirFichaQualidade',
-  'salvarConfigQualidade'];
+  'salvarConfigQualidade', 'salvarConfigLog'];
 
-/**
- * No modo servidor, só o administrador: cadastro (inclusive CHAVE PIX),
- * escala-base, dados da clínica, financeiro do repasse e o reparo geral.
+/*
+ * Quem pode cada operação (os três perfis) está em core/12b_permissoes.js, a única tabela:
+ * ali também sai MUTACOES_SO_ADMIN, a lista do que só o Anestesista chefe faz.
  */
-var MUTACOES_SO_ADMIN = ['salvarAnestesista', 'definirEscalaBase', 'definirModoEscalaBase', 'salvarConfigClinica',
-  'salvarDespesasRepasse', 'registrarPagamentoRepasse', 'removerPagamentoRepasse',
-  // Estrutura e definições clínicas são da coordenação, não do dia a dia.
-  'salvarRegistroEstrutura', 'removerRegistroEstrutura', 'salvarConfigQualidade', 'reparar'];
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
@@ -2070,7 +2273,6 @@ if (typeof module !== 'undefined' && module.exports) {
     criarStore: criarStore,
     criarStoreComSeed: criarStoreComSeed,
     MUTACOES_STORE: MUTACOES_STORE,
-    MUTACOES_SO_ADMIN: MUTACOES_SO_ADMIN,
     MUTACOES_SEGURAS_EM_CONCORRENCIA: MUTACOES_SEGURAS_EM_CONCORRENCIA
   };
 }

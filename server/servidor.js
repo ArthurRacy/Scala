@@ -26,12 +26,23 @@
  *   - chamada que muda dado exige o cabeçalho X-Anestesia e, quando o
  *     navegador manda Origin, a mesma origem (contra CSRF);
  *   - serve só webapp/ e core/: a pasta de dados nunca sai pela rede;
- *   - papel "admin" para usuários, cadastro, financeiro e backup;
+ *   - três perfis (core/12b_permissoes.js), decididos AQUI e nunca pela tela: o servidor recusa
+ *     a operação que o perfil não faz (403), corta o dinheiro do estado e dos comandos que o
+ *     anestesista recebe, e só o Anestesista chefe mexe em usuários, backup e restauração;
  *   - HTTPS: com <dados>/https/chave.pem e certificado.pem, sobe em https.
- *     Sem eles, use só em rede local confiável (Wi-Fi com senha).
+ *     Sem eles, use só em rede local confiável (Wi-Fi com senha). Na internet, ponha um proxy
+ *     com HTTPS (Caddy, ver deploy/) na frente e abra com --atras-de-proxy (ou ATRAS_DE_PROXY=1):
+ *     o cookie passa a ser Secure e o IP de quem entra é o que o proxy informa;
+ *   - uma só cópia do servidor por pasta de dados (servidor.trava).
  * ============================================================================
  */
 'use strict';
+
+// A clínica trabalha em Brasília. Uma nuvem nasce em UTC: sem isto o servidor leria a hora que a tela
+// manda 3 horas fora do lugar (e recusaria toda gravação) e viraria o dia às 21h. Só no servidor de
+// verdade (os testes, que o carregam dentro do próprio processo, não mexem no fuso de ninguém).
+// FUSO_DO_SERVIDOR existe para quem precisar de outro fuso (clínica fora do horário de Brasília).
+if (require.main === module) process.env.TZ = process.env.FUSO_DO_SERVIDOR || 'America/Sao_Paulo';
 
 var http = require('http');
 var https = require('https');
@@ -40,10 +51,13 @@ var path = require('path');
 var vm = require('vm');
 var os = require('os');
 var crypto = require('crypto');
+var zlib = require('zlib');
 
 var core = require('../core');
 var criarArmazem = require('./armazem').criarArmazem;
 var criarContas = require('./contas').criarContas;
+var criarAuditoria = require('./auditoria').criarAuditoria;
+var exportarTudo = require('./exportar_tudo').exportarTudo;
 
 var RAIZ = path.join(__dirname, '..');
 var PUBLICAS = ['webapp', 'core'];
@@ -59,6 +73,7 @@ var TIPOS = {
 var LIMITE_BACKUP = 200 * 1024 * 1024;   // backup completo, com PDFs em base64
 var LIMITE_COMANDO = 4 * 1024 * 1024;
 var LIMITE_PDF = 25 * 1024 * 1024;
+var LIMITE_PDFS_POR_AVALIACAO = 30;
 var MAX_DIARIO_MEMORIA = 5000;
 var DESVIO_MAXIMO_MS = 5 * 60 * 1000;
 var AGORA_TEXTO = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
@@ -94,10 +109,91 @@ function cabecalhos(extras) {
   }, extras || {});
 }
 
+function aceitaGzip(res) {
+  return !!(res.req && /\bgzip\b/.test(String(res.req.headers['accept-encoding'] || '')));
+}
+
+/**
+ * Responde JSON. Corpo grande vai comprimido (gzip) quando o navegador aceita: o estado inteiro que cada tela baixa
+ * encolhe de 8 a 10 vezes, e o navegador descomprime sozinho.
+ */
 function json(res, status, obj, extras) {
   var corpo = JSON.stringify(obj);
-  res.writeHead(status, cabecalhos(Object.assign({ 'Content-Type': 'application/json; charset=utf-8' }, extras || {})));
+  var base = { 'Content-Type': 'application/json; charset=utf-8' };
+  if (corpo.length > 2048 && aceitaGzip(res)) {
+    zlib.gzip(Buffer.from(corpo, 'utf8'), function (erro, comprimido) {
+      if (res.headersSent || res.destroyed) return;
+      if (erro) { res.writeHead(status, cabecalhos(Object.assign(base, extras || {}))); res.end(corpo); return; }
+      res.writeHead(status, cabecalhos(Object.assign(base, { 'Content-Encoding': 'gzip', Vary: 'Accept-Encoding' }, extras || {})));
+      res.end(comprimido);
+    });
+    return;
+  }
+  res.writeHead(status, cabecalhos(Object.assign(base, extras || {})));
   res.end(corpo);
+}
+
+/**
+ * Argumentos de comando vindos da rede: só JSON de verdade, sem chave que mexe no prototype, com tamanho e profundidade
+ * limitados. Recusa em vez de "limpar": a tela que mandou já rodou o comando como estava, e o servidor tem de rodar o MESMO.
+ */
+function argumentosSeguros(v, fundo) {
+  fundo = fundo || 0;
+  if (fundo > 12) return false;
+  if (v === null || typeof v === 'boolean') return true;
+  if (typeof v === 'number') return isFinite(v);
+  if (typeof v === 'string') return v.length <= 200000;
+  if (Array.isArray(v)) return v.length <= 5000 && v.every(function (x) { return argumentosSeguros(x, fundo + 1); });
+  if (typeof v === 'object') {
+    var chaves = Object.keys(v);
+    return chaves.length <= 500 && chaves.every(function (k) {
+      return k !== '__proto__' && k !== 'constructor' && k !== 'prototype' && argumentosSeguros(v[k], fundo + 1);
+    });
+  }
+  return false;
+}
+
+/**
+ * Só um servidor por pasta de dados: dois gravando no mesmo estado e no mesmo diário se estragariam. A trava é um arquivo
+ * com o número do processo; se o processo dono já não existe (queda de luz), a trava velha é refeita.
+ * Devolve a função que solta a trava.
+ */
+var travasAbertas = new Set();
+process.once('exit', function () { travasAbertas.forEach(function (soltar) { soltar(); }); });
+
+function processoVivo(pid) {
+  try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
+}
+
+function pegarTrava(pasta) {
+  fs.mkdirSync(pasta, { recursive: true });
+  var arq = path.join(pasta, 'servidor.trava');
+  for (var tentativa = 0; tentativa < 3; tentativa++) {
+    try {
+      var fd = fs.openSync(arq, 'wx');
+      fs.writeSync(fd, JSON.stringify({ pid: process.pid, desde: new Date().toISOString() }));
+      fs.closeSync(fd);
+      var soltar = function () {
+        try {
+          var dono = JSON.parse(fs.readFileSync(arq, 'utf8'));
+          if (dono && dono.pid === process.pid) fs.unlinkSync(arq);
+        } catch (e) { /* já não existe */ }
+        travasAbertas.delete(soltar);
+      };
+      travasAbertas.add(soltar);
+      return soltar;
+    } catch (e) {
+      if (e.code !== 'EEXIST') throw e;
+      var dono = null;
+      try { dono = JSON.parse(fs.readFileSync(arq, 'utf8')); } catch (e2) { /* ilegível: trava velha */ }
+      if (dono && dono.pid && processoVivo(dono.pid)) {
+        throw new Error('Já existe um servidor usando esta pasta de dados (processo ' + dono.pid + ', aberto em ' + dono.desde +
+          '). Use a janela que já está aberta. Se tiver certeza de que ele não está rodando, apague o arquivo ' + arq + '.');
+      }
+      try { fs.unlinkSync(arq); } catch (e3) { /* outro processo pegou antes: tenta de novo */ }
+    }
+  }
+  throw new Error('Não consegui pegar a trava da pasta de dados (' + arq + ').');
 }
 
 function falha(status, msg) { var e = new Error(msg); e.status = status; return e; }
@@ -165,19 +261,78 @@ function criarServidor(opcoes) {
   PUBLICAS.forEach(function (p) {
     if (dentro(pastaDados, path.join(RAIZ, p))) throw new Error('A pasta de dados não pode ficar dentro de ' + p + '/ (seria servida na rede).');
   });
+  var soltarTrava = pegarTrava(pastaDados);   // antes de ler ou gravar qualquer coisa: só um servidor por pasta
+
+  /**
+   * Atrás de um proxy (Caddy, nginx) que faz o HTTPS: com `atrasDeProxy` (--atras-de-proxy ou ATRAS_DE_PROXY=1), o cabeçalho
+   * X-Forwarded-Proto vale para o cookie Secure e X-Forwarded-For para o IP de quem entra. Só se confia neles quando o pedido
+   * vem do próprio computador (o proxy); de fora, o cabeçalho é ignorado, para ninguém se passar por outro IP nem por HTTPS.
+   */
+  var atrasDeProxy = !!(opcoes.atrasDeProxy || process.env.ATRAS_DE_PROXY === '1');
+  function doProxy(req) {
+    var ip = String(req.socket && req.socket.remoteAddress || '');
+    return atrasDeProxy && (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1');
+  }
+  function ehHttps(req) {
+    return usaHttps || (doProxy(req) && String(req.headers['x-forwarded-proto'] || '').split(',').pop().trim() === 'https');
+  }
+  /** O IP de quem fez o pedido. Atrás do proxy, o último da lista X-Forwarded-For (o que o próprio proxy acrescentou). */
+  function ipDoCliente(req) {
+    if (doProxy(req) && req.headers['x-forwarded-for']) {
+      var ultimo = String(req.headers['x-forwarded-for']).split(',').pop().trim();
+      if (ultimo) return ultimo;
+    }
+    return String(req.socket && req.socket.remoteAddress || '');
+  }
 
   var registrar = opcoes.silencioso ? function () {} : function (m) {
     console.log(new Date().toTimeString().slice(0, 8) + '  ' + m);
   };
   var DADOS = carregarDados();
   var armazem = criarArmazem(pastaDados, core);
-  var contas = criarContas(pastaDados);
-  var arqAcessos = path.join(pastaDados, 'acessos.log');
+  var contas = criarContas(pastaDados, { custo: opcoes.custoSenhaParaTestes });
+  var auditoria = criarAuditoria(pastaDados, core);
+  var SISTEMA = { login: 'sistema', nome: 'Sistema', papel: 'sistema' };
 
-  function anotarAcesso(texto, req) {
-    var linha = new Date().toISOString() + '  ' + (req ? (req.socket.remoteAddress || '?') + '  ' : '') + texto + '\n';
-    try { fs.appendFileSync(arqAcessos, linha); } catch (e) { /* segue */ }
-    registrar(texto);
+  /**
+   * Um evento de acesso ou de segurança: vai para logs/acessos.jsonl, POR USUÁRIO (server/auditoria.js),
+   * e para a janela do servidor. `quem` = { login, nome, papel } da sessão (ou o que se souber dela).
+   */
+  function evento(codigo, quem, detalhe, req, quando) {
+    quem = quem || {};
+    try {
+      auditoria.registrar({ login: quem.login, nome: quem.nome, papel: quem.papel, evento: codigo, detalhe: detalhe,
+        ip: req && req.socket ? ipDoCliente(req) : '', quando: quando });
+    } catch (e) { registrar('ATENÇÃO: não consegui gravar o evento "' + codigo + '": ' + (e && e.message)); }
+    registrar(codigo + (quem.login ? ' · ' + quem.login : '') + (detalhe ? ' · ' + detalhe : ''));
+  }
+
+  // O que a abertura dos exames achou (índice refeito das fichas, PDF sem ficha) vai para a Auditoria, onde o chefe vê.
+  armazem.tirarAvisos().forEach(function (a) { evento(a.codigo, SISTEMA, a.detalhe); });
+
+  /**
+   * Conferência dos exames (server/armazem.js): na partida e a cada virada do dia. Roda por fora dos comandos (lê os PDFs
+   * sem travar o servidor). Problema vira evento de alerta na Auditoria. `fechar()` espera ela terminar.
+   */
+  var conferenciaEmCurso = null;
+  var parandoConferencia = false;
+  var exportando = false;          // "baixar todos os dados" em andamento (um de cada vez)
+  function conferirExames(origem) {
+    if (conferenciaEmCurso) return conferenciaEmCurso;
+    conferenciaEmCurso = armazem.conferirAnexos({ parar: function () { return parandoConferencia; } }).then(function (r) {
+      if (r.registrados) registrar('Impressão digital (SHA-256) registrada em ' + r.registrados + ' exame(s) antigo(s).');
+      var lista = [];
+      if (r.semArquivo.length) lista.push(r.semArquivo.length + ' sem o arquivo (' + r.semArquivo.slice(0, 10).join(', ') + ')');
+      if (r.tamanhoDiferente.length) lista.push(r.tamanhoDiferente.length + ' com tamanho diferente do registrado (' + r.tamanhoDiferente.slice(0, 10).join(', ') + ')');
+      if (r.conteudoAlterado.length) lista.push(r.conteudoAlterado.length + ' com conteúdo diferente do registrado — SHA-256 não confere (' + r.conteudoAlterado.slice(0, 10).join(', ') + ')');
+      if (r.foraDoIndice.length) lista.push(r.foraDoIndice.length + ' PDF(s) em anexos/ fora do índice (' + r.foraDoIndice.slice(0, 10).join(', ') + ')');
+      if (r.erro) lista.push(r.erro);
+      if (lista.length) evento('exames_com_problema', SISTEMA, 'conferência (' + origem + ') de ' + r.total + ' exame(s): ' + lista.join('; '));
+      return r;
+    }, function (e) {
+      evento('exames_com_problema', SISTEMA, 'a conferência dos exames (' + origem + ') falhou: ' + (e && e.message));
+    }).then(function (r) { conferenciaEmCurso = null; return r; });
+    return conferenciaEmCurso;
   }
 
   var hojeAtual = opcoes.hoje || core.hojeISO();
@@ -195,6 +350,7 @@ function criarServidor(opcoes) {
 
   function aplicar(entrada) {
     store.usuario = entrada.usuario;
+    store.login = entrada.login || '';
     return core.executarComContexto(entrada.contexto, function () {
       return store[entrada.nome].apply(store, entrada.args);
     });
@@ -230,15 +386,41 @@ function criarServidor(opcoes) {
   /* -------------------------------------------------------- gravação */
 
   var gravacaoAgendada = null;
-  function gravarAgora() {
+  var gravacaoEhRetentativa = false;
+  var falhasDeGravacao = 0;        // gravações seguidas que o disco recusou
+  var ultimoFreioAvisado = null;
+  /**
+   * Grava o estado inteiro. Falha de disco (cheio, sem permissão) NÃO derruba o servidor: o diário já guarda cada
+   * comando, e a gravação é tentada de novo em 30 s. `estrito`: quem troca o estado inteiro quer saber da falha.
+   */
+  function gravarAgora(estrito) {
     if (gravacaoAgendada) { clearTimeout(gravacaoAgendada); gravacaoAgendada = null; }
-    var enxuto = DADOS.enxugar(store.estado);
-    armazem.gravarEstado(revisao, enxuto);
-    armazem.podarDiario(revisao);
-    if (armazem.copiaDoDia(revisao, enxuto)) registrar('Cópia do dia gravada.');
+    gravacaoEhRetentativa = false;
+    try {
+      var enxuto = DADOS.enxugar(store.estado);
+      armazem.gravarEstado(revisao, enxuto);
+      armazem.podarDiario(revisao);
+      if (armazem.copiaDoDia(revisao, enxuto)) registrar('Cópia do dia gravada.');
+      var expurgados = armazem.tirarExpurgos();
+      if (expurgados.length) {
+        evento('exames_removidos_apagados', SISTEMA, expurgados.length + ' arquivo(s) de exame removido há mais de 3 anos saíram de vez: ' +
+          expurgados.slice(0, 20).join(', ') + (expurgados.length > 20 ? '…' : ''));
+      }
+      var freio = armazem.freioDaRetencao();
+      if (freio && freio !== ultimoFreioAvisado) { registrar('ATENÇÃO: ' + freio); evento('copias_retencao_freada', SISTEMA, freio); }
+      ultimoFreioAvisado = freio;
+      if (falhasDeGravacao) { registrar('A gravação do estado voltou ao normal.'); falhasDeGravacao = 0; }
+    } catch (e) {
+      falhasDeGravacao++;
+      registrar('ATENÇÃO: não consegui gravar o estado no disco (' + (e && e.message) + '). Cada comando continua indo para o diário; tento de novo em 10 s.');
+      if (!gravacaoAgendada) { gravacaoEhRetentativa = true; gravacaoAgendada = setTimeout(gravarAgora, 10000); }
+      if (estrito) throw e;
+    }
   }
   function agendarGravacao() {
-    if (gravacaoAgendada) return;
+    if (gravacaoAgendada && !gravacaoEhRetentativa) return;
+    if (gravacaoAgendada) clearTimeout(gravacaoAgendada);   // havia uma nova tentativa esperando: um comando novo adianta
+    gravacaoEhRetentativa = false;
     gravacaoAgendada = setTimeout(gravarAgora, 1500);
   }
 
@@ -247,6 +429,20 @@ function criarServidor(opcoes) {
   function emitir(tipo, dados) {
     var msg = 'event: ' + tipo + '\ndata: ' + JSON.stringify(dados) + '\n\n';
     fluxos.forEach(function (f) { try { f.res.write(msg); } catch (e) { /* conexão caiu */ } });
+  }
+
+  /**
+   * Aviso de comando novo. Quem não vê dinheiro não fica sabendo que houve repasse (nem de quem):
+   * recebe só o número da revisão, que a tela precisa para acompanhar.
+   */
+  function emitirComando(info) {
+    fluxos.forEach(function (f) {
+      var dados = info;
+      if (!core.perfilVeFinanceiro(f.papel) && core.GRUPO_DA_MUTACAO[info.nome] === 'financeiro') {
+        dados = { revisao: info.revisao, usuario: '', cliente: info.cliente, nome: '' };
+      }
+      try { f.res.write('event: comando\ndata: ' + JSON.stringify(dados) + '\n\n'); } catch (e) { /* conexão caiu */ }
+    });
   }
 
   function fecharFluxosDe(login) {
@@ -261,6 +457,7 @@ function criarServidor(opcoes) {
   /** Troca o estado inteiro (importar, apagar tudo, restaurar cópia): marco antes, telas recarregam. */
   function trocarEstadoInteiro(novoEstado, motivo, quem) {
     armazem.marco('antes-de-' + motivo, revisao, DADOS.enxugar(store.estado));
+    var anterior = { store: store, revisao: revisao, diario: diario, inicio: revisaoInicioDiario };
     store = montarStore(novoEstado);
     store.transacao(function (st, api) {
       api.registrar([core.novaEntradaLog({ usuario: quem.nome, aba: 'SISTEMA', idCirurgia: '', campo: 'ESTADO SUBSTITUÍDO', de: '', para: motivo })]);
@@ -269,9 +466,15 @@ function criarServidor(opcoes) {
     revisao++;
     diario = [];
     revisaoInicioDiario = revisao;
-    gravarAgora();
+    try {
+      gravarAgora(true);
+    } catch (e) {
+      // Não gravou no disco: a troca não vale (senão voltaria o estado velho na próxima partida, sem ninguém saber).
+      store = anterior.store; revisao = anterior.revisao; diario = anterior.diario; revisaoInicioDiario = anterior.inicio;
+      throw e;
+    }
     emitir('recarregar', { revisao: revisao, motivo: motivo, usuario: quem.nome });
-    anotarAcesso('estado substituído (' + motivo + ') por ' + quem.login);
+    evento('estado_substituido', quem, motivo);
   }
 
   // Virada do dia: o horizonte da escala e a cópia do dia dependem de "hoje".
@@ -282,8 +485,76 @@ function criarServidor(opcoes) {
     store = montarStore(DADOS.enxugar(store.estado));
     gravarAgora();
     emitir('recarregar', { revisao: revisao, motivo: 'dia' });
+    rotacionarLogs('virada do dia');
+    conferirExames('virada do dia');
   }, 60000);
   relogioDia.unref();
+
+  /* ------------------------------------- arquivo mensal e limpeza do LOG */
+
+  /** Grava no diário um comando já aplicado (no disco antes de responder) e guarda o diário curto. */
+  function gravarNoDiario(entrada) {
+    revisao = entrada.revisao;
+    armazem.anotarComando(entrada);
+    diario.push(entrada);
+    if (diario.length > MAX_DIARIO_MEMORIA) {
+      diario.splice(0, diario.length - MAX_DIARIO_MEMORIA);
+      revisaoInicioDiario = diario[0].revisao - 1;
+    }
+    agendarGravacao();
+  }
+
+  /** Aplica uma operação do próprio servidor (não vem de tela nenhuma) pelo mesmo caminho dos comandos. */
+  function executarInterno(nome, args, agora) {
+    var entrada = { revisao: revisao + 1, nome: nome, args: args,
+      contexto: { agora: agora || core.agoraTexto(new Date()), semente: 'sis' + crypto.randomBytes(6).toString('hex') },
+      usuario: SISTEMA.nome, login: SISTEMA.login, hoje: hojeAtual, cliente: 'servidor' };
+    var r = aplicar(entrada);
+    if (!okDoResultado(nome, r)) throw new Error('A operação interna ' + nome + ' foi recusada: ' + JSON.stringify(r && r.erros));
+    gravarNoDiario(entrada);
+    emitirComando({ revisao: revisao, usuario: SISTEMA.nome, cliente: entrada.cliente, nome: nome });
+    return r;
+  }
+
+  /**
+   * A rotação mensal do LOG: arquiva os meses fechados (conferidos pelo SHA-256), só então tira da tela o que
+   * passou do corte, e apaga os arquivos além do prazo de guarda. Nunca derruba o servidor.
+   * `hojeForcado` só para os testes.
+   */
+  function rotacionarLogs(origem, hojeForcado) {
+    var resumo = { origem: origem, criados: 0, podados: 0, acessosRemovidos: 0, apagados: 0, problemas: [], erros: [] };
+    // O carimbo dos avisos da rotação é o do dia dela (em produção, agora mesmo); os testes forçam o "hoje".
+    var carimbo = hojeForcado ? hojeForcado + ' 00:00:00' : undefined;
+    function avisar(codigo, detalhe) { evento(codigo, SISTEMA, detalhe, null, carimbo); }
+    try {
+      var hoje = hojeForcado || hojeAtual;
+      var cfg = store.configLog();
+      var r = auditoria.rotacionar({ hoje: hoje, log: store.estado.log, config: cfg });
+      resumo.criados = r.criados.length;
+      resumo.apagados = r.apagados.length;
+      resumo.acessosRemovidos = r.acessosRemovidos;
+      resumo.problemas = r.problemas;
+      resumo.erros = r.erros.slice();
+      r.criados.forEach(function (a) {
+        avisar('log_arquivado', a.arquivo + ' · ' + a.entradas + ' linha(s) · SHA-256 ' + a.sha256.slice(0, 16) + '…');
+      });
+      r.apagados.forEach(function (n) { avisar('log_arquivo_apagado', n + ' (passou de ' + cfg.anosDeGuarda + ' ano(s) de guarda)'); });
+      r.problemas.forEach(function (p) { avisar('log_arquivo_com_problema', p); });
+      r.erros.forEach(function (e) { avisar('log_rotacao_falhou', e); });
+      if (r.acessosRemovidos) avisar('log_acessos_limpo', r.acessosRemovidos + ' evento(s) de acesso já arquivado(s) saíram da lista');
+      if (r.podarAlteracoesAte) {
+        var onde = auditoria.arquivos().arquivos.filter(function (a) { return a.tipo === 'alteracoes' && a.mes + '-01' < r.podarAlteracoesAte; })
+          .map(function (a) { return a.id + ' (' + a.sha256.slice(0, 12) + ')'; }).join(', ');
+        var x = executarInterno('arquivarLogAte', [r.podarAlteracoesAte, 'arquivos: ' + onde], carimbo);
+        resumo.podados = x.arquivadas || 0;
+        if (resumo.podados) avisar('log_limpo', resumo.podados + ' linha(s) de alteração arquivadas e tiradas da tela (anteriores a ' + r.podarAlteracoesAte + ')');
+      }
+    } catch (e) {
+      resumo.erros.push(e && e.message ? e.message : String(e));
+      avisar('log_rotacao_falhou', e && e.message ? e.message : String(e));
+    }
+    return resumo;
+  }
 
   /* -------------------------------------------------------- comandos */
 
@@ -291,13 +562,15 @@ function criarServidor(opcoes) {
    * Um comando vindo de uma tela. Devolve [status, corpo].
    * corpo pedido: { nome, args, contexto:{agora, semente}, base, hoje, cliente }
    */
-  function executarComando(c, eu) {
+  function executarComando(c, eu, req) {
     var nome = String(c.nome || '');
     if (core.MUTACOES_STORE.indexOf(nome) < 0) return [400, { erro: 'Operação desconhecida.' }];
-    if (core.MUTACOES_SO_ADMIN.indexOf(nome) >= 0 && eu.papel !== 'admin') {
-      return [403, { erro: 'Só o administrador do sistema pode fazer isso.' }];
+    if (!Array.isArray(c.args) || c.args.length > 6 || !argumentosSeguros(c.args)) return [400, { erro: 'Argumentos inválidos.' }];
+    var perm = core.perfilPodeExecutar(eu.papel, nome, c.args, core.contextoDeAssinatura(eu.anestesistaId, store.estado.anestesistas));
+    if (!perm.ok) {
+      evento('acesso_negado', eu, 'operação ' + nome + ' (' + perm.motivo + ')', req);
+      return [403, { erro: perm.erro, motivo: perm.motivo }];
     }
-    if (!Array.isArray(c.args) || c.args.length > 6) return [400, { erro: 'Argumentos inválidos.' }];
     var ctx = c.contexto || {};
     if (!AGORA_TEXTO.test(String(ctx.agora)) || !SEMENTE.test(String(ctx.semente))) return [400, { erro: 'Contexto inválido.' }];
     var desvio = Math.abs(new Date(String(ctx.agora).replace(' ', 'T')).getTime() - Date.now());
@@ -312,6 +585,7 @@ function criarServidor(opcoes) {
     var entrada = { revisao: revisao + 1, nome: nome, args: c.args, contexto: { agora: ctx.agora, semente: ctx.semente },
       usuario: eu.nome, login: eu.login, hoje: hojeAtual, cliente: String(c.cliente || '').slice(0, 40) };
     var r;
+    var antesDoComando = store.snapshot(true), revisaoAntes = revisao;
     try {
       r = aplicar(entrada);
     } catch (e) {
@@ -321,21 +595,24 @@ function criarServidor(opcoes) {
       return [200, { ok: false, erros: (r && r.erros) || [{ msg: 'Operação recusada.' }], revisao: revisao }];
     }
 
-    revisao = entrada.revisao;
-    armazem.anotarComando(entrada);          // no disco antes de responder
-    diario.push(entrada);
-    if (diario.length > MAX_DIARIO_MEMORIA) {
-      diario.splice(0, diario.length - MAX_DIARIO_MEMORIA);
-      revisaoInicioDiario = diario[0].revisao - 1;
+    try {
+      gravarNoDiario(entrada);               // no disco antes de responder
+    } catch (e) {
+      // Sem o diário o comando não vale: desfaz na memória e devolve o número da revisão. Quem digitou vê o erro e
+      // refaz depois; nada fica pela metade (nem duplicado, se tentar de novo).
+      store.restaurar(antesDoComando);
+      store.recalcular();
+      revisao = revisaoAntes;
+      registrar('ATENÇÃO: não consegui gravar o comando ' + nome + ' no diário (' + (e && e.message) + '); foi desfeito.');
+      return [503, { erro: 'Não consegui gravar no disco do servidor (cheio ou sem permissão). Nada foi alterado: tente de novo depois que quem cuida do computador resolver.' }];
     }
-    agendarGravacao();
 
     // Avaliações apagadas em cascata levam os PDFs de exame junto (vão para removidos/).
     var removidos = 0;
-    ((r && r.removidas) || []).forEach(function (a) { if (a.uid) removidos += armazem.removerAnexosDaAvaliacao(a.uid); });
+    ((r && r.removidas) || []).forEach(function (a) { if (a.uid) removidos += armazem.removerAnexosDaAvaliacao(a.uid, eu.nome); });
     if (removidos) emitir('anexos', { cliente: '' });
 
-    emitir('comando', { revisao: revisao, usuario: eu.nome, cliente: entrada.cliente, nome: nome });
+    emitirComando({ revisao: revisao, usuario: eu.nome, cliente: entrada.cliente, nome: nome });
     return [200, { ok: true, revisao: revisao, concorrente: concorrente, avisos: (r && r.avisos) || [] }];
   }
 
@@ -345,6 +622,10 @@ function criarServidor(opcoes) {
     var uid = String(req.headers['x-uid-avaliacao'] || '');
     var aval = store.estado.avaliacoes.filter(function (a) { return a.uid && a.uid === uid; })[0];
     if (!aval) return Promise.resolve([400, { erro: 'Avaliação não encontrada — recarregue a página.' }]);
+    var jaTem = armazem.metasAnexos().filter(function (m) { return m.uidAvaliacao === uid; }).length;
+    if (jaTem >= LIMITE_PDFS_POR_AVALIACAO) {
+      return Promise.resolve([400, { erro: 'Esta avaliação já tem ' + jaTem + ' exames anexados (o limite é ' + LIMITE_PDFS_POR_AVALIACAO + '). Remova algum antes de anexar outro.' }]);
+    }
     var nome;
     try { nome = decodeURIComponent(String(req.headers['x-nome'] || 'exame.pdf')); } catch (e) { nome = 'exame.pdf'; }
     return lerCorpo(req, LIMITE_PDF).then(function (buf) {
@@ -355,10 +636,26 @@ function criarServidor(opcoes) {
         uidAvaliacao: uid, idAvaliacao: String(aval.id || ''), nome: nome.replace(/[\u0000-\u001f]/g, '').slice(0, 200) || 'exame.pdf',
         tamanho: buf.length, tipo: 'application/pdf', criadoEm: new Date().toISOString(), criadoPor: eu.nome
       };
-      armazem.salvarAnexo(meta, buf);
+      meta = armazem.salvarAnexo(meta, buf);      // volta com o SHA-256 do que foi gravado
+      evento('exame_anexado', eu, 'avaliação ' + meta.idAvaliacao + ' · ' + meta.id, req);
       emitir('anexos', { cliente: String(req.headers['x-cliente'] || '') });
       return [200, { meta: meta }];
     });
+  }
+
+  /** O vínculo do login com um anestesista do cadastro (quem assina o boletim): existe, é de uma só pessoa e não é da secretária. */
+  function erroDoVinculo(c, atual) {
+    if (c.anestesistaId === undefined) return null;
+    var id = String(c.anestesistaId || '').trim();
+    if (!id) return null;                                      // desligar sempre pode
+    var papel = core.perfilCanonico(c.papel !== undefined && c.papel !== '' ? c.papel : (atual && atual.papel)) || 'anestesista';
+    if (papel === 'secretaria') return { campo: 'anestesistaId', msg: 'A secretária não assina boletim: não precisa ser ligada a um anestesista.' };
+    var cad = store.estado.anestesistas.filter(function (a) { return String(a.id) === id; })[0];
+    if (!cad) return { campo: 'anestesistaId', msg: 'Esse anestesista não existe no cadastro.' };
+    var login = String(c.login || '').trim().toLowerCase();
+    var outro = contas.listar().filter(function (u) { return u.anestesistaId === id && u.login !== login; })[0];
+    if (outro) return { campo: 'anestesistaId', msg: 'Esse anestesista já está ligado ao usuário "' + outro.login + '".' };
+    return null;
   }
 
   /* ----------------------------------------------------------- rotas */
@@ -371,24 +668,30 @@ function criarServidor(opcoes) {
 
     function responder(par) { json(res, par[0], par[1]); }
     function cookie(t, apagar) {
-      return COOKIE + '=' + (apagar ? '' : t) + '; Path=/; HttpOnly; SameSite=Strict' + (usaHttps ? '; Secure' : '') +
+      return COOKIE + '=' + (apagar ? '' : t) + '; Path=/; HttpOnly; SameSite=Strict' + (ehHttps(req) ? '; Secure' : '') +
         (apagar ? '; Max-Age=0' : '; Max-Age=' + 7 * 86400);
     }
 
     /* --- sem sessão --- */
+    if (caminho === '/api/saude' && metodo === 'GET') {
+      // Para um monitor externo (avisa se cair). Não mostra dado nenhum: só se está de pé e se o disco está aceitando gravação.
+      var bem = !falhasDeGravacao;
+      return Promise.resolve(json(res, bem ? 200 : 503, { ok: bem, gravacao: bem ? 'ok' : 'falhando' }));
+    }
     if (caminho === '/api/eu' && metodo === 'GET') {
       if (!eu) return Promise.resolve(json(res, 401, { primeiroAcesso: !contas.temUsuarios() }));
       return Promise.resolve(json(res, 200, { usuario: eu, hoje: hojeAtual, revisao: revisao }));
     }
     if (caminho === '/api/entrar' && metodo === 'POST') {
       return lerJson(req, 16384).then(function (c) {
-        var r = contas.entrar(c.login, c.senha, req.socket.remoteAddress || '');
+        var r = contas.entrar(c.login, c.senha, ipDoCliente(req));
         if (!r.ok) {
-          anotarAcesso('entrada recusada: ' + String(c.login || '').slice(0, 30) + (r.travado ? ' (travado)' : ''), req);
+          evento(r.travado ? 'entrada_bloqueada' : 'entrada_recusada', { login: String(c.login || '').slice(0, 30) },
+            r.travado ? 'muitas tentativas erradas' : 'login ou senha não conferem', req);
           return json(res, r.travado ? 429 : 401, { erro: r.travado
             ? 'Muitas tentativas erradas. Espere 15 minutos e tente de novo.' : 'Login ou senha não conferem.' });
         }
-        anotarAcesso('entrou: ' + r.usuario.login, req);
+        evento('entrada', r.usuario, '', req);
         json(res, 200, { usuario: r.usuario }, { 'Set-Cookie': cookie(contas.iniciarSessao(r.usuario.login)) });
       });
     }
@@ -399,33 +702,41 @@ function criarServidor(opcoes) {
         var informado = Buffer.from(String(c.codigo || '').trim().toUpperCase());
         var certo = Buffer.from(codigo);
         if (informado.length !== certo.length || !crypto.timingSafeEqual(informado, certo)) {
-          anotarAcesso('primeiro acesso: código errado', req);
+          evento('primeiro_acesso_recusado', {}, 'código errado', req);
           return json(res, 403, { erro: 'Código de primeiro acesso não confere. Ele aparece na janela do servidor.' });
         }
-        var r = contas.criarUsuario({ login: c.login, nome: c.nome, senha: c.senha, papel: 'admin' });
+        var r = contas.criarUsuario({ login: c.login, nome: c.nome, senha: c.senha, papel: 'chefe' });
         if (!r.ok) return json(res, 400, { erros: r.erros });
-        anotarAcesso('administrador criado: ' + r.usuario.login, req);
+        evento('primeiro_acesso', r.usuario, 'Anestesista chefe criado', req);
         json(res, 200, { usuario: r.usuario }, { 'Set-Cookie': cookie(contas.iniciarSessao(r.usuario.login)) });
       });
     }
     if (caminho === '/api/sair' && metodo === 'POST') {
-      if (eu) anotarAcesso('saiu: ' + eu.login, req);
+      if (eu) evento('saida', eu, '', req);
       contas.encerrarSessao(token);
       return Promise.resolve(json(res, 200, { ok: true }, { 'Set-Cookie': cookie('', true) }));
     }
 
     if (!eu) return Promise.resolve(json(res, 401, { erro: 'Sessão encerrada. Entre de novo.' }));
-    var admin = eu.papel === 'admin';
-    function soAdmin() { if (!admin) json(res, 403, { erro: 'Só o administrador do sistema pode fazer isso.' }); return admin; }
+    var chefe = eu.papel === 'chefe';
+    function soChefe() {
+      if (!chefe) {
+        evento('acesso_negado', eu, metodo + ' ' + caminho + ' (só o Anestesista chefe)', req);
+        json(res, 403, { erro: 'Só o Anestesista chefe pode fazer isso.' });
+      }
+      return chefe;
+    }
 
     /* --- dados --- */
     if (caminho === '/api/estado' && metodo === 'GET') {
       return Promise.resolve(json(res, 200, {
-        revisao: revisao, hoje: hojeAtual, agora: Date.now(), usuario: eu, estado: DADOS.enxugar(store.estado)
+        revisao: revisao, hoje: hojeAtual, agora: Date.now(), usuario: eu,
+        // Cada perfil recebe só o que pode ver (o anestesista, nada de dinheiro): o corte é aqui.
+        estado: core.projetarEstadoParaPerfil(DADOS.enxugar(store.estado), eu.papel)
       }));
     }
     if (caminho === '/api/comando' && metodo === 'POST') {
-      return lerJson(req, LIMITE_COMANDO).then(function (c) { responder(executarComando(c, eu)); });
+      return lerJson(req, LIMITE_COMANDO).then(function (c) { responder(executarComando(c, eu, req)); });
     }
     if (caminho === '/api/comandos' && metodo === 'GET') {
       var desde = Number(busca.get('desde'));
@@ -433,13 +744,14 @@ function criarServidor(opcoes) {
       return Promise.resolve(json(res, 200, {
         revisao: revisao, hoje: hojeAtual,
         comandos: diario.filter(function (d) { return d.revisao > desde; })
+          .map(function (d) { return core.redigirComandoParaPerfil(d, eu.papel); })
       }));
     }
     if (caminho === '/api/eventos' && metodo === 'GET') {
       res.writeHead(200, cabecalhos({ 'Content-Type': 'text/event-stream; charset=utf-8', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' }));
       res.write('retry: 3000\n\n');
       res.write('event: ola\ndata: ' + JSON.stringify({ revisao: revisao, hoje: hojeAtual }) + '\n\n');
-      var f = { res: res, login: eu.login };
+      var f = { res: res, login: eu.login, papel: eu.papel };
       fluxos.add(f);
       req.on('close', function () { fluxos.delete(f); });
       return Promise.resolve();
@@ -453,6 +765,8 @@ function criarServidor(opcoes) {
       if (!armazem.ID_ANEXO.test(mAnexo[1])) return Promise.resolve(json(res, 404, { erro: 'Arquivo não encontrado.' }));
       var buf = armazem.lerAnexo(mAnexo[1]);
       if (!buf) return Promise.resolve(json(res, 404, { erro: 'Arquivo não encontrado.' }));
+      var metaAberta = armazem.metasAnexos().filter(function (m) { return m.id === mAnexo[1]; })[0];
+      evento('exame_aberto', eu, (metaAberta ? 'avaliação ' + metaAberta.idAvaliacao + ' · ' : '') + mAnexo[1], req);
       res.writeHead(200, cabecalhos({ 'Content-Type': 'application/pdf', 'Content-Length': buf.length,
         'Content-Disposition': 'inline; filename="exame.pdf"' }));
       res.end(buf);
@@ -460,8 +774,8 @@ function criarServidor(opcoes) {
     }
     if (mAnexo && metodo === 'DELETE') {
       if (!armazem.ID_ANEXO.test(mAnexo[1])) return Promise.resolve(json(res, 404, { erro: 'Arquivo não encontrado.' }));
-      var n = armazem.removerAnexos([mAnexo[1]]);
-      if (n) emitir('anexos', { cliente: String(req.headers['x-cliente'] || '') });
+      var n = armazem.removerAnexos([mAnexo[1]], eu.nome);
+      if (n) { evento('exame_removido', eu, mAnexo[1], req); emitir('anexos', { cliente: String(req.headers['x-cliente'] || '') }); }
       return Promise.resolve(json(res, 200, { removidos: n }));
     }
 
@@ -470,11 +784,11 @@ function criarServidor(opcoes) {
       return lerJson(req, 16384).then(function (c) {
         var r = contas.trocarSenha(eu.login, c.atual, c.nova);
         if (r.ok) {
-          anotarAcesso('trocou a própria senha: ' + eu.login, req);
+          evento('senha_trocada', eu, '', req);
           // Senha nova: as outras sessões abertas (outro computador, sessão esquecida ou roubada) caem.
           contas.encerrarSessoesDe(eu.login, token);
         } else if (r.travado) {
-          anotarAcesso('troca de senha travada: ' + eu.login, req);
+          evento('senha_troca_travada', eu, '', req);
         }
         json(res, r.ok ? 200 : (r.travado ? 429 : 400), r);
       });
@@ -482,22 +796,27 @@ function criarServidor(opcoes) {
 
     /* --- administração --- */
     if (caminho === '/api/usuarios' && metodo === 'GET') {
-      if (!soAdmin()) return Promise.resolve();
+      if (!soChefe()) return Promise.resolve();
       return Promise.resolve(json(res, 200, { usuarios: contas.listar() }));
     }
     if (caminho === '/api/usuarios' && metodo === 'POST') {
-      if (!soAdmin()) return Promise.resolve();
+      if (!soChefe()) return Promise.resolve();
       return lerJson(req, 16384).then(function (c) {
+        var antes = c.novo ? null : contas.usuario(c.login);
+        var erroVinculo = erroDoVinculo(c, antes);
+        if (erroVinculo) return json(res, 400, { ok: false, erros: [erroVinculo] });
         var r = c.novo ? contas.criarUsuario(c) : contas.alterarUsuario(c.login, c);
         if (r.ok) {
-          anotarAcesso((c.novo ? 'usuário criado: ' : 'usuário alterado: ') + r.usuario.login + ' por ' + eu.login, req);
-          if (!r.usuario.ativo || c.senha) fecharFluxosDe(r.usuario.login);
+          evento(c.novo ? 'usuario_criado' : 'usuario_alterado', eu, r.usuario.login + ' · perfil ' + r.usuario.papel +
+            (r.usuario.ativo ? '' : ' · desativado') + (c.senha ? ' · senha redefinida' : ''), req);
+          // Acesso cortado, senha nova ou perfil diferente: a conexão aberta tem os dados do perfil velho.
+          if (!r.usuario.ativo || c.senha || (antes && antes.papel !== r.usuario.papel)) fecharFluxosDe(r.usuario.login);
         }
         json(res, r.ok ? 200 : 400, r);
       });
     }
     if (caminho === '/api/backup' && metodo === 'GET') {
-      if (!soAdmin()) return Promise.resolve();
+      if (!soChefe()) return Promise.resolve();
       var comPdfs = busca.get('pdfs') === '1';
       var anexos = comPdfs ? armazem.metasAnexos().map(function (m) {
         var b = armazem.lerAnexo(m.id);
@@ -507,31 +826,56 @@ function criarServidor(opcoes) {
       res.writeHead(200, cabecalhos({ 'Content-Type': 'application/json; charset=utf-8',
         'Content-Disposition': 'attachment; filename="' + nome + '"' }));
       res.end(DADOS.exportarJSON(store.estado, anexos));
-      anotarAcesso('backup baixado' + (comPdfs ? ' (com PDFs)' : '') + ' por ' + eu.login, req);
+      evento('backup_baixado', eu, comPdfs ? 'com PDFs' : 'sem PDFs', req);
       return Promise.resolve();
     }
+    if (caminho === '/api/exportar-tudo' && metodo === 'GET') {
+      // "Baixar todos os dados": um .zip escrito aos poucos (server/exportar_tudo.js). Um de cada vez: é leitura pesada de disco.
+      if (!soChefe()) return Promise.resolve();
+      if (exportando) return Promise.resolve(json(res, 409, { erro: 'Já há um download de todos os dados em andamento. Espere ele terminar.' }));
+      exportando = true;
+      var nomeZip = 'anestesia_todos_os_dados_' + hojeAtual + '.zip';
+      res.writeHead(200, cabecalhos({ 'Content-Type': 'application/zip', 'Content-Disposition': 'attachment; filename="' + nomeZip + '"' }));
+      var contexto = { armazem: armazem, store: store, DADOS: DADOS, pastaLogs: path.join(pastaDados, 'logs'), quem: eu,
+        revisao: revisao, hoje: hojeAtual, agora: core.agoraTexto(new Date()), forcarZip64: opcoes.forcarZip64ParaTestes };
+      return Promise.resolve().then(function () { return exportarTudo(res, contexto); }).then(function (r) {
+        res.end();
+        evento('dados_exportados', eu, r.exames + ' exame(s), ' + r.examesRemovidos + ' removido(s), ' + r.arquivos + ' arquivo(s), ' +
+          (r.bytes / 1048576).toFixed(1) + ' MB' + (r.problemas.length ? ' · ' + r.problemas.length + ' problema(s): ' + r.problemas.slice(0, 5).join('; ') : ''), req);
+      }, function (e) {
+        // Sem o fim do .zip o navegador marca o download como falho, em vez de guardar um pacote pela metade.
+        res.destroy();
+        evento('dados_exportacao_interrompida', eu, e && e.message ? e.message : String(e), req);
+      }).then(function () { exportando = false; });
+    }
     if (caminho === '/api/importar' && metodo === 'POST') {
-      if (!soAdmin()) return Promise.resolve();
+      if (!soChefe()) return Promise.resolve();
       return lerCorpo(req, LIMITE_BACKUP).then(function (buf) {
         var r = DADOS.importarJSON(buf.toString('utf8'));
         if (!r.ok) return json(res, 400, { erro: r.erro });
         var existentes = {};
         armazem.metasAnexos().forEach(function (m) { existentes[m.id] = true; });
-        var pdfs = 0;
+        var pdfs = 0, recusados = [];
         (r.anexos || []).forEach(function (x) {
           if (existentes[x.meta.id] || !armazem.ID_ANEXO.test(x.meta.id)) return;
           var bytes = Buffer.from(x.conteudo, 'base64');
           if (bytes.subarray(0, 1024).toString('latin1').indexOf('%PDF-') < 0) return;
-          armazem.salvarAnexo(Object.assign({ tipo: 'application/pdf' }, x.meta, { tamanho: bytes.length }), bytes);
+          // O backup traz a impressão digital de quando o exame foi anexado: se não bate, o arquivo se estragou no caminho.
+          if (x.meta.sha256 && armazem.sha256(bytes) !== x.meta.sha256) { recusados.push(x.meta.id); return; }
+          armazem.salvarAnexo(Object.assign({ tipo: 'application/pdf' }, x.meta), bytes);
           pdfs++;
         });
         trocarEstadoInteiro(r.estado, 'importar', eu);
         if (pdfs) emitir('anexos', { cliente: '' });
-        json(res, 200, { ok: true, revisao: revisao, pdfs: pdfs });
+        if (recusados.length) {
+          evento('exames_com_problema', eu, 'importação: ' + recusados.length + ' PDF(s) do backup recusados — SHA-256 não confere com o ' +
+            'registrado (' + recusados.slice(0, 10).join(', ') + ')', req);
+        }
+        json(res, 200, { ok: true, revisao: revisao, pdfs: pdfs, pdfsRecusados: recusados.length });
       });
     }
     if (caminho === '/api/apagar-tudo' && metodo === 'POST') {
-      if (!soAdmin()) return Promise.resolve();
+      if (!soChefe()) return Promise.resolve();
       return lerJson(req, 1024).then(function (c) {
         if (c.confirmacao !== 'APAGAR') return json(res, 400, { erro: 'Confirmação ausente.' });
         trocarEstadoInteiro(DADOS.estadoDoSeed().estado, 'apagar-tudo', eu);
@@ -539,17 +883,60 @@ function criarServidor(opcoes) {
       });
     }
     if (caminho === '/api/copias' && metodo === 'GET') {
-      if (!soAdmin()) return Promise.resolve();
+      if (!soChefe()) return Promise.resolve();
       return Promise.resolve(json(res, 200, { copias: armazem.listarCopias() }));
     }
     if (caminho === '/api/copias/restaurar' && metodo === 'POST') {
-      if (!soAdmin()) return Promise.resolve();
+      if (!soChefe()) return Promise.resolve();
       return lerJson(req, 1024).then(function (c) {
         var copia;
         try { copia = armazem.lerCopia(c.id); } catch (e) { return json(res, 404, { erro: 'Cópia não encontrada.' }); }
         trocarEstadoInteiro(copia.estado, 'restaurar', eu);
         json(res, 200, { ok: true, revisao: revisao });
       });
+    }
+
+    /* --- auditoria por usuário e arquivo mensal do LOG (só o chefe) --- */
+    if (caminho === '/api/auditoria/acessos' && metodo === 'GET') {
+      if (!soChefe()) return Promise.resolve();
+      var rAc = auditoria.listarAcessos({ login: busca.get('login') || '', de: busca.get('de') || '', ate: busca.get('ate') || '',
+        evento: busca.get('evento') || '', texto: busca.get('texto') || '', limite: busca.get('limite') });
+      return Promise.resolve(json(res, 200, rAc));
+    }
+    if (caminho === '/api/auditoria/arquivos' && metodo === 'GET') {
+      if (!soChefe()) return Promise.resolve();
+      return Promise.resolve(json(res, 200, Object.assign(auditoria.arquivos(), { config: store.configLog(), hoje: hojeAtual })));
+    }
+    var mLog = /^\/api\/auditoria\/arquivos\/([a-z]+_\d{4}-\d{2}(?:_p\d+)?)$/.exec(caminho);
+    if (mLog && metodo === 'GET') {
+      if (!soChefe()) return Promise.resolve();
+      var conteudo;
+      try { conteudo = auditoria.lerArquivo(mLog[1]); } catch (e) { return Promise.resolve(json(res, 404, { erro: e.message })); }
+      var jsonl = busca.get('formato') === 'jsonl';
+      var corpoLog;
+      if (jsonl) corpoLog = conteudo.texto;
+      else if (conteudo.item.tipo === 'alteracoes') corpoLog = '\ufeff' + DADOS.paraCSV(DADOS.matrizDaAba('LOG', conteudo.entradas));
+      else {
+        corpoLog = '\ufeff' + DADOS.paraCSV([['DATA/HORA', 'LOGIN', 'NOME', 'PERFIL', 'EVENTO', 'DETALHE', 'IP']].concat(conteudo.entradas.map(function (e) {
+          return [e.quando, e.login, e.nome, e.papel, e.evento, e.detalhe, e.ip];
+        })));
+      }
+      evento('log_arquivo_baixado', eu, mLog[1] + (jsonl ? ' (jsonl)' : ' (csv)'), req);
+      res.writeHead(200, cabecalhos({ 'Content-Type': (jsonl ? 'text/plain' : 'text/csv') + '; charset=utf-8',
+        'Content-Disposition': 'attachment; filename="' + mLog[1] + (jsonl ? '.jsonl' : '.csv') + '"' }));
+      res.end(corpoLog);
+      return Promise.resolve();
+    }
+    if (caminho === '/api/auditoria/rotacionar' && metodo === 'POST') {
+      if (!soChefe()) return Promise.resolve();
+      evento('log_rotacao_manual', eu, '', req);
+      return Promise.resolve(json(res, 200, Object.assign({ ok: true }, rotacionarLogs('manual'))));
+    }
+    if (caminho === '/api/auditoria/conferir' && metodo === 'POST') {
+      if (!soChefe()) return Promise.resolve();
+      var conf = auditoria.conferir();
+      evento('log_arquivos_conferidos', eu, conf.conferem + ' de ' + conf.total + ' conferem', req);
+      return Promise.resolve(json(res, 200, Object.assign({ ok: conf.problemas.length === 0 }, conf)));
     }
 
     return Promise.resolve(json(res, 404, { erro: 'Endereço desconhecido.' }));
@@ -577,8 +964,17 @@ function criarServidor(opcoes) {
     if (!dentro(arquivo, path.join(RAIZ, raizPublica))) { res.writeHead(404, cabecalhos()); res.end(); return; }
     fs.stat(arquivo, function (erro, st) {
       if (erro || !st.isFile()) { res.writeHead(404, cabecalhos()); res.end('Não encontrado'); return; }
-      res.writeHead(200, cabecalhos({ 'Content-Type': TIPOS[path.extname(arquivo).toLowerCase()] || 'application/octet-stream',
-        'Content-Length': st.size, 'Cache-Control': 'no-cache' }));
+      var ext = path.extname(arquivo).toLowerCase();
+      var tipo = TIPOS[ext] || 'application/octet-stream';
+      var texto = ['.html', '.js', '.css', '.json', '.svg', '.webmanifest'].indexOf(ext) >= 0;
+      if (texto && st.size > 1024 && aceitaGzip(res)) {
+        // Texto comprime de 4 a 5 vezes: o sistema abre bem mais rápido por fora da rede da clínica.
+        res.writeHead(200, cabecalhos({ 'Content-Type': tipo, 'Content-Encoding': 'gzip', Vary: 'Accept-Encoding', 'Cache-Control': 'no-cache' }));
+        if (req.method === 'HEAD') { res.end(); return; }
+        fs.createReadStream(arquivo).pipe(zlib.createGzip()).pipe(res);
+        return;
+      }
+      res.writeHead(200, cabecalhos({ 'Content-Type': tipo, 'Content-Length': st.size, 'Cache-Control': 'no-cache' }));
       if (req.method === 'HEAD') { res.end(); return; }
       fs.createReadStream(arquivo).pipe(res);
     });
@@ -608,6 +1004,8 @@ function criarServidor(opcoes) {
     ? https.createServer({ key: fs.readFileSync(arqChave), cert: fs.readFileSync(arqCert) }, tratar)
     : http.createServer(tratar);
 
+  var rotacaoPeriodica = null;
+
   function iniciar() {
     return new Promise(function (resolver, rejeitar) {
       servidor.once('error', rejeitar);
@@ -616,12 +1014,17 @@ function criarServidor(opcoes) {
         var esquema = usaHttps ? 'https' : 'http';
         var codigo = contas.codigoPrimeiroAcesso();
         registrar('Sistema de anestesia no ar — revisão ' + revisao + ', dados em ' + pastaDados);
+        registrar('  Fuso do servidor: ' + (process.env.TZ || Intl.DateTimeFormat().resolvedOptions().timeZone) + ' — hoje é ' + hojeAtual);
         registrar('  Neste computador:  ' + esquema + '://localhost:' + porta + '/');
         if ((opcoes.host || '0.0.0.0') === '0.0.0.0') {
           enderecosDaRede().forEach(function (ip) { registrar('  Na rede da clínica: ' + esquema + '://' + ip + ':' + porta + '/'); });
         }
         if (!usaHttps) registrar('  Sem HTTPS: use só na rede interna da clínica (Wi-Fi com senha).');
-        if (codigo) registrar('  PRIMEIRO ACESSO — código para criar o administrador: ' + codigo);
+        if (codigo) registrar('  PRIMEIRO ACESSO — código para criar o Anestesista chefe: ' + codigo);
+        rotacionarLogs('partida');
+        rotacaoPeriodica = setInterval(function () { rotacionarLogs('periódica'); }, 6 * 3600 * 1000);
+        rotacaoPeriodica.unref();
+        if (!opcoes.semConferenciaNaPartida) conferirExames('partida');
         resolver({ porta: porta, url: esquema + '://localhost:' + porta + '/' });
       });
     });
@@ -630,13 +1033,19 @@ function criarServidor(opcoes) {
   function fechar() {
     clearInterval(batida);
     clearInterval(relogioDia);
+    if (rotacaoPeriodica) clearInterval(rotacaoPeriodica);
     fluxos.forEach(function (f) { try { f.res.end(); } catch (e) { /* ok */ } });
     fluxos.clear();
     gravarAgora();
     contas.gravarSessoes();
-    return new Promise(function (resolver) {
-      servidor.close(function () { resolver(); });
-      if (servidor.closeAllConnections) servidor.closeAllConnections();
+    // A conferência dos exames grava o índice no fim: termina antes de soltar a trava, para não escrever por cima de um
+    // servidor que abra depois na mesma pasta. Ela para no próximo PDF.
+    parandoConferencia = true;
+    return Promise.resolve(conferenciaEmCurso).then(function () {
+      return new Promise(function (resolver) {
+        servidor.close(function () { soltarTrava(); resolver(); });
+        if (servidor.closeAllConnections) servidor.closeAllConnections();
+      });
     });
   }
 
@@ -647,7 +1056,10 @@ function criarServidor(opcoes) {
     get revisao() { return revisao; },
     get store() { return store; },
     contas: contas,
-    armazem: armazem
+    armazem: armazem,
+    auditoria: auditoria,
+    rotacionarLogs: rotacionarLogs,
+    conferirExames: conferirExames
   };
 }
 
@@ -659,12 +1071,19 @@ function argumentos(lista) {
     if (lista[i] === '--porta') o.porta = Number(lista[++i]);
     else if (lista[i] === '--host') o.host = lista[++i];
     else if (lista[i] === '--dados') o.dados = lista[++i];
+    else if (lista[i] === '--atras-de-proxy') o.atrasDeProxy = true;
   }
   return o;
 }
 
 if (require.main === module) {
-  var srv = criarServidor(argumentos(process.argv.slice(2)));
+  var srv;
+  try {
+    srv = criarServidor(argumentos(process.argv.slice(2)));
+  } catch (e) {
+    console.error('Não foi possível abrir o servidor: ' + (e && e.message));
+    process.exit(1);
+  }
   srv.iniciar().catch(function (e) {
     console.error(e && e.code === 'EADDRINUSE'
       ? 'A porta já está em uso — o servidor já está aberto em outra janela? Ou use --porta 8081.'
@@ -682,4 +1101,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { criarServidor: criarServidor };
+module.exports = { criarServidor: criarServidor, pegarTrava: pegarTrava };

@@ -12,8 +12,11 @@
  * Tentativas: 5 senhas erradas em 15 min travam aquele login (e aquele
  * endereço) por 15 min.
  *
- * Papéis: 'admin' (tudo, inclusive usuários, cadastro, financeiro e backup)
- * e 'equipe' (a operação do dia a dia).
+ * Perfis (core/12b_permissoes.js): 'chefe' (Anestesista chefe, poder total),
+ * 'anestesista' (painel de operação e de qualidade, sem dinheiro) e 'secretaria'
+ * (operação e gestão, sem painel de qualidade nem administração). Os nomes
+ * antigos continuam entendidos: 'admin' vira 'chefe' e 'equipe' vira 'anestesista'
+ * (o arquivo é regravado com os nomes novos na primeira partida).
  *
  * Primeiro acesso: sem nenhum usuário, o servidor cria um código de uso
  * único (mostrado na janela do servidor e gravado em PRIMEIRO_ACESSO.txt);
@@ -26,14 +29,22 @@ var fs = require('fs');
 var path = require('path');
 var crypto = require('crypto');
 
-var PAPEIS = ['admin', 'equipe'];
+var core = require('../core');
+
+var PAPEIS = core.ORDEM_DOS_PERFIS;
 var LOGIN = /^[a-z0-9._-]{3,30}$/;
 var OCIOSA_MS = 12 * 3600 * 1000;
 var MAXIMA_MS = 7 * 24 * 3600 * 1000;
 var TENTATIVAS = 5;
 var JANELA_MS = 15 * 60 * 1000;
 
-function criarContas(pasta) {
+/**
+ * `opcoes.custo`: custo do scrypt (N). O padrão (16384) é o de produção. Os testes que sobem
+ * dezenas de servidores passam um custo menor só para não gastar minutos em hash de senha; nada
+ * em produção passa isto.
+ */
+function criarContas(pasta, opcoes) {
+  var custo = opcoes && opcoes.custo ? opcoes.custo : 16384;
   var arqUsuarios = path.join(pasta, 'usuarios.json');
   var arqSessoes = path.join(pasta, 'sessoes.json');
   var arqCodigo = path.join(pasta, 'PRIMEIRO_ACESSO.txt');
@@ -49,16 +60,27 @@ function criarContas(pasta) {
 
   var usuarios = ler(arqUsuarios, []);
   if (!Array.isArray(usuarios)) usuarios = [];
+  // Perfis antigos ("admin", "equipe") e valores estranhos viram perfis de hoje. O que não se
+  // reconhece vira o perfil que menos vê (anestesista): nunca um perfil mais aberto.
+  var migrou = false;
+  usuarios.forEach(function (u) {
+    var canonico = core.perfilCanonico(u.papel) || 'anestesista';
+    if (u.papel !== canonico) { u.papel = canonico; migrou = true; }
+  });
+  if (migrou) gravar(arqUsuarios, usuarios);
   var sessoes = ler(arqSessoes, {});
   if (!sessoes || typeof sessoes !== 'object') sessoes = {};
   var tentativas = {};    // chave -> { falhas, desde, travadoAte }
   var codigo = null;
 
   function hash(senha, sal) {
-    return crypto.scryptSync(String(senha), sal, 64, { N: 16384, r: 8, p: 1 }).toString('hex');
+    return crypto.scryptSync(String(senha), sal, 64, { N: custo, r: 8, p: 1 }).toString('hex');
   }
   function sha(token) { return crypto.createHash('sha256').update(String(token)).digest('hex'); }
-  function publico(u) { return u ? { login: u.login, nome: u.nome, papel: u.papel, ativo: u.ativo !== false } : null; }
+  function publico(u) {
+    return u ? { login: u.login, nome: u.nome, papel: core.perfilCanonico(u.papel) || 'anestesista', ativo: u.ativo !== false,
+      anestesistaId: String(u.anestesistaId || '') } : null;
+  }
   function porLogin(login) {
     var l = String(login || '').trim().toLowerCase();
     return usuarios.filter(function (u) { return u.login === l; })[0] || null;
@@ -94,7 +116,7 @@ function criarContas(pasta) {
     if (dados.nome !== undefined && (String(dados.nome).trim().length < 2 || String(dados.nome).trim().length > 80)) {
       erros.push({ campo: 'nome', msg: 'Nome: de 2 a 80 letras.' });
     }
-    if (dados.papel !== undefined && PAPEIS.indexOf(dados.papel) < 0) erros.push({ campo: 'papel', msg: 'Papel inválido.' });
+    if (dados.papel !== undefined && !core.perfilCanonico(dados.papel)) erros.push({ campo: 'papel', msg: 'Perfil de acesso inválido.' });
     if (dados.senha !== undefined) {
       var s = String(dados.senha);
       if (s.length < 8) erros.push({ campo: 'senha', msg: 'A senha precisa de pelo menos 8 caracteres.' });
@@ -107,39 +129,42 @@ function criarContas(pasta) {
 
   function criarUsuario(dados) {
     var d = { login: String(dados.login || '').trim().toLowerCase(), nome: String(dados.nome || '').trim(),
-      papel: dados.papel || 'equipe', senha: dados.senha };
+      papel: dados.papel || 'anestesista', senha: dados.senha };
     var erros = validar(d, true);
     if (porLogin(d.login)) erros.push({ campo: 'login', msg: 'Já existe um usuário "' + d.login + '".' });
     if (erros.length) return { ok: false, erros: erros };
     var sal = crypto.randomBytes(16).toString('hex');
-    usuarios.push({ login: d.login, nome: d.nome, papel: d.papel, ativo: true, sal: sal, hash: hash(d.senha, sal),
-      criadoEm: new Date().toISOString() });
+    usuarios.push({ login: d.login, nome: d.nome, papel: core.perfilCanonico(d.papel), ativo: true, sal: sal, hash: hash(d.senha, sal),
+      criadoEm: new Date().toISOString(), anestesistaId: String(dados.anestesistaId || '').trim() });
     gravar(arqUsuarios, usuarios);
     if (codigo) { codigo = null; try { fs.unlinkSync(arqCodigo); } catch (e) { /* ok */ } }
     return { ok: true, usuario: publico(porLogin(d.login)) };
   }
 
-  function adminsAtivos() { return usuarios.filter(function (u) { return u.papel === 'admin' && u.ativo !== false; }); }
+  function chefesAtivos() { return usuarios.filter(function (u) { return u.papel === 'chefe' && u.ativo !== false; }); }
 
-  /** Muda nome, papel, ativo ou define senha nova (pelo administrador). */
+  /** Muda nome, perfil, ativo ou define senha nova (pelo Anestesista chefe). */
   function alterarUsuario(login, dados) {
     var u = porLogin(login);
     if (!u) return { ok: false, erros: [{ campo: 'login', msg: 'Usuário não encontrado.' }] };
     var d = {};
     ['nome', 'papel', 'senha'].forEach(function (k) { if (dados[k] !== undefined && dados[k] !== '') d[k] = dados[k]; });
     var erros = validar(d, false);
-    var ficaAdminAtivo = (d.papel || u.papel) === 'admin' && (dados.ativo === undefined ? u.ativo !== false : !!dados.ativo);
-    if (u.papel === 'admin' && u.ativo !== false && !ficaAdminAtivo && adminsAtivos().length <= 1) {
-      erros.push({ campo: 'papel', msg: 'Este é o único administrador ativo: crie outro antes de tirá-lo.' });
+    var ficaChefeAtivo = (core.perfilCanonico(d.papel) || u.papel) === 'chefe' && (dados.ativo === undefined ? u.ativo !== false : !!dados.ativo);
+    if (u.papel === 'chefe' && u.ativo !== false && !ficaChefeAtivo && chefesAtivos().length <= 1) {
+      erros.push({ campo: 'papel', msg: 'Este é o único Anestesista chefe ativo: crie outro antes de tirá-lo.' });
     }
     if (erros.length) return { ok: false, erros: erros };
+    var papelAntes = u.papel;
     if (d.nome) u.nome = String(d.nome).trim();
-    if (d.papel) u.papel = d.papel;
+    if (d.papel) u.papel = core.perfilCanonico(d.papel);
     if (dados.ativo !== undefined) u.ativo = !!dados.ativo;
+    if (dados.anestesistaId !== undefined) u.anestesistaId = String(dados.anestesistaId || '').trim();
     if (d.senha) { u.sal = crypto.randomBytes(16).toString('hex'); u.hash = hash(d.senha, u.sal); }
     gravar(arqUsuarios, usuarios);
-    // Senha trocada ou acesso cortado: as sessões abertas caem.
-    if (d.senha || u.ativo === false) encerrarSessoesDe(u.login);
+    // Senha trocada, acesso cortado ou perfil mudado: as sessões abertas caem (a pessoa entra de novo e
+    // recebe os dados do perfil novo; quem perdeu acesso não fica com a tela antiga viva).
+    if (d.senha || u.ativo === false || u.papel !== papelAntes) encerrarSessoesDe(u.login);
     return { ok: true, usuario: publico(u) };
   }
 

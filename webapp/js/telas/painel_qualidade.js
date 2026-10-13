@@ -37,13 +37,12 @@ TELAS.painel_qualidade = (function () {
 
   /**
    * A coordenação é quem configura as definições clínicas e quem compara
-   * profissionais entre si (no servidor da clínica, o administrador). Quem é
-   * da equipe vê o painel do serviço, mas não o ranking individual — a
-   * comparação é a parte do painel que mais pesa sobre uma pessoa.
-   * No computador único, quem usa é a coordenação.
+   * profissionais entre si (no servidor da clínica, o Anestesista chefe). O anestesista
+   * vê o painel do serviço, mas não o ranking individual — a comparação é a parte do
+   * painel que mais pesa sobre uma pessoa. No computador único, quem usa é a coordenação.
    */
   function ehCoordenacao(app) {
-    return !app.servidor || (typeof SERVIDOR !== 'undefined' && SERVIDOR.ehAdmin());
+    return app.ehCoordenacao();
   }
   var podeConfigurar = ehCoordenacao;
 
@@ -412,7 +411,7 @@ TELAS.painel_qualidade = (function () {
 
     if (!podeConfigurar(app)) return areaDaCoordenacao(
       'As definições clínicas, os limiares, as metas e as referências são configurados pelo ' +
-      'administrador do sistema da clínica.');
+      'Anestesista chefe da clínica.');
 
     var camposLimiar = {};
     var camposMeta = {};

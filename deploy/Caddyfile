@@ -1,0 +1,14 @@
+# HTTPS automático na frente do sistema (Caddy: caddyserver.com). MODELO — troque o endereço pelo da clínica.
+#
+#   1. O domínio (ou subdomínio) tem de apontar para o IP desta máquina.
+#   2. O sistema abre só para dentro da máquina (--host 127.0.0.1) e com ATRAS_DE_PROXY=1: ver anestesia.service.
+#   3. O Caddy pega e renova o certificado sozinho (Let's Encrypt). O sistema passa a mandar o cookie como Secure
+#      e a anotar no LOG o IP verdadeiro de quem entra.
+
+sistema.suaclinica.com.br {
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+	reverse_proxy 127.0.0.1:8080
+}
