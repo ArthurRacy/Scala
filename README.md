@@ -29,7 +29,9 @@ aparecem na própria tela de entrada, de propósito):
 | Anestesista | `anestesista` | `anestesista2026` | Operação (escala, quadro, cirurgias, avaliações, boletim, ficha de qualidade) e painel de qualidade; **sem dinheiro** e sem os contatos dos colegas |
 | Secretária | `secretaria` | `secretaria2026` | Operação e gestão (horas, financeiro, repasse, indicadores, cadastro, clínica); **não cria nem assina boletim**, sem painel de qualidade e sem administração |
 
-"Trocar de perfil", na faixa do topo, volta para a entrada. Chefe e anestesista
+"Trocar de perfil", na faixa do topo, volta para a entrada. Na conta do chefe, a tela
+**Usuários** funciona: ele cria contas e escolhe as permissões de cada uma (tudo fica só no
+navegador), e essas contas também entram pela tela de entrada. Chefe e anestesista
 assinam o boletim em nome de um anestesista do cadastro (o 1º e o 2º ativos). Na
 demonstração tudo roda no navegador; no servidor da clínica quem corta os dados de
 cada perfil é o servidor, e cada pessoa tem a sua senha.
@@ -284,9 +286,18 @@ Na primeira vez, o Windows pergunta sobre o firewall: permita só em
 - **Primeiro acesso**: sem nenhum usuário, a janela mostra um código de uso
   único (também em `dados_servidor/PRIMEIRO_ACESSO.txt`). Com ele, a tela de
   entrada cria o administrador.
-- **Usuários e perfis de acesso** (Cadastro › Usuários, só o Anestesista chefe).
-  Três perfis; quem decide é o **servidor** (a tela só esconde o que a pessoa
-  não pode usar), pela tabela única de `core/12b_permissoes.js`:
+- **Usuários e permissões** (Cadastro › Usuários, só o Anestesista chefe; detalhe em
+  [docs/PERMISSOES.md](docs/PERMISSOES.md)). Só o chefe cadastra usuários e decide as
+  permissões de cada um: são **29 permissões** (ver a operação, excluir cirurgia, anexar ou
+  remover exame, assinar boletim, ver valores, gerir o repasse, ver a auditoria, baixar os
+  dados…), marcadas pessoa a pessoa a partir de um **modelo** (Anestesista ou Secretária).
+  Ligar uma permissão liga o que ela exige; desligar desliga o que depende dela. Entre os
+  chefes, um é o **principal**: só ele cria, altera ou rebaixa outro chefe e passa a função.
+  Ninguém além do chefe cadastra usuários, decide permissões, importa, restaura, apaga tudo ou
+  mexe nas regras do LOG. Mudar as permissões de alguém derruba as sessões dela e fica no LOG
+  de acessos (o que entrou e o que saiu). Quem decide é o **servidor** (a tela só esconde o que
+  a pessoa não pode usar), pela tabela única de `core/12b_permissoes.js`. Os modelos
+  reproduzem os três perfis de antes:
 
   | | Anestesista chefe | Anestesista | Secretária |
   |---|---|---|---|
@@ -423,7 +434,7 @@ apps-script/          Camada Google Sheets
   92_gatilhos.gs        Menu, onEdit (criação automática), ações manuais
   appsscript.json
 
-qa/                   855 testes, sem dependência externa
+qa/                   881 testes, sem dependência externa
   index.js              Executor  —  node qa  |  node qa 05
   _runner.js            Arnês de testes
   _mock_sheets.js       Google Sheets de mentira, para testar a ponte

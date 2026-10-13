@@ -1,11 +1,12 @@
-# Permissões — mapa de hoje e arquitetura proposta
+# Permissões — mapa de antes e arquitetura implementada
 
-Proposta de 13/10/2026. **Nada disto está implementado ainda**: aguarda aprovação e as decisões da seção 5.
+Proposta e implementação de 13/10/2026. **Implementado**, com as decisões da seção 5 (testes em `qa/40`).
+O mapa da seção 1 é o de **antes** da mudança; a seção 2 é como ficou.
 
 **Pedido:** mapear todas as permissões do sistema; o **Anestesista chefe** é o único que cadastra usuários e
 decide quais permissões cada um terá.
 
-**Resumo da proposta:**
+**Resumo:**
 
 - Os 3 perfis fixos de hoje viram **29 permissões** nomeadas, num catálogo único em `core/12b_permissoes.js`.
 - Cada usuário tem a **sua** lista de permissões, escolhida pelo chefe. "Anestesista" e "Secretária" passam a
@@ -18,7 +19,7 @@ decide quais permissões cada um terá.
 
 ---
 
-## 1. Como é hoje (mapa completo)
+## 1. Como era antes (mapa completo)
 
 Tudo vem de uma tabela só (`core/12b_permissoes.js`), lida pelo servidor, pela tela e pelos testes.
 
@@ -90,7 +91,7 @@ O corte vale no estado (`projetarEstadoParaPerfil`), nos comandos que cada tela 
 
 ---
 
-## 2. Arquitetura proposta
+## 2. Arquitetura
 
 ### 2.1 Princípios
 
@@ -138,12 +139,17 @@ Legenda da coluna **Cuidado**: 💲 dinheiro · 🔒 dado pessoal · 🩺 prontu
 | 24 | `contatos.ver` | PIX, telefone e e-mail dos anestesistas | 1 | 🔒 | — | ✓ |
 | 25 | `cadastro.anestesistas` | Cadastro de anestesistas e escala-base | 24 | | — | ✓ |
 | 26 | `cadastro.clinica` | Dados da clínica e texto do termo de consentimento | 1 | | — | ✓ |
-| 27 | `auditoria.ver` | Ler o LOG, os acessos e os arquivos mensais conferidos | 1 | 🔒 | — | — |
+| 27 | `auditoria.ver` | Ler o LOG, os acessos e os arquivos mensais conferidos | 22 e 24 | 🔒💲 | — | — |
 | 28 | `integridade` | Tela Integridade e o reparo geral | 27 | ⚠ | — | — |
-| 29 | `dados.exportar` | Baixar backup, planilhas e "Baixar todos os dados" (todos os pacientes) | 1 | 🔒🩺 | — | — |
+| 29 | `dados.exportar` | Baixar backup, planilhas e "Baixar todos os dados" (todos os pacientes) | 27 e 6 | 🔒🩺 | — | — |
 
-Os dois modelos reproduzem **exatamente** o acesso de hoje (seção 1). As linhas 3, 8 e 14 continuam ligadas
+Os dois modelos reproduzem **exatamente** o acesso de antes (seção 1). As linhas 3, 8 e 14 continuam ligadas
 nos modelos para nada mudar no dia 1, mas agora o chefe pode desligá-las pessoa a pessoa.
+
+**Por que a auditoria e o download exigem tanto:** o LOG registra tudo o que mudou, inclusive valores, pagamentos,
+repasses e chaves PIX, e o pacote de "Baixar os dados" leva o LOG, os valores e os exames. Dar "Ver a auditoria" a
+quem não vê dinheiro vazaria o dinheiro pelo LOG. Por isso a 27 exige ver o repasse (e, com ele, os valores) e os
+contatos, e a 29 exige a 27 e abrir exames. Isso apareceu ao montar os testes e foi corrigido antes de publicar.
 
 ### 2.3 Exclusivo do Anestesista chefe (não se delega)
 
@@ -158,25 +164,31 @@ Isto **não** aparece no catálogo e não pode ser dado a ninguém: está preso 
 
 Travas:
 
-- Sempre existe **pelo menos 1 chefe ativo**: o último não pode ser desativado nem rebaixado (regra que já
-  existe).
-- Só um chefe cria outro chefe (ver decisão 1).
-- O chefe não muda o próprio perfil para baixo se for o único.
+- Entre os chefes, **um é o principal** (decisão 1). Só ele cria outro chefe, promove alguém a chefe, altera,
+  rebaixa ou desativa a conta de outro chefe, e passa a função de principal a outro chefe ativo
+  (`POST /api/usuarios/principal`). Os outros chefes fazem todo o resto, inclusive cadastrar usuários e decidir
+  permissões.
+- O principal **não pode ser desativado nem rebaixado**: passa a função antes. Assim sempre existe pelo menos 1
+  chefe ativo.
+- Arquivo antigo sem principal marcado: o primeiro chefe ativo vira o principal na partida.
 
 ### 2.4 Conta de usuário (`usuarios.json`)
 
 ```
 { login, nome, ativo, sal, hash, criadoEm, anestesistaId,
-  papel: 'chefe' | 'usuario',
-  modelo: 'anestesista' | 'secretaria' | 'personalizado',   // de onde partiu (só para mostrar)
-  permissoes: ['operacao.ver', 'cirurgias.editar', ...],    // lista completa; ignorada para o chefe
+  papel: 'chefe' | 'anestesista' | 'secretaria',            // chefe, ou o modelo de onde a lista partiu
+  permissoes: ['operacao.ver', 'cirurgias.editar', ...],    // lista completa; o chefe não guarda lista
+  principal: true,                                          // só num chefe
   permissoesAlteradasEm, permissoesAlteradasPor }
 ```
 
-- `modelo` só informa a origem. A tela mostra "Anestesista (ajustado)" quando a lista difere do modelo.
+- `papel` de quem não é chefe só informa o modelo de origem. A tela mostra "Anestesista (ajustado)" quando a
+  lista difere do modelo. Mudar o perfil sem mandar a lista aplica o modelo do perfil novo.
 - Validação no servidor: só ids do catálogo; dependências completas (`boletim.assinar` sem `boletim.preencher` é
-  recusado); `operacao.ver` sempre presente; `boletim.assinar` sem vínculo com um anestesista é recusado com a
-  mensagem "ligue este usuário a um anestesista do cadastro para ele assinar".
+  recusado); `operacao.ver` sempre presente. Só quem tem `boletim.assinar` pode ser ligado a um anestesista.
+  Quem tem `boletim.assinar` e ainda não foi ligado é aceito (o cadastro pode vir depois), mas a tela avisa que
+  ele não consegue assinar, e o servidor recusa a assinatura até o vínculo existir.
+- Lista guardada com dependência faltando (arquivo mexido à mão) **fecha**: a permissão sem a dependência não vale.
 
 ### 2.5 Onde cada regra é aplicada
 
@@ -204,8 +216,8 @@ flowchart LR
 | Tela | `app.podeVer(tela)`, `app.veFinanceiro()` | `app.pode('repasse.ver')`, com o mapa tela → permissão vindo do catálogo |
 
 **Regra de réplica:** a tela de quem tem os dados cortados, reexecutando os comandos já cortados, tem de chegar
-ao **mesmo** estado visível que o servidor. Isso já vale para os perfis (`qa/25`); passa a ser conferido nas 16
-combinações dos 4 interruptores de corte.
+ao **mesmo** estado visível que o servidor. Isso já valia para os perfis (`qa/25`) e agora é conferido nas 7
+combinações válidas dos 4 interruptores de corte (as outras 9 são listas incoerentes, que o servidor recusa).
 
 ### 2.6 Tela Usuários (só o chefe)
 
@@ -253,7 +265,7 @@ Auditoria › Acessos, para quem tiver `auditoria.ver`.
 - **Exclusivas:** usuário comum com todas as 29 permissões **não** cria usuário, não muda permissão, não importa,
   não restaura e não apaga (403).
 - **Último chefe:** não sai, não é rebaixado e não se rebaixa.
-- **Corte e réplica:** nas 16 combinações dos interruptores de corte.
+- **Corte e réplica:** nas 7 combinações válidas dos interruptores de corte.
 - **Migração:** acesso idêntico ao de hoje para chefe, anestesista e secretária.
 - **Sessões e rastro:** mudar permissão derruba as sessões da pessoa e deixa o evento no LOG de acessos.
 - **Rotas de exame:** recusam quem não tem a permissão (fecha o furo 1).
@@ -266,7 +278,7 @@ Auditoria › Acessos, para quem tiver `auditoria.ver`.
 - **Anestesista e secretária:** nada muda no dia da troca. Depois, só o que o chefe decidir.
 - **Quem perder uma permissão:** é desconectado e, ao entrar de novo, a tela já não mostra o que saiu.
 
-## 4. Plano de implementação (depois do "pode seguir")
+## 4. Como foi implementado
 
 1. **Core:** catálogo, dependências, modelos, `podeExecutar`, `projetarEstado` e `redigirComando` por usuário;
    aceitam também o nome de um perfil (a demonstração e os testes continuam funcionando).
@@ -285,14 +297,11 @@ Um commit por etapa, cada um com os seus testes. O banco de dados não muda: as 
 `usuarios.json`. Quando o banco relacional entrar (`docs/ESCALA_E_BANCO.md`), vira uma tabela `usuarios` e outra
 `usuario_permissoes`.
 
-## 5. Decisões que dependem de você
+## 5. Decisões do dono do produto (13/10/2026)
 
-1. **Mais de um Anestesista chefe?** Recomendo **sim**, com pelo menos 1 sempre ativo. O 2º é a reserva se o 1º
-   perder a senha ou sair do grupo. Sem ele, recuperar o acesso exige mexer no servidor
-   (`tools/redefinir_senha.js`).
-2. **Ajuste pessoa a pessoa ou só modelos?** Recomendo as **29 permissões com modelos como ponto de partida**
-   (seção 2.2). A alternativa é só escolher entre modelos fixos, que hoje são 3 e poderiam ser mais.
-3. **Auditoria (27) e "Baixar todos os dados" (29) podem ser dados a outra pessoa, ou ficam só com o chefe?**
-   Recomendo deixar as duas **delegáveis, mas desligadas em todos os modelos**. Se preferir, passam para a seção
-   2.3 (só chefe).
-4. **Demonstração online:** mostrar a tela Usuários com permissões na conta do chefe (seção 2.9)?
+1. **Chefes:** sempre um ativo; o chefe pode criar mais acessos de chefe, mas **só um** (o chefe principal) cria
+   outros chefes. Implementado como seção 2.3.
+2. **29 permissões com modelos** como ponto de partida, ajustadas pessoa a pessoa.
+3. **Auditoria (27) e "Baixar os dados" (29): delegáveis, desligadas em todos os modelos.**
+4. **Demonstração online:** a conta do chefe mostra a tela Usuários funcionando (contas guardadas só no
+   navegador; as contas criadas entram pela tela de entrada).
