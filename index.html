@@ -1647,6 +1647,22 @@ body.arrastando-quadro { user-select: none; -webkit-user-select: none; cursor: g
 .entrada-marca .marca-bloco { border-radius: var(--r2); }
 .entrada-marca h1 { font-size: 18px; margin: 0 0 2px; }
 .entrada-botao { width: 100%; justify-content: center; margin-top: var(--e2); }
+/* Usuários: a lista de permissões de cada pessoa, agrupada. */
+.permissoes-titulo { font-size: var(--t-4); margin: var(--e5) 0 var(--e2); }
+.permissoes-resumo { margin-bottom: var(--e3); }
+.permissoes { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--e3); }
+.permissoes-grupo { margin: 0; padding: var(--e2) var(--e3) var(--e3); border: 1px solid var(--borda); border-radius: var(--r2); min-width: 0; }
+.permissoes-grupo legend { padding: 0 6px; font-weight: 600; font-size: var(--t-3); }
+.permissao { display: flex; gap: var(--e2); align-items: flex-start; padding: 7px 0; cursor: pointer; }
+.permissao + .permissao { border-top: 1px solid var(--borda); }
+.permissao input { width: 16px; height: 16px; flex: 0 0 16px; margin: 2px 0 0; accent-color: var(--acento); }
+.permissao input:disabled { cursor: not-allowed; }
+.permissao-texto { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.permissao-rotulo { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: var(--t-3); }
+.permissao.ligada .permissao-rotulo { font-weight: 550; }
+.permissao-cuidado { font-size: var(--t-1); padding: 1px 6px; }
+@media (max-width: 560px) { .permissoes { grid-template-columns: 1fr; } }
+
 /* Versão online: as três contas de demonstração, à vista na entrada. */
 .entrada-cartao.entrada-demo { width: min(480px, 100%); }
 .entrada-demo-titulo { font-size: var(--t-3); margin: var(--e5) 0 var(--e2); }
@@ -11744,8 +11760,8 @@ var MUTACOES_SEGURAS_EM_CONCORRENCIA = ['atualizarCirurgia', 'atualizarAvaliacao
   'salvarConfigQualidade', 'salvarConfigLog'];
 
 /*
- * Quem pode cada operação (os três perfis) está em core/12b_permissoes.js, a única tabela:
- * ali também sai MUTACOES_SO_ADMIN, a lista do que só o Anestesista chefe faz.
+ * Quem pode cada operação está em core/12b_permissoes.js, a única tabela (PERMISSAO_DA_OPERACAO, com o
+ * catálogo de permissões): ali também sai MUTACOES_SO_ADMIN, o que nos modelos só o Anestesista chefe faz.
  */
 
 if (typeof module !== 'undefined' && module.exports) {
@@ -11763,29 +11779,34 @@ if (typeof module !== 'undefined' && module.exports) {
 /* ---- ../core/12b_permissoes.js ---- */
 /**
  * ============================================================================
- * 12B_PERMISSOES — Quem vê e quem faz o quê (três perfis de acesso)
+ * 12B_PERMISSOES — Quem vê e quem faz o quê (catálogo de permissões)
  * ============================================================================
- * Os perfis do sistema da clínica (modo servidor, com login):
+ * Cada usuário do sistema da clínica tem uma lista de PERMISSÕES, escolhida
+ * pelo Anestesista chefe (docs/PERMISSOES.md):
  *
- *   chefe        Anestesista chefe. Poder total sobre a plataforma.
- *   anestesista  Anestesista. Todo o painel de operação (escala, quadro do dia,
- *                cirurgias, avaliações pré, boletim e ficha de qualidade) mais o
- *                painel de qualidade. NUNCA vê dinheiro (valor, pago, data do
- *                pagamento, nota fiscal, repasse) nem a chave PIX, o telefone e o
- *                e-mail dos colegas.
- *   secretaria   Secretária. Operação e gestão (horas, financeiro, repasse,
- *                indicadores, cadastro e dados da clínica), sem o painel de
- *                qualidade e sem estrutura; vê e imprime o boletim mas não cria,
- *                não edita e não assina; sem as telas de administração.
+ *   chefe        Anestesista chefe. Tem todas as permissões, sempre, e é o
+ *                único que cadastra usuários, decide as permissões de cada um,
+ *                importa, restaura ou apaga os dados de todos e mexe nas regras
+ *                do LOG. Um deles é o chefe PRINCIPAL: só ele cria, altera ou
+ *                rebaixa outros chefes (regra em server/contas.js).
+ *   anestesista  Modelo "Anestesista": operação, boletim, ficha e painel de
+ *   secretaria   qualidade. Modelo "Secretária": operação e gestão. O chefe
+ *                aplica um modelo e liga ou desliga cada permissão, pessoa a
+ *                pessoa (`permissoes` na conta). Sem lista guardada, vale o
+ *                modelo do perfil — é o que reproduz o acesso de antes.
  *
  * A TABELA MORA AQUI, no core, para três leitores usarem a MESMA regra: o
  * servidor (quem decide e quem corta os dados), a tela (que só esconde o que a
  * pessoa não pode usar) e os testes (que conferem). Esconder um botão nunca é
  * a proteção: quem protege é o servidor.
  *
- * REGRA DE OURO: operação do store que não esteja classificada em
- * GRUPO_DA_MUTACAO é recusada para todo perfil que não seja o chefe. Uma
- * operação nova esquecida aqui nasce fechada, não aberta (teste em qa/25).
+ * REGRA DE OURO: operação do store, tela ou rota que não esteja no catálogo é
+ * só do chefe. Uma operação nova esquecida aqui nasce fechada, não aberta
+ * (teste em qa/25).
+ *
+ * Quem pede ("quem", nas funções abaixo) é o nome de um perfil ('chefe',
+ * 'anestesista', 'secretaria' e os antigos 'admin'/'equipe') ou uma conta
+ * { papel, permissoes }.
  *
  * Computador único não tem login: ali quem usa é o chefe. A versão online de
  * demonstração tem uma conta por perfil (webapp/js/demo_online.js) e confere
@@ -11796,7 +11817,7 @@ if (typeof module !== 'undefined' && module.exports) {
 var PERFIS = {
   chefe: {
     id: 'chefe', rotulo: 'Anestesista chefe',
-    resumo: 'Poder total sobre a plataforma: usuários, cadastro, financeiro, qualidade, auditoria e backup.'
+    resumo: 'Poder total sobre a plataforma: usuários, permissões, cadastro, financeiro, qualidade, auditoria e backup.'
   },
   anestesista: {
     id: 'anestesista', rotulo: 'Anestesista',
@@ -11823,95 +11844,347 @@ function perfilCanonico(valor) {
   return PERFIS[v] ? v : '';
 }
 
-/* ------------------------------------------------------------------ telas -- */
+/* -------------------------------------------------------------- catálogo -- */
 
-var TELAS_DE_OPERACAO = ['painel', 'escala', 'quadro', 'cirurgias', 'avaliacoes', 'boletim', 'qualidade'];
+var GRUPOS_DE_PERMISSAO = [
+  { id: 'operacao', rotulo: 'Operação' },
+  { id: 'boletim', rotulo: 'Boletim anestésico' },
+  { id: 'qualidade', rotulo: 'Qualidade' },
+  { id: 'gestao', rotulo: 'Gestão' },
+  { id: 'cadastro', rotulo: 'Cadastro' },
+  { id: 'sistema', rotulo: 'Sistema' }
+];
 
-var TELAS_DO_PERFIL = {
-  chefe: ['painel', 'escala', 'quadro', 'cirurgias', 'avaliacoes', 'boletim', 'qualidade',
-    'horas', 'financeiro', 'repasse', 'indicadores', 'painel_qualidade', 'estrutura',
-    'anestesistas', 'clinica', 'integridade', 'log', 'usuarios', 'dados'],
-  anestesista: TELAS_DE_OPERACAO.concat(['painel_qualidade']),
-  secretaria: TELAS_DE_OPERACAO.concat(['horas', 'financeiro', 'repasse', 'indicadores', 'anestesistas', 'clinica'])
+/** Selos de cuidado: o que pede atenção antes de dar a alguém. */
+var CUIDADOS_DE_PERMISSAO = {
+  dinheiro: 'dinheiro',
+  pessoal: 'dado pessoal',
+  prontuario: 'prontuário',
+  massa: 'apaga ou altera'
 };
 
-/** O perfil abre esta tela? (Perfil desconhecido não abre nenhuma.) */
-function perfilPodeVerTela(perfil, tela) {
-  var p = perfilCanonico(perfil);
-  return !!p && TELAS_DO_PERFIL[p].indexOf(tela) >= 0;
+/**
+ * As permissões que o chefe dá a cada usuário. `depende`: o que tem de vir junto (ligar uma liga as de que ela
+ * depende; desligar uma desliga as que dependem dela). `sempre`: vem em toda conta. A ordem é a da tela.
+ */
+var PERMISSOES = [
+  { id: 'operacao.ver', grupo: 'operacao', rotulo: 'Ver a operação', sempre: true, depende: [],
+    descricao: 'Painel, Escala, Quadro do dia, Cirurgias e Avaliações pré (leitura).' },
+  { id: 'cirurgias.editar', grupo: 'operacao', rotulo: 'Lançar e alterar cirurgias', depende: ['operacao.ver'],
+    descricao: 'Sem os campos de dinheiro, que têm permissão própria.' },
+  { id: 'cirurgias.excluir', grupo: 'operacao', rotulo: 'Excluir cirurgias', depende: ['cirurgias.editar'], cuidado: ['massa'],
+    descricao: 'Exclui a cirurgia e as avaliações dela.' },
+  { id: 'avaliacoes.editar', grupo: 'operacao', rotulo: 'Alterar avaliações pré-anestésicas', depende: ['operacao.ver'], cuidado: ['prontuario'],
+    descricao: 'Realizada, data, observações e o termo de consentimento.' },
+  { id: 'escala.ajustar', grupo: 'operacao', rotulo: 'Ajustar a escala', depende: ['operacao.ver'],
+    descricao: 'Substituições e remanejamento das posições.' },
+  { id: 'exames.ver', grupo: 'operacao', rotulo: 'Abrir os exames do paciente', depende: ['operacao.ver'], cuidado: ['prontuario'],
+    descricao: 'Os PDFs de exame presos às avaliações.' },
+  { id: 'exames.anexar', grupo: 'operacao', rotulo: 'Anexar exames', depende: ['exames.ver'], cuidado: ['prontuario'],
+    descricao: 'Guardar PDF de exame na avaliação ou na cirurgia nova.' },
+  { id: 'exames.remover', grupo: 'operacao', rotulo: 'Remover exames', depende: ['exames.anexar'], cuidado: ['massa'],
+    descricao: 'O PDF removido continua guardado no servidor por 3 anos.' },
+
+  { id: 'boletim.ver', grupo: 'boletim', rotulo: 'Ver e imprimir o boletim', depende: ['operacao.ver'], cuidado: ['prontuario'],
+    descricao: 'Tela do boletim e o PDF.' },
+  { id: 'boletim.preencher', grupo: 'boletim', rotulo: 'Criar e preencher o boletim', depende: ['boletim.ver'], cuidado: ['prontuario'],
+    descricao: 'Inclui descartar o rascunho.' },
+  { id: 'boletim.assinar', grupo: 'boletim', rotulo: 'Assinar o boletim', depende: ['boletim.preencher'], cuidado: ['prontuario'],
+    descricao: 'Só funciona com o usuário ligado a um anestesista do cadastro: o boletim sai no nome e no CRM dele.' },
+  { id: 'boletim.reabrir', grupo: 'boletim', rotulo: 'Reabrir boletim assinado', depende: ['boletim.assinar'], cuidado: ['prontuario'],
+    descricao: 'Com motivo; a versão anterior fica no histórico.' },
+
+  { id: 'qualidade.ficha', grupo: 'qualidade', rotulo: 'Preencher a ficha de qualidade', depende: ['operacao.ver'], cuidado: ['prontuario'],
+    descricao: 'Criar, preencher, acompanhar, concluir e descartar a ficha.' },
+  { id: 'qualidade.revisar', grupo: 'qualidade', rotulo: 'Revisão clínica da ficha', depende: ['qualidade.ficha'], cuidado: ['prontuario'],
+    descricao: 'Revisar e reabrir a ficha de qualidade.' },
+  { id: 'qualidade.painel', grupo: 'qualidade', rotulo: 'Painel de qualidade', depende: ['operacao.ver'],
+    descricao: 'Indicadores do grupo, sem comparar profissionais.' },
+  { id: 'qualidade.comparar', grupo: 'qualidade', rotulo: 'Comparar profissionais', depende: ['qualidade.painel'], cuidado: ['pessoal'],
+    descricao: 'O mesmo indicador por anestesista, no painel de qualidade.' },
+  { id: 'qualidade.coordenar', grupo: 'qualidade', rotulo: 'Coordenação da qualidade', depende: ['qualidade.painel'],
+    descricao: 'Estrutura (equipamentos, salas, treinamentos) e definições clínicas do painel.' },
+
+  { id: 'horas.ver', grupo: 'gestao', rotulo: 'Horas', depende: ['operacao.ver'],
+    descricao: 'Horas reais e estimadas por anestesista.' },
+  { id: 'indicadores.ver', grupo: 'gestao', rotulo: 'Indicadores de produção', depende: ['operacao.ver'],
+    descricao: 'Cirurgias, avaliações e horas do grupo, sem valores.' },
+  { id: 'financeiro.ver', grupo: 'gestao', rotulo: 'Ver valores e pagamentos', depende: ['operacao.ver'], cuidado: ['dinheiro'],
+    descricao: 'Valor, pago, data do pagamento e nota fiscal; tela Financeiro; números de dinheiro do painel.' },
+  { id: 'financeiro.editar', grupo: 'gestao', rotulo: 'Alterar valores e pagamentos', depende: ['financeiro.ver'], cuidado: ['dinheiro'],
+    descricao: 'Nas cirurgias e nas avaliações.' },
+  { id: 'repasse.ver', grupo: 'gestao', rotulo: 'Ver o repasse', depende: ['financeiro.ver'], cuidado: ['dinheiro'],
+    descricao: 'Divisão do resultado do mês, com a chave PIX de cada um.' },
+  { id: 'repasse.gerir', grupo: 'gestao', rotulo: 'Gerir o repasse', depende: ['repasse.ver'], cuidado: ['dinheiro'],
+    descricao: 'Despesas, pagamentos e quem participa da divisão.' },
+
+  { id: 'contatos.ver', grupo: 'cadastro', rotulo: 'Ver contatos dos anestesistas', depende: ['operacao.ver'], cuidado: ['pessoal'],
+    descricao: 'Chave PIX, telefone e e-mail.' },
+  { id: 'cadastro.anestesistas', grupo: 'cadastro', rotulo: 'Cadastro de anestesistas', depende: ['contatos.ver'],
+    descricao: 'Anestesistas e a escala-base.' },
+  { id: 'cadastro.clinica', grupo: 'cadastro', rotulo: 'Clínica e termo', depende: ['operacao.ver'],
+    descricao: 'Dados da clínica e o texto do termo de consentimento.' },
+
+  { id: 'auditoria.ver', grupo: 'sistema', rotulo: 'Ver a auditoria', depende: ['repasse.ver', 'contatos.ver'], cuidado: ['pessoal', 'dinheiro'],
+    descricao: 'O LOG de alterações, os acessos e os arquivos mensais conferidos. O LOG mostra tudo o que mudou, inclusive valores, ' +
+      'repasses e PIX: por isso exige ver o repasse e os contatos.' },
+  { id: 'integridade', grupo: 'sistema', rotulo: 'Integridade e reparo', depende: ['auditoria.ver'], cuidado: ['massa'],
+    descricao: 'Verificação de consistência dos dados e o reparo geral.' },
+  { id: 'dados.exportar', grupo: 'sistema', rotulo: 'Baixar os dados', depende: ['auditoria.ver', 'exames.ver'], cuidado: ['pessoal', 'prontuario'],
+    descricao: 'Backup, planilhas e "Baixar todos os dados": todos os pacientes, todos os exames, valores e o LOG.' }
+];
+
+var IDS_DE_PERMISSAO = PERMISSOES.map(function (p) { return p.id; });
+var PERMISSAO_POR_ID = {};
+PERMISSOES.forEach(function (p) { PERMISSAO_POR_ID[p.id] = p; });
+
+/** O que só o chefe faz (não se delega) e o que nenhuma pessoa faz (só o próprio servidor). */
+var SO_CHEFE = 'chefe';
+var INTERNA = 'interna';
+
+/** O que o chefe faz e não se dá a ninguém (aparece na tela Usuários, para ficar claro). */
+var EXCLUSIVO_DO_CHEFE = [
+  'Cadastrar usuários, desativar, definir senha nova e ligar a um anestesista do cadastro',
+  'Decidir as permissões de cada usuário',
+  'Importar backup, restaurar cópia e apagar tudo',
+  'Regras do LOG: quanto fica na tela, arquivar e conferir'
+];
+
+/**
+ * Os modelos reproduzem o acesso dos perfis de antes (qa/25 confere operação por operação). Conta sem lista
+ * guardada usa o modelo do seu perfil.
+ */
+var MODELOS_DE_PERMISSAO = {
+  anestesista: ['operacao.ver', 'cirurgias.editar', 'cirurgias.excluir', 'avaliacoes.editar', 'escala.ajustar',
+    'exames.ver', 'exames.anexar', 'exames.remover',
+    'boletim.ver', 'boletim.preencher', 'boletim.assinar', 'boletim.reabrir',
+    'qualidade.ficha', 'qualidade.revisar', 'qualidade.painel'],
+  secretaria: ['operacao.ver', 'cirurgias.editar', 'cirurgias.excluir', 'avaliacoes.editar', 'escala.ajustar',
+    'exames.ver', 'exames.anexar', 'exames.remover',
+    'boletim.ver', 'qualidade.ficha', 'qualidade.revisar',
+    'horas.ver', 'indicadores.ver', 'financeiro.ver', 'financeiro.editar', 'repasse.ver', 'repasse.gerir',
+    'contatos.ver', 'cadastro.anestesistas', 'cadastro.clinica']
+};
+
+/* -------------------------------------------------- listas e dependências -- */
+
+function emOrdemDoCatalogo(ids) {
+  return IDS_DE_PERMISSAO.filter(function (id) { return ids.indexOf(id) >= 0; });
 }
 
-/** Vê dinheiro (valores, pagamentos, nota fiscal, repasse) e dados de contato dos colegas. */
-function perfilVeFinanceiro(perfil) {
-  var p = perfilCanonico(perfil);
-  return p === 'chefe' || p === 'secretaria';
+/** Lista + tudo de que ela depende + as que vêm sempre (para a tela: ligar uma liga as de que ela precisa). */
+function completarDependencias(lista) {
+  var saida = [];
+  function incluir(id) {
+    var p = PERMISSAO_POR_ID[id];
+    if (!p || saida.indexOf(id) >= 0) return;
+    saida.push(id);
+    p.depende.forEach(incluir);
+  }
+  (Array.isArray(lista) ? lista : []).forEach(function (id) { incluir(String(id)); });
+  PERMISSOES.forEach(function (p) { if (p.sempre) incluir(p.id); });
+  return emOrdemDoCatalogo(saida);
 }
 
-/** Coordenação: configura as definições clínicas e compara profissionais entre si. */
-function perfilEhCoordenacao(perfil) {
-  return perfilCanonico(perfil) === 'chefe';
+/** As permissões que dependem desta, direta ou indiretamente (para a tela: desligar uma desliga estas). */
+function dependentesDe(id) {
+  var saida = [];
+  var mudou = true;
+  while (mudou) {
+    mudou = false;
+    PERMISSOES.forEach(function (p) {
+      if (saida.indexOf(p.id) >= 0) return;
+      if (p.depende.some(function (d) { return d === id || saida.indexOf(d) >= 0; })) { saida.push(p.id); mudou = true; }
+    });
+  }
+  return emOrdemDoCatalogo(saida);
 }
+
+/**
+ * Lista guardada -> lista que vale. O que não se reconhece é ignorado, e a permissão cuja dependência falta
+ * cai (na dúvida, fecha: nunca abre mais do que está escrito).
+ */
+function listaQueVale(lista) {
+  var conhecidas = (Array.isArray(lista) ? lista : []).map(String).filter(function (id) { return !!PERMISSAO_POR_ID[id]; });
+  PERMISSOES.forEach(function (p) { if (p.sempre && conhecidas.indexOf(p.id) < 0) conhecidas.push(p.id); });
+  var vale = conhecidas.slice();
+  var mudou = true;
+  while (mudou) {
+    mudou = false;
+    vale = vale.filter(function (id) {
+      var ok = PERMISSAO_POR_ID[id].depende.every(function (d) { return vale.indexOf(d) >= 0; });
+      if (!ok) mudou = true;
+      return ok;
+    });
+  }
+  return emOrdemDoCatalogo(vale);
+}
+
+/**
+ * Confere uma lista mandada pelo chefe: só ids do catálogo e dependências completas. Devolve
+ * { ok, lista, erros:[{ campo: 'permissoes', msg }] }.
+ */
+function validarPermissoes(lista) {
+  if (!Array.isArray(lista)) return { ok: false, lista: [], erros: [{ campo: 'permissoes', msg: 'Lista de permissões inválida.' }] };
+  var erros = [];
+  var ids = lista.map(function (x) { return String(x); });
+  var desconhecidas = ids.filter(function (id) { return !PERMISSAO_POR_ID[id]; });
+  if (desconhecidas.length) {
+    erros.push({ campo: 'permissoes', msg: 'Permissão que não existe: ' + desconhecidas.join(', ') + '.' });
+  }
+  var conhecidas = ids.filter(function (id) { return !!PERMISSAO_POR_ID[id]; });
+  PERMISSOES.forEach(function (p) { if (p.sempre && conhecidas.indexOf(p.id) < 0) conhecidas.push(p.id); });
+  conhecidas.forEach(function (id) {
+    var p = PERMISSAO_POR_ID[id];
+    var faltam = p.depende.filter(function (d) { return conhecidas.indexOf(d) < 0; });
+    if (faltam.length) {
+      erros.push({ campo: 'permissoes', msg: '"' + p.rotulo + '" precisa de ' +
+        faltam.map(function (d) { return '"' + PERMISSAO_POR_ID[d].rotulo + '"'; }).join(' e ') + '.' });
+    }
+  });
+  return { ok: !erros.length, lista: emOrdemDoCatalogo(conhecidas), erros: erros };
+}
+
+/** 'anestesista' ou 'secretaria' se a lista é exatamente a do modelo; '' se foi ajustada. */
+function modeloDaLista(lista) {
+  var l = emOrdemDoCatalogo(Array.isArray(lista) ? lista.map(String) : []).join(',');
+  var achado = '';
+  Object.keys(MODELOS_DE_PERMISSAO).forEach(function (m) {
+    if (!achado && emOrdemDoCatalogo(MODELOS_DE_PERMISSAO[m]).join(',') === l) achado = m;
+  });
+  return achado;
+}
+
+/* ------------------------------------------------------------ quem pode -- */
+
+function papelDe(quem) {
+  return perfilCanonico(quem && typeof quem === 'object' ? quem.papel : quem);
+}
+
+/** As permissões que valem para quem pede (todas, para o chefe; nenhuma, para perfil desconhecido). */
+function permissoesDe(quem) {
+  var papel = papelDe(quem);
+  if (!papel) return [];
+  if (papel === 'chefe') return IDS_DE_PERMISSAO.slice();
+  var guardada = quem && typeof quem === 'object' && Array.isArray(quem.permissoes) ? quem.permissoes : null;
+  return listaQueVale(guardada || MODELOS_DE_PERMISSAO[papel]);
+}
+
+function ehChefe(quem) { return papelDe(quem) === 'chefe'; }
+
+/** Quem pede tem esta permissão? (SO_CHEFE: só o chefe; INTERNA: ninguém.) */
+function pode(quem, permissao) {
+  if (permissao === INTERNA) return false;
+  if (permissao === SO_CHEFE) return ehChefe(quem);
+  return permissoesDe(quem).indexOf(permissao) >= 0;
+}
+
+/** Rótulo do acesso de uma conta: "Anestesista chefe", "Secretária" ou "Secretária (ajustado)". */
+function rotuloDoAcesso(quem) {
+  var papel = papelDe(quem);
+  if (!papel) return 'sem acesso';
+  if (papel === 'chefe') return PERFIS.chefe.rotulo;
+  var lista = permissoesDe(quem);
+  return PERFIS[papel].rotulo + (modeloDaLista(lista) === papel ? '' : ' (ajustado)');
+}
+
+/* ------------------------------------------------------------------ telas -- */
+
+var PERMISSAO_DA_TELA = {
+  painel: 'operacao.ver', escala: 'operacao.ver', quadro: 'operacao.ver', cirurgias: 'operacao.ver', avaliacoes: 'operacao.ver',
+  boletim: 'boletim.ver', qualidade: 'qualidade.ficha',
+  horas: 'horas.ver', financeiro: 'financeiro.ver', repasse: 'repasse.ver', indicadores: 'indicadores.ver',
+  painel_qualidade: 'qualidade.painel', estrutura: 'qualidade.coordenar',
+  anestesistas: 'cadastro.anestesistas', clinica: 'cadastro.clinica',
+  integridade: 'integridade', log: 'auditoria.ver', dados: 'dados.exportar',
+  usuarios: SO_CHEFE
+};
+
+/** Quem pede abre esta tela? (Perfil desconhecido não abre nenhuma; tela fora da tabela, ninguém.) */
+function perfilPodeVerTela(quem, tela) {
+  var perm = PERMISSAO_DA_TELA[tela];
+  return !!perm && pode(quem, perm);
+}
+
+/** Vê dinheiro (valores, pagamentos, nota fiscal). */
+function perfilVeFinanceiro(quem) { return pode(quem, 'financeiro.ver'); }
+
+/** Coordenação da qualidade: estrutura e definições clínicas. */
+function perfilEhCoordenacao(quem) { return pode(quem, 'qualidade.coordenar'); }
 
 /* -------------------------------------------------------------- operações -- */
 
-/**
- * Grupo de cada operação do store que muda dados. Os grupos definem quem faz
- * (PERFIS_DO_GRUPO). Operação fora desta lista é negada a quem não é chefe.
- */
-var GRUPO_DA_MUTACAO = {
-  adicionarCirurgia: 'operacao', atualizarCirurgia: 'operacao', removerCirurgia: 'operacao',
-  atualizarAvaliacao: 'operacao', ajustarEscala: 'operacao', aplicarRemanejamento: 'operacao',
+/** A permissão que cada operação do store exige. Operação fora desta tabela é só do chefe. */
+var PERMISSAO_DA_OPERACAO = {
+  adicionarCirurgia: 'cirurgias.editar', atualizarCirurgia: 'cirurgias.editar', removerCirurgia: 'cirurgias.excluir',
+  atualizarAvaliacao: 'avaliacoes.editar', ajustarEscala: 'escala.ajustar', aplicarRemanejamento: 'escala.ajustar',
 
-  salvarAnestesista: 'cadastro', definirEscalaBase: 'cadastro', definirModoEscalaBase: 'cadastro',
-  salvarConfigClinica: 'cadastro',
+  salvarAnestesista: 'cadastro.anestesistas', definirEscalaBase: 'cadastro.anestesistas', definirModoEscalaBase: 'cadastro.anestesistas',
+  salvarConfigClinica: 'cadastro.clinica',
 
-  salvarDespesasRepasse: 'financeiro', registrarPagamentoRepasse: 'financeiro',
-  removerPagamentoRepasse: 'financeiro', atualizarParticipantesRepasse: 'financeiro',
+  salvarDespesasRepasse: 'repasse.gerir', registrarPagamentoRepasse: 'repasse.gerir',
+  removerPagamentoRepasse: 'repasse.gerir', atualizarParticipantesRepasse: 'repasse.gerir',
 
-  criarBoletim: 'boletim', salvarBoletim: 'boletim', alterarLinhaBoletim: 'boletim',
-  finalizarBoletim: 'boletim', reabrirBoletim: 'boletim', descartarBoletim: 'boletim',
+  criarBoletim: 'boletim.preencher', salvarBoletim: 'boletim.preencher', alterarLinhaBoletim: 'boletim.preencher',
+  descartarBoletim: 'boletim.preencher', finalizarBoletim: 'boletim.assinar', reabrirBoletim: 'boletim.reabrir',
 
-  criarFichaQualidade: 'qualidade', salvarFichaQualidade: 'qualidade', preencherFichaDoBoletim: 'qualidade',
-  alterarEventoQualidade: 'qualidade', registrarSeguimentoQualidade: 'qualidade',
-  revisarFichaQualidade: 'qualidade', concluirFichaQualidade: 'qualidade',
-  reabrirFichaQualidade: 'qualidade', descartarFichaQualidade: 'qualidade',
+  criarFichaQualidade: 'qualidade.ficha', salvarFichaQualidade: 'qualidade.ficha', preencherFichaDoBoletim: 'qualidade.ficha',
+  alterarEventoQualidade: 'qualidade.ficha', registrarSeguimentoQualidade: 'qualidade.ficha',
+  concluirFichaQualidade: 'qualidade.ficha', descartarFichaQualidade: 'qualidade.ficha',
+  revisarFichaQualidade: 'qualidade.revisar', reabrirFichaQualidade: 'qualidade.revisar',
 
-  salvarRegistroEstrutura: 'coordenacao', removerRegistroEstrutura: 'coordenacao', salvarConfigQualidade: 'coordenacao',
+  salvarRegistroEstrutura: 'qualidade.coordenar', removerRegistroEstrutura: 'qualidade.coordenar', salvarConfigQualidade: 'qualidade.coordenar',
 
-  reparar: 'sistema', salvarConfigLog: 'sistema',
+  reparar: 'integridade',
+  salvarConfigLog: SO_CHEFE,
 
-  // Só o próprio servidor aplica (rotação mensal do LOG): nenhum perfil manda isto pela rede.
-  arquivarLogAte: 'interna'
-};
-
-var PERFIS_DO_GRUPO = {
-  operacao: ['chefe', 'anestesista', 'secretaria'],
-  cadastro: ['chefe', 'secretaria'],
-  financeiro: ['chefe', 'secretaria'],
-  boletim: ['chefe', 'anestesista'],
-  qualidade: ['chefe', 'anestesista', 'secretaria'],
-  coordenacao: ['chefe'],
-  sistema: ['chefe'],
-  interna: []
+  // Só o próprio servidor aplica (rotação mensal do LOG): nenhuma pessoa manda isto pela rede.
+  arquivarLogAte: INTERNA
 };
 
 /**
- * O que só o Anestesista chefe faz (estrutura, definições clínicas e reparo geral). Sai da tabela
- * acima: não existe uma segunda lista para esquecer de atualizar.
+ * O que, nos modelos, só o Anestesista chefe faz (estrutura, definições clínicas, reparo geral e regras do LOG).
+ * Sai da tabela acima: não existe uma segunda lista para esquecer de atualizar.
  */
-var MUTACOES_SO_ADMIN = Object.keys(GRUPO_DA_MUTACAO).filter(function (nome) {
-  var quem = PERFIS_DO_GRUPO[GRUPO_DA_MUTACAO[nome]];
-  return quem.length === 1 && quem[0] === 'chefe';
+var MUTACOES_SO_ADMIN = Object.keys(PERMISSAO_DA_OPERACAO).filter(function (nome) {
+  var perm = PERMISSAO_DA_OPERACAO[nome];
+  if (perm === INTERNA) return false;
+  if (perm === SO_CHEFE) return true;
+  return !Object.keys(MODELOS_DE_PERMISSAO).some(function (m) { return MODELOS_DE_PERMISSAO[m].indexOf(perm) >= 0; });
 });
 
+/* ------------------------------------------------------------------ rotas -- */
+
+/** A permissão de cada rota do servidor que não é de todo mundo que entrou. Fora da tabela: quem entrou. */
+var PERMISSAO_DA_ROTA = {
+  'GET /api/anexos': 'exames.ver', 'GET /api/anexos/:id': 'exames.ver',
+  'POST /api/anexos': 'exames.anexar', 'DELETE /api/anexos/:id': 'exames.remover',
+  'GET /api/backup': 'dados.exportar', 'GET /api/exportar-tudo': 'dados.exportar',
+  'GET /api/auditoria/acessos': 'auditoria.ver', 'GET /api/auditoria/arquivos': 'auditoria.ver',
+  'GET /api/auditoria/arquivos/:id': 'auditoria.ver',
+  'GET /api/usuarios': SO_CHEFE, 'POST /api/usuarios': SO_CHEFE,
+  'POST /api/importar': SO_CHEFE, 'POST /api/apagar-tudo': SO_CHEFE,
+  'GET /api/copias': SO_CHEFE, 'POST /api/copias/restaurar': SO_CHEFE,
+  'POST /api/auditoria/rotacionar': SO_CHEFE, 'POST /api/auditoria/conferir': SO_CHEFE
+};
+
+/* ------------------------------------------------------- campos restritos -- */
+
 /**
- * Campos que o anestesista não pode enviar (nem receber): dinheiro das cirurgias
- * e das avaliações, e os dados de contato e a chave PIX do cadastro.
+ * Campos com permissão própria: dinheiro das cirurgias e das avaliações, e os dados de contato e a chave PIX
+ * do cadastro. Quem não vê não recebe; quem não pode alterar não envia.
  */
 var CAMPOS_FINANCEIROS = {
   CIRURGIAS: ['valor', 'pago', 'dataPagamento', 'nf'],
   AVALIACOES_PRE: ['valor', 'pago', 'dataPagamento', 'nf'],
   ANESTESISTAS: ['pix', 'telefone', 'email']
+};
+
+/** Para ver e para enviar os campos restritos de cada aba. */
+var PERMISSAO_DOS_CAMPOS = {
+  CIRURGIAS: { ver: 'financeiro.ver', enviar: 'financeiro.editar' },
+  AVALIACOES_PRE: { ver: 'financeiro.ver', enviar: 'financeiro.editar' },
+  ANESTESISTAS: { ver: 'contatos.ver', enviar: 'contatos.ver' }
 };
 
 /** Em qual argumento de cada operação vêm os campos restritos, e de que aba. */
@@ -11922,18 +12195,22 @@ var ARGUMENTO_RESTRITO = {
   salvarAnestesista: { arg: 0, aba: 'ANESTESISTAS' }
 };
 
-function camposRestritosEnviados(nome, args) {
+/** Os campos restritos que esta operação traz e que quem pede não pode enviar. */
+function camposRestritosEnviados(nome, args, quem) {
   var regra = ARGUMENTO_RESTRITO[nome];
   var alvo = regra && Array.isArray(args) ? args[regra.arg] : null;
   if (!regra || !alvo || typeof alvo !== 'object') return [];
+  if (quem !== undefined && pode(quem, PERMISSAO_DOS_CAMPOS[regra.aba].enviar)) return [];
   return CAMPOS_FINANCEIROS[regra.aba].filter(function (c) {
     return Object.prototype.hasOwnProperty.call(alvo, c);
   });
 }
 
+/* ------------------------------------------------------------- assinatura -- */
+
 /**
- * Quem assina o boletim é quem entrou no sistema: cada login de anestesista ou de chefe é ligado a um anestesista
- * do cadastro, e o boletim sai no nome e no CRM dele. Devolve { anestesista: { id, nome, crm } | null }.
+ * Quem assina o boletim é quem entrou no sistema: cada login que assina é ligado a um anestesista do cadastro,
+ * e o boletim sai no nome e no CRM dele. Devolve { anestesista: { id, nome, crm } | null }.
  */
 function contextoDeAssinatura(anestesistaId, anestesistas) {
   var id = txt(anestesistaId);
@@ -11956,28 +12233,34 @@ function assinaturaConfere(contexto, args) {
   return { ok: true };
 }
 
+/* ------------------------------------------------------- pode executar? -- */
+
+function nomeDoAcesso(quem) {
+  var papel = papelDe(quem);
+  return papel ? PERFIS[papel].rotulo : 'sem acesso';
+}
+
 /**
- * O perfil pode mandar esta operação com estes argumentos?
- * `contexto` (só no modo servidor) vem de contextoDeAssinatura: sem ele (um computador só, sem login) a assinatura é livre.
+ * Quem pede pode mandar esta operação com estes argumentos?
+ * `contexto` (só com login) vem de contextoDeAssinatura: sem ele (um computador só, sem login) a assinatura é livre.
  * Devolve { ok: true } ou { ok: false, motivo: 'perfil'|'campo'|'interna'|'vinculo', erro }.
  */
-function perfilPodeExecutar(perfil, nome, args, contexto) {
-  var p = perfilCanonico(perfil);
-  var grupo = GRUPO_DA_MUTACAO[nome];
-  if (grupo === 'interna') {
+function perfilPodeExecutar(quem, nome, args, contexto) {
+  var perm = PERMISSAO_DA_OPERACAO[nome];
+  if (perm === INTERNA) {
     return { ok: false, motivo: 'interna', erro: 'Esta operação é só do próprio servidor.' };
   }
-  if (!p) return { ok: false, motivo: 'perfil', erro: 'Seu perfil de acesso não existe mais. Fale com o administrador.' };
-  var permitidos = grupo ? PERFIS_DO_GRUPO[grupo] : ['chefe'];
-  if (permitidos.indexOf(p) < 0) {
-    return { ok: false, motivo: 'perfil', erro: 'O seu perfil (' + PERFIS[p].rotulo + ') não faz esta operação.' };
+  var papel = papelDe(quem);
+  if (!papel) return { ok: false, motivo: 'perfil', erro: 'Seu perfil de acesso não existe mais. Fale com o administrador.' };
+  if (!pode(quem, perm || SO_CHEFE)) {
+    var p = perm && perm !== SO_CHEFE ? PERMISSAO_POR_ID[perm] : null;
+    return { ok: false, motivo: 'perfil', erro: 'O seu perfil (' + nomeDoAcesso(quem) + ') não faz esta operação' +
+      (p ? ': falta a permissão "' + p.rotulo + '". Peça ao Anestesista chefe.' : ': só o Anestesista chefe.') };
   }
-  if (!perfilVeFinanceiro(p)) {
-    var proibidos = camposRestritosEnviados(nome, args);
-    if (proibidos.length) {
-      return { ok: false, motivo: 'campo', erro: 'O seu perfil (' + PERFIS[p].rotulo + ') não altera dados financeiros nem de contato (' +
-        proibidos.join(', ') + ').' };
-    }
+  var proibidos = camposRestritosEnviados(nome, args, quem);
+  if (proibidos.length) {
+    return { ok: false, motivo: 'campo', erro: 'O seu perfil (' + nomeDoAcesso(quem) + ') não altera dados financeiros nem de contato (' +
+      proibidos.join(', ') + ').' };
   }
   if (nome === 'finalizarBoletim' && contexto) return assinaturaConfere(contexto, args);
   return { ok: true };
@@ -11993,42 +12276,63 @@ function semOsCampos(registro, campos) {
   return copia;
 }
 
-/**
- * O estado que este perfil recebe. Não altera o original.
- *   chefe        tudo (devolve o mesmo objeto).
- *   secretaria   tudo, menos o LOG de auditoria.
- *   anestesista  sem dinheiro (cirurgias e avaliações), sem repasses, sem PIX,
- *                telefone e e-mail do cadastro, e sem o LOG.
- */
-function projetarEstadoParaPerfil(estado, perfil) {
-  var p = perfilCanonico(perfil) || 'anestesista';
-  if (p === 'chefe') return estado;
-  var saida = Object.assign({}, estado);
-  saida.log = [];
-  if (p === 'secretaria') return saida;
-  saida.repasses = [];
-  saida.cirurgias = (estado.cirurgias || []).map(function (c) { return semOsCampos(c, CAMPOS_FINANCEIROS.CIRURGIAS); });
-  saida.avaliacoes = (estado.avaliacoes || []).map(function (a) { return semOsCampos(a, CAMPOS_FINANCEIROS.AVALIACOES_PRE); });
-  saida.anestesistas = (estado.anestesistas || []).map(function (a) { return semOsCampos(a, CAMPOS_FINANCEIROS.ANESTESISTAS); });
-  return saida;
+/** Os quatro cortes do que chega a quem pede (true = corta). */
+function corteDe(quem) {
+  return {
+    dinheiro: !pode(quem, 'financeiro.ver'),
+    repasse: !pode(quem, 'repasse.ver'),
+    contatos: !pode(quem, 'contatos.ver'),
+    log: !pode(quem, 'auditoria.ver')
+  };
 }
 
 /**
- * Um comando do diário, como este perfil pode recebê-lo para reexecutar na tela
- * dele (as telas reexecutam o que os outros gravaram). Quem não vê dinheiro:
- *   - não recebe os comandos de repasse (viram { oculto: true });
- *   - recebe os outros sem os campos restritos;
- *   - recarrega os dados quando o comando é um reparo geral.
+ * O estado que quem pede recebe. Não altera o original.
+ *   chefe     tudo (devolve o mesmo objeto).
+ *   os outros sem dinheiro (cirurgias e avaliações) sem "Ver valores"; sem repasses sem "Ver o repasse";
+ *             sem PIX, telefone e e-mail sem "Ver contatos"; sem o LOG sem "Ver a auditoria".
+ * Perfil desconhecido recebe o corte mais fechado.
+ */
+function projetarEstadoParaPerfil(estado, quem) {
+  if (ehChefe(quem)) return estado;
+  var c = corteDe(quem);
+  var saida = Object.assign({}, estado);
+  if (c.log) saida.log = [];
+  if (c.repasse) saida.repasses = [];
+  if (c.dinheiro) {
+    saida.cirurgias = (estado.cirurgias || []).map(function (x) { return semOsCampos(x, CAMPOS_FINANCEIROS.CIRURGIAS); });
+    saida.avaliacoes = (estado.avaliacoes || []).map(function (x) { return semOsCampos(x, CAMPOS_FINANCEIROS.AVALIACOES_PRE); });
+  }
+  if (c.contatos) {
+    saida.anestesistas = (estado.anestesistas || []).map(function (x) { return semOsCampos(x, CAMPOS_FINANCEIROS.ANESTESISTAS); });
+  }
+  return saida;
+}
+
+/** Quem pede não fica sabendo deste comando (nome e autor) no aviso ao vivo: repasse, para quem não o vê. */
+function comandoOcultoPara(quem, nome) {
+  return !ehChefe(quem) && PERMISSAO_DA_OPERACAO[nome] === 'repasse.gerir' && corteDe(quem).repasse;
+}
+
+/**
+ * Um comando do diário, como quem pede pode recebê-lo para reexecutar na tela dele (as telas reexecutam o que
+ * os outros gravaram):
+ *   - o de repasse, para quem não vê o repasse, vira { oculto: true };
+ *   - o reparo geral, para quem tem algum dado cortado, vira { oculto, recarregar };
+ *   - os outros chegam sem os campos que quem pede não vê.
  * Não altera o original.
  */
-function redigirComandoParaPerfil(entrada, perfil) {
-  var p = perfilCanonico(perfil) || 'anestesista';
-  if (p === 'chefe' || p === 'secretaria') return entrada;
-  var grupo = GRUPO_DA_MUTACAO[entrada.nome];
-  if (grupo === 'financeiro') return { revisao: entrada.revisao, oculto: true };
-  if (entrada.nome === 'reparar') return { revisao: entrada.revisao, oculto: true, recarregar: true };
+function redigirComandoParaPerfil(entrada, quem) {
+  if (ehChefe(quem)) return entrada;
+  var c = corteDe(quem);
+  if (comandoOcultoPara(quem, entrada.nome)) return { revisao: entrada.revisao, oculto: true };
+  if (entrada.nome === 'reparar' && (c.dinheiro || c.repasse || c.contatos)) {
+    return { revisao: entrada.revisao, oculto: true, recarregar: true };
+  }
   var regra = ARGUMENTO_RESTRITO[entrada.nome];
   if (!regra || !Array.isArray(entrada.args)) return entrada;
+  var corta = regra.aba === 'ANESTESISTAS' ? c.contatos : c.dinheiro;
+  if (!corta) return entrada;
   var copia = Object.assign({}, entrada);
   copia.args = entrada.args.map(function (a, i) {
     return i === regra.arg && a && typeof a === 'object' ? semOsCampos(a, CAMPOS_FINANCEIROS[regra.aba]) : a;
@@ -12040,18 +12344,34 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     PERFIS: PERFIS,
     ORDEM_DOS_PERFIS: ORDEM_DOS_PERFIS,
-    TELAS_DO_PERFIL: TELAS_DO_PERFIL,
-    GRUPO_DA_MUTACAO: GRUPO_DA_MUTACAO,
-    PERFIS_DO_GRUPO: PERFIS_DO_GRUPO,
+    GRUPOS_DE_PERMISSAO: GRUPOS_DE_PERMISSAO,
+    CUIDADOS_DE_PERMISSAO: CUIDADOS_DE_PERMISSAO,
+    PERMISSOES: PERMISSOES,
+    IDS_DE_PERMISSAO: IDS_DE_PERMISSAO,
+    MODELOS_DE_PERMISSAO: MODELOS_DE_PERMISSAO,
+    EXCLUSIVO_DO_CHEFE: EXCLUSIVO_DO_CHEFE,
+    SO_CHEFE: SO_CHEFE,
+    INTERNA: INTERNA,
+    PERMISSAO_DA_TELA: PERMISSAO_DA_TELA,
+    PERMISSAO_DA_OPERACAO: PERMISSAO_DA_OPERACAO,
+    PERMISSAO_DA_ROTA: PERMISSAO_DA_ROTA,
     MUTACOES_SO_ADMIN: MUTACOES_SO_ADMIN,
     CAMPOS_FINANCEIROS: CAMPOS_FINANCEIROS,
     perfilCanonico: perfilCanonico,
+    completarDependencias: completarDependencias,
+    dependentesDe: dependentesDe,
+    validarPermissoes: validarPermissoes,
+    modeloDaLista: modeloDaLista,
+    permissoesDe: permissoesDe,
+    pode: pode,
+    rotuloDoAcesso: rotuloDoAcesso,
     perfilPodeVerTela: perfilPodeVerTela,
     perfilVeFinanceiro: perfilVeFinanceiro,
     perfilEhCoordenacao: perfilEhCoordenacao,
     perfilPodeExecutar: perfilPodeExecutar,
     contextoDeAssinatura: contextoDeAssinatura,
     projetarEstadoParaPerfil: projetarEstadoParaPerfil,
+    comandoOcultoPara: comandoOcultoPara,
     redigirComandoParaPerfil: redigirComandoParaPerfil
   };
 }
@@ -13593,16 +13913,18 @@ var COMP = (function () {
    * `aoMudar` roda depois de remover, para a tela desenhar a lista de novo.
    * É a mesma linha nas telas Avaliações pré e Cirurgias.
    */
-  function linhaExameGuardado(m, aoMudar) {
+  function linhaExameGuardado(m, aoMudar, pode) {
+    // `pode`: { remover } — sem a permissão "Remover exames" a linha não oferece o botão (o servidor recusaria).
+    var podeRemover = !pode || pode.remover !== false;
     return linhaExame({
       nome: m.nome,
       detalhe: ANEXOS.tamanhoLegivel(m.tamanho) + ' · ' + UI.data(m.criadoEm) + (m.criadoPor ? ' · ' + m.criadoPor : ''),
       aoAbrir: function () { ANEXOS.abrirEmAba(m.id, m.nome).catch(function (e) { UI.erro('Não foi possível abrir', e.message); }); },
       aoBaixar: function () { ANEXOS.baixar(m.id, m.nome).catch(function (e) { UI.erro('Não foi possível baixar', e.message); }); },
-      aoRemover: function () {
+      aoRemover: podeRemover ? function () {
         ANEXOS.remover(m.id).then(function () { UI.ok('Exame removido', m.nome); aoMudar(); },
           function (e) { UI.erro('Não foi possível remover', e.message); });
-      }
+      } : null
     });
   }
 
@@ -18007,7 +18329,7 @@ var SERVIDOR = (function () {
           return { ok: false, erros: [{ campo: '', msg: 'Os dados foram atualizados enquanto esta janela estava aberta. Feche-a e abra de novo.' }], avisos: [] };
         }
         // O servidor confere de novo (e é ele quem decide); aqui só se poupa a ida e volta.
-        var perm = perfilPodeExecutar(usuario.papel, nome, args, contextoDeAssinatura(usuario.anestesistaId, store.estado.anestesistas));
+        var perm = perfilPodeExecutar(usuario, nome, args, contextoDeAssinatura(usuario.anestesistaId, store.estado.anestesistas));
         if (!perm.ok) {
           return { ok: false, erros: [{ campo: '', msg: perm.erro }], avisos: [] };
         }
@@ -18350,7 +18672,7 @@ var SERVIDOR = (function () {
   function menuConta() {
     UI.abrirModal({
       titulo: usuario.nome,
-      sub: 'Login ' + usuario.login + ' · ' + (PERFIS[usuario.papel] ? PERFIS[usuario.papel].rotulo : usuario.papel),
+      sub: 'Login ' + usuario.login + ' · ' + rotuloDoAcesso(usuario) + (usuario.principal ? ' (principal)' : ''),
       tamanho: 'estreito',
       corpo: [el('p', { class: 'sem-margem t-pq t-medio' },
         'As alterações que você faz vão para o LOG com o seu nome. Os dados ficam no servidor da clínica.')],
@@ -18410,6 +18732,9 @@ var SERVIDOR = (function () {
   var admin = {
     usuarios: function () { return pedir('GET', '/api/usuarios').then(function (r) { return exigirOk(r, 'Sem acesso.').usuarios; }); },
     salvarUsuario: function (dados) { return pedir('POST', '/api/usuarios', dados).then(function (r) { return exigirOk(r, 'Não foi salvo.'); }); },
+    transferirPrincipal: function (login) {
+      return pedir('POST', '/api/usuarios/principal', { login: login }).then(function (r) { return exigirOk(r, 'A função não foi passada.'); });
+    },
     copias: function () { return pedir('GET', '/api/copias').then(function (r) { return exigirOk(r, 'Sem acesso.').copias; }); },
     restaurarCopia: function (id) { return pedir('POST', '/api/copias/restaurar', { id: id }).then(function (r) { return exigirOk(r, 'Não foi restaurada.'); }); },
     backup: function (comPdfs) {
@@ -20130,10 +20455,10 @@ TELAS.cirurgias = (function () {
                 class: 'btn btn-plano btn-icone btn-pq', title: 'Editar', 'aria-label': 'Editar',
                 onclick: function (ev) { ev.stopPropagation(); formCirurgia(app, c); }
               }, icone('lapis')),
-              el('button', {
+              app.pode('cirurgias.excluir') ? el('button', {
                 class: 'btn btn-plano btn-icone btn-pq', title: 'Excluir', 'aria-label': 'Excluir',
                 onclick: function (ev) { ev.stopPropagation(); excluirCirurgia(app, c); }
-              }, icone('lixo'))
+              }, icone('lixo')) : null
             ])
           ]);
           linha.__onclick = function () { formCirurgia(app, c); };
@@ -20308,9 +20633,9 @@ TELAS.cirurgias = (function () {
         : 'O registro intraoperatório (técnica, fármacos, sinais vitais, intercorrências) fica no boletim anestésico. ' +
           'Use o botão "Criar boletim" abaixo.';
 
-    // Dinheiro (valor, pago, data do pagamento, nota fiscal) só para quem o vê: para os outros o campo nem
-    // existe no formulário, então nunca vai no pedido (o servidor também recusaria).
-    var veFin = app.veFinanceiro();
+    // Dinheiro (valor, pago, data do pagamento, nota fiscal) só para quem pode alterá-lo: para os outros o campo
+    // nem existe no formulário, então nunca vai no pedido (o servidor também recusaria).
+    var veFin = app.editaFinanceiro();
     var form = UI.formulario([
       fData, fStatus, fIniPrev, fFimPrev, fIniReal, fFimReal,
       fPaciente, fConvenio, fTelefone, fProc, fCirurgiao, fSala,
@@ -20590,7 +20915,7 @@ TELAS.cirurgias = (function () {
       rotuloAbas: 'Seções da cirurgia',
       corpo: [painelDados, painelExames],
       acoes: [
-        novo ? null : el('button', {
+        novo || !app.pode('cirurgias.excluir') ? null : el('button', {
           class: 'btn btn-perigo',
           onclick: function () { UI.fecharModal(); excluirCirurgia(app, c); }
         }, [icone('lixo'), 'Excluir']),
@@ -20697,6 +21022,9 @@ TELAS.cirurgias = (function () {
       if (!ANEXOS.disponivel()) {
         no.appendChild(aviso('atencao', 'alerta', 'Este navegador não permite guardar arquivos',
           'Janela privada ou armazenamento bloqueado. Abra o sistema numa janela normal.'));
+      } else if (!app.pode('exames.ver')) {
+        no.appendChild(aviso('info', 'info', 'Exames do paciente',
+          'O seu acesso não inclui abrir os exames do paciente. Peça ao Anestesista chefe, se precisar.'));
       } else if (desenhado === 'existente') {
         desenharGuardados();
       } else {
@@ -20718,9 +21046,11 @@ TELAS.cirurgias = (function () {
       no.appendChild(aviso('info', 'info', 'Guardados na avaliação pré-anestésica ' + aval.id,
         'Cada PDF é guardado assim que é enviado, sem esperar o botão "Salvar alterações". ' +
         'Os mesmos exames aparecem na tela Avaliações pré.'));
-      no.appendChild(COMP.areaDeExames({ aoReceber: guardarNaHora, dica: dica() }));
+      if (app.pode('exames.anexar')) no.appendChild(COMP.areaDeExames({ aoReceber: guardarNaHora, dica: dica() }));
       no.appendChild(itens.length
-        ? el('div', { class: 'anexos mt-3' }, itens.map(function (m) { return COMP.linhaExameGuardado(m, depoisDeMudar); }))
+        ? el('div', { class: 'anexos mt-3' }, itens.map(function (m) {
+            return COMP.linhaExameGuardado(m, depoisDeMudar, { remover: app.pode('exames.remover') });
+          }))
         : el('div', { class: 'anexos-vazio t-pq t-suave mt-3' }, 'Nenhum exame anexado ainda.'));
     }
 
@@ -20747,7 +21077,7 @@ TELAS.cirurgias = (function () {
         no.appendChild(aviso('info', 'info', 'Os exames ficam na avaliação pré-anestésica',
           'Escolha os PDFs agora: eles são guardados quando você ' + (existente ? 'salvar as alterações' : 'lançar a cirurgia') +
           ', na avaliação que o sistema cria para ela.'));
-        no.appendChild(COMP.areaDeExames({ aoReceber: entrarNaFila, dica: dica() }));
+        if (app.pode('exames.anexar')) no.appendChild(COMP.areaDeExames({ aoReceber: entrarNaFila, dica: dica() }));
       } else if (s === 'precisaSim') {
         // É o estado normal de uma cirurgia nova ("Avaliação pré necessária? = Não"), e não um erro:
         // só vira aviso âmbar quando já há arquivo esperando, que aí não teria para onde ir.
@@ -21097,8 +21427,8 @@ TELAS.avaliacoes = (function () {
     var fNF = UI.campo({ rotulo: 'Número da nota fiscal', nome: 'nf', valor: a.nf || '' });
     var fObs = UI.campo({ rotulo: 'Observações', nome: 'obs', tipo: 'textarea', valor: a.obs || '', largo: true, linhas: 2 });
 
-    // Dinheiro só para quem o vê: para os outros o campo nem existe, então nunca vai no pedido.
-    var veFin = app.veFinanceiro();
+    // Dinheiro só para quem pode alterá-lo: para os outros o campo nem existe, então nunca vai no pedido.
+    var veFin = app.editaFinanceiro();
     var form = UI.formulario([fAnest, fData, fHora, fRealizada, fTcle]
       .concat(veFin ? [fValor, fPago, fDataPag, fNF] : []).concat([fObs]));
 
@@ -21189,8 +21519,15 @@ TELAS.avaliacoes = (function () {
       return;
     }
 
+    if (!app.pode('exames.ver')) {
+      no.appendChild(el('div', { class: 'anexos-vazio t-pq t-suave' },
+        'O seu acesso não inclui abrir os exames do paciente. Peça ao Anestesista chefe, se precisar.'));
+      return;
+    }
+
     var itens = ANEXOS.listar(a.uid);
     var redesenhar = function () { desenharExames(app, a, no); app.redesenhar(); };
+    var podeAnexar = app.pode('exames.anexar');
 
     var entrada = el('input', {
       type: 'file', accept: 'application/pdf,.pdf', multiple: true, style: 'display:none',
@@ -21215,9 +21552,12 @@ TELAS.avaliacoes = (function () {
     no.appendChild(entrada);
 
     no.appendChild(itens.length
-      ? el('div', { class: 'anexos' }, itens.map(function (m) { return COMP.linhaExameGuardado(m, redesenhar); }))
+      ? el('div', { class: 'anexos' }, itens.map(function (m) {
+          return COMP.linhaExameGuardado(m, redesenhar, { remover: app.pode('exames.remover') });
+        }))
       : el('div', { class: 'anexos-vazio t-pq t-suave' }, 'Nenhum exame anexado ainda.'));
 
+    if (!podeAnexar) return;
     no.appendChild(el('div', { class: 'linha mt-3' }, [
       el('button', { class: 'btn', onclick: function () { entrada.click(); } }, [icone('clipe'), 'Anexar PDFs de exames']),
       el('span', { class: 't-mpq t-suave' },
@@ -22123,9 +22463,10 @@ TELAS.boletim = (function () {
         blocoSituacao,
         el('div', { class: 'pilha-pq mt-2' }, fechado ? [
           el('button', { class: 'btn btn-primario', onclick: gerarPdf }, [icone('baixar'), finalizado ? 'PDF do boletim' : 'PDF (rascunho)']),
-          finalizado && !soLeitura ? el('button', { class: 'btn', onclick: reabrir }, [icone('lapis'), 'Reabrir para correção']) : null
+          finalizado && !soLeitura && app.podeFazer('reabrirBoletim')
+            ? el('button', { class: 'btn', onclick: reabrir }, [icone('lapis'), 'Reabrir para correção']) : null
         ] : [
-          botaoFinalizar,
+          app.podeFazer('finalizarBoletim') ? botaoFinalizar : null,
           el('button', { class: 'btn', onclick: gerarPdf }, [icone('baixar'), 'PDF (rascunho)']),
           ehRascunhoNovo ? el('button', { class: 'btn btn-perigo', onclick: descartar }, [icone('lixo'), 'Descartar rascunho']) : null
         ])
@@ -23516,7 +23857,8 @@ TELAS.qualidade = (function () {
           el('div', { class: 'campo-grupo' }, [fQuem.no]),
           el('div', { class: 'mt-3' }, [tabelaEventos]),
           el('div', { class: 'campo-grupo mt-3' }, [fParecer.no]),
-          el('div', { class: 'linha mt-3' }, [
+          !app.podeFazer('revisarFichaQualidade') ? el('p', { class: 't-pq t-suave mt-3' },
+            'A revisão clínica é feita por quem tem a permissão "Revisão clínica da ficha".') : el('div', { class: 'linha mt-3' }, [
             el('button', {
               class: 'btn btn-primario', type: 'button',
               onclick: function () {
@@ -23782,7 +24124,7 @@ TELAS.qualidade = (function () {
           el('button', { class: 'btn btn-pq', onclick: gerarPdf }, [icone('baixar'), 'PDF']),
           botaoBoletim,
           fechado()
-            ? el('button', { class: 'btn btn-pq', onclick: reabrir }, [icone('troca'), 'Reabrir'])
+            ? (app.podeFazer('reabrirFichaQualidade') ? el('button', { class: 'btn btn-pq', onclick: reabrir }, [icone('troca'), 'Reabrir']) : null)
             : el('button', { class: 'btn btn-primario btn-pq', onclick: concluir }, [icone('check'), 'Concluir']),
           fechado() ? null : el('button', { class: 'btn btn-pq', onclick: descartar }, [icone('lixeira'), 'Descartar'])
         ]),
@@ -23915,10 +24257,14 @@ TELAS.painel_qualidade = (function () {
    * vê o painel do serviço, mas não o ranking individual — a comparação é a parte do
    * painel que mais pesa sobre uma pessoa. No computador único, quem usa é a coordenação.
    */
+  /** Compara profissionais entre si (permissão "Comparar profissionais"). */
   function ehCoordenacao(app) {
-    return app.ehCoordenacao();
+    return app.pode('qualidade.comparar');
   }
-  var podeConfigurar = ehCoordenacao;
+  /** Define as configurações clínicas (permissão "Coordenação da qualidade"). */
+  function podeConfigurar(app) {
+    return app.pode('qualidade.coordenar');
+  }
 
   /* ------------------------------------------------------------ filtros */
 
@@ -26566,7 +26912,9 @@ TELAS.log = (function () {
     remoto.carregando = true; remoto.erro = null;
     var login = f.usuario && f.usuario.indexOf('nome:') !== 0 ? f.usuario : '';
     return Promise.all([
-      remoto.usuarios ? Promise.resolve(remoto.usuarios) : SERVIDOR.admin.usuarios(),
+      // A lista de usuários (para o filtro) é do chefe; quem só lê a auditoria filtra pelo login.
+      remoto.usuarios ? Promise.resolve(remoto.usuarios)
+        : (app.ehChefe() ? SERVIDOR.admin.usuarios() : Promise.resolve([])),
       SERVIDOR.admin.acessos({ login: login, de: f.de, ate: f.ate, evento: f.evento, texto: f.texto })
     ]).then(function (r) {
       remoto.usuarios = r[0]; remoto.acessos = r[1]; remoto.carregando = false;
@@ -26680,14 +27028,14 @@ TELAS.log = (function () {
 
     if (remoto.erro) { blocos.push(aviso('Não foi possível ler os arquivos', remoto.erro, 'atencao')); return blocos; }
 
-    blocos.push(el('div', { class: 'cartao' }, [
+    if (app.ehChefe()) blocos.push(el('div', { class: 'cartao' }, [
       cab('Prazos', 'quanto fica na tela e quanto o arquivo é guardado'),
       el('div', { class: 'cartao-corpo' }, formConfig(app, cfg))
     ]));
 
     var rot = dados && dados.ultimaRotacao;
     blocos.push(el('div', { class: 'cartao' }, [
-      cab('Rotação mensal', rot ? 'última em ' + rot.quando + (rot.ok ? '' : ' — com falha') : 'ainda não rodou', [
+      cab('Rotação mensal', rot ? 'última em ' + rot.quando + (rot.ok ? '' : ' — com falha') : 'ainda não rodou', !app.ehChefe() ? [] : [
         el('button', {
           class: 'btn btn-pq', onclick: function () {
             UI.confirmar({
@@ -26762,14 +27110,20 @@ TELAS.log = (function () {
 /* ---- js/telas/usuarios.js ---- */
 /**
  * ============================================================================
- * TELA — Usuários (modo servidor, só o Anestesista chefe)
+ * TELA — Usuários e permissões (só o Anestesista chefe)
  * ============================================================================
- * Quem entra no sistema da clínica e com que perfil (core/12b_permissoes.js):
- *   - Anestesista chefe: poder total, inclusive usuários, backup e restauração;
- *   - Anestesista: painel de operação e painel de qualidade, sem dinheiro;
- *   - Secretária: operação e gestão, sem painel de qualidade nem administração.
+ * Quem entra no sistema e o que cada um pode (core/12b_permissoes.js e
+ * docs/PERMISSOES.md):
+ *   - o Anestesista chefe tem tudo e é o único que cadastra usuários e decide
+ *     as permissões; o chefe PRINCIPAL é o único que cria ou altera outro chefe
+ *     e passa a função de principal;
+ *   - os outros usuários têm a lista de permissões que o chefe marcar, a partir
+ *     de um modelo (Anestesista ou Secretária).
  * Ninguém é apagado: quem sai do grupo é desativado (o LOG continua com o
- * nome). Senha nova derruba as sessões abertas da pessoa.
+ * nome). Senha nova ou permissão diferente derruba as sessões abertas da pessoa.
+ *
+ * Funciona igual no servidor da clínica (SERVIDOR.admin) e na demonstração
+ * online (DEMO.admin, contas guardadas só no navegador): `app.contas()`.
  * ============================================================================
  */
 'use strict';
@@ -26779,12 +27133,22 @@ TELAS.usuarios = (function () {
   var el = UI.el, icone = UI.icone;
   var cab = COMP.cabecalhoCartao;
 
-  var lista = null;       // última lista lida do servidor
+  var lista = null;       // última lista lida
   var erro = null;
 
   function carregar(app) {
-    return SERVIDOR.admin.usuarios().then(function (u) { lista = u; erro = null; app.redesenhar(); },
+    return app.contas().usuarios().then(function (u) { lista = u; erro = null; app.redesenhar(); },
       function (e) { erro = e.message; app.redesenhar(); });
+  }
+
+  function permissao(id) { return core.PERMISSOES.filter(function (p) { return p.id === id; })[0]; }
+  function rotulos(ids) { return ids.map(function (id) { return permissao(id).rotulo; }).join(', '); }
+
+  function seloDoAcesso(u) {
+    if (u.papel === 'chefe') {
+      return el('span', { class: 'selo selo-info' }, core.PERFIS.chefe.rotulo + (u.principal ? ' · principal' : ''));
+    }
+    return el('span', { class: 'selo selo-na' }, core.rotuloDoAcesso(u));
   }
 
   function render(app) {
@@ -26795,25 +27159,31 @@ TELAS.usuarios = (function () {
     if (erro) {
       return el('div', { class: 'aviso aviso-erro' }, [icone('alerta'), el('div', { class: 'aviso-corpo' }, erro)]);
     }
-    var eu = SERVIDOR.usuario();
+    var eu = app.quem();
+    var principal = lista.filter(function (u) { return u.principal; })[0];
     return el('div', { class: 'pilha' }, [
       el('div', { class: 'aviso aviso-info', style: 'margin:0' }, [icone('info'), el('div', { class: 'aviso-corpo' }, [
-        el('strong', null, 'Perfis de acesso'),
-        el('div', { class: 't-pq' }, core.ORDEM_DOS_PERFIS.map(function (p) { return core.PERFIS[p].rotulo + ': ' + core.PERFIS[p].resumo; }).join(' ') +
-          ' Quem sai do grupo é desativado — o nome continua no LOG. Mudar o perfil de alguém derruba as sessões dela: ela entra de novo com o perfil novo.')
+        el('strong', null, 'Só o Anestesista chefe cadastra usuários e decide as permissões de cada um'),
+        el('div', { class: 't-pq' }, 'Cada usuário recebe a lista de permissões que você marcar, a partir de um modelo (Anestesista ou ' +
+          'Secretária). ' + (principal ? principal.nome + ' é o chefe principal: só ele cria ou altera outro Anestesista chefe. ' : '') +
+          'Quem sai do grupo é desativado — o nome continua no LOG. Mudar as permissões de alguém derruba as sessões dela: ela entra ' +
+          'de novo já com o acesso novo.'),
+        el('div', { class: 't-mpq t-suave mt-2' }, 'Só do chefe, não se dá a ninguém: ' + core.EXCLUSIVO_DO_CHEFE.join('; ') + '.')
       ])]),
       el('div', { class: 'cartao' }, [
         cab('Usuários do sistema', lista.length + ' cadastrado(s)', [
           el('button', { class: 'btn btn-primario btn-pq', onclick: function () { form(app, null); } }, [icone('mais'), 'Novo usuário'])
         ]),
         el('div', { class: 'cartao-corpo rente' }, UI.tabela({
-          colunas: [{ rotulo: 'Nome' }, { rotulo: 'Login' }, { rotulo: 'Perfil' }, { rotulo: 'Assina como' }, { rotulo: 'Situação' }, { rotulo: '', classe: 'acoes' }],
+          colunas: [{ rotulo: 'Nome' }, { rotulo: 'Login' }, { rotulo: 'Acesso' }, { rotulo: 'Permissões', num: true },
+            { rotulo: 'Assina como' }, { rotulo: 'Situação' }, { rotulo: '', classe: 'acoes' }],
           linhas: lista.map(function (u) {
             return {
               celulas: [
                 el('span', { class: 'celula-principal' }, u.nome + (u.login === eu.login ? ' (você)' : '')),
                 el('span', { class: 'mono' }, u.login),
-                el('span', { class: u.papel === 'chefe' ? 'selo selo-info' : 'selo selo-na' }, (core.PERFIS[u.papel] || { rotulo: u.papel }).rotulo),
+                seloDoAcesso(u),
+                el('span', { class: 't-pq' }, u.papel === 'chefe' ? 'todas' : u.permissoes.length + ' de ' + core.PERMISSOES.length),
                 el('span', { class: 't-pq' }, nomeDoVinculo(app, u)),
                 u.ativo ? el('span', { class: 'selo selo-ok' }, 'ativo') : el('span', { class: 'selo selo-cancelada' }, 'desativado'),
                 el('button', { class: 'btn btn-plano btn-icone btn-pq', title: 'Editar', 'aria-label': 'Editar ' + u.nome,
@@ -26827,61 +27197,231 @@ TELAS.usuarios = (function () {
     ]);
   }
 
-  /** O anestesista do cadastro a que o login está ligado (quem assina boletim); '—' para a secretária. */
+  /** O anestesista do cadastro a que o login está ligado (quem assina boletim). */
   function nomeDoVinculo(app, u) {
     var a = u.anestesistaId ? app.store.estado.anestesistas.filter(function (x) { return x.id === u.anestesistaId; })[0] : null;
-    return a ? a.nome : (u.papel === 'secretaria' ? '—' : (u.anestesistaId ? u.anestesistaId : 'não assina'));
+    if (a) return a.nome;
+    if (!core.pode(u, 'boletim.assinar')) return '—';
+    return u.anestesistaId ? u.anestesistaId : 'não assina (sem vínculo)';
   }
+
+  /* --------------------------------------------------- lista de permissões -- */
+
+  /**
+   * As caixas de permissão, agrupadas. `estado.lista` é a seleção atual; ligar uma liga o que ela exige, desligar
+   * desliga o que depende dela (e avisa).
+   */
+  function painelDePermissoes(estado, aoMudar) {
+    var no = el('div', { class: 'permissoes' });
+
+    function desenhar() {
+      UI.limpar(no);
+      core.GRUPOS_DE_PERMISSAO.forEach(function (g) {
+        var itens = core.PERMISSOES.filter(function (p) { return p.grupo === g.id; });
+        no.appendChild(el('fieldset', { class: 'permissoes-grupo' }, [el('legend', null, g.rotulo)].concat(itens.map(function (p) {
+          var marcada = estado.lista.indexOf(p.id) >= 0;
+          var caixa = el('input', {
+            type: 'checkbox', checked: marcada, disabled: !!p.sempre || estado.travado,
+            'aria-describedby': 'perm_' + p.id.replace('.', '_'),
+            onchange: function () { alternar(p.id, caixa.checked); }
+          });
+          return el('label', { class: 'permissao' + (marcada ? ' ligada' : '') }, [
+            caixa,
+            el('span', { class: 'permissao-texto' }, [
+              el('span', { class: 'permissao-rotulo' }, [p.rotulo].concat((p.cuidado || []).map(function (c) {
+                return el('span', { class: 'selo selo-pendente sem-ponto permissao-cuidado' }, core.CUIDADOS_DE_PERMISSAO[c]);
+              }))),
+              el('span', { class: 't-mpq t-suave', id: 'perm_' + p.id.replace('.', '_') }, p.descricao +
+                (p.sempre ? ' Vem sempre.' : '') +
+                (p.depende.length && !p.sempre ? ' Precisa de: ' + rotulos(p.depende) + '.' : ''))
+            ])
+          ]);
+        }))));
+      });
+    }
+
+    function alternar(id, ligar) {
+      if (ligar) {
+        var antes = estado.lista.slice();
+        estado.lista = core.completarDependencias(estado.lista.concat([id]));
+        var junto = estado.lista.filter(function (x) { return x !== id && antes.indexOf(x) < 0; });
+        if (junto.length) UI.info('Ligadas junto', rotulos(junto) + ': "' + permissao(id).rotulo + '" precisa delas.');
+      } else {
+        var cair = core.dependentesDe(id).filter(function (x) { return estado.lista.indexOf(x) >= 0; });
+        estado.lista = estado.lista.filter(function (x) { return x !== id && cair.indexOf(x) < 0; });
+        if (cair.length) UI.info('Desligadas junto', rotulos(cair) + ': dependiam de "' + permissao(id).rotulo + '".');
+      }
+      desenhar();
+      aoMudar();
+    }
+
+    desenhar();
+    return { no: no, desenhar: desenhar };
+  }
+
+  /* ------------------------------------------------------------- formulário -- */
 
   function form(app, u) {
     var novo = !u;
-    u = u || { papel: 'anestesista', ativo: true };
-    var campos = [
-      UI.campo({ rotulo: 'Nome', nome: 'nome', valor: u.nome || '', obrigatorio: true, largo: true,
-        dica: 'Como vai aparecer no LOG.' }),
-      novo ? UI.campo({ rotulo: 'Login', nome: 'login', obrigatorio: true, exemplo: 'ex.: secretaria',
-        dica: 'Letras minúsculas, números, ponto ou hífen. Não muda depois.' }) : null,
-      UI.campo({ rotulo: 'Assina boletim como (anestesista do cadastro)', nome: 'anestesistaId', tipo: 'select', vazioPermitido: true, valor: u.anestesistaId || '',
-        opcoes: app.store.estado.anestesistas.filter(function (a) { return a.ativo === 'Sim'; }).map(function (a) { return { valor: a.id, rotulo: a.nome }; }),
-        dica: 'Anestesista e chefe só assinam boletim se estiverem ligados a um anestesista: o boletim sai no nome e no CRM dele. A secretária não assina.' }),
-      UI.campo({ rotulo: 'Perfil de acesso', nome: 'papel', tipo: 'select', vazioPermitido: false, valor: u.papel,
-        opcoes: core.ORDEM_DOS_PERFIS.map(function (p) { return { valor: p, rotulo: core.PERFIS[p].rotulo }; }),
-        dica: 'Mudar o perfil de quem já usa o sistema derruba as sessões abertas dela.' }),
-      novo ? null : UI.campo({ rotulo: 'Situação', nome: 'ativo', tipo: 'select', vazioPermitido: false, valor: u.ativo ? 'sim' : 'nao',
-        opcoes: [{ valor: 'sim', rotulo: 'Ativo' }, { valor: 'nao', rotulo: 'Desativado (não entra mais)' }] }),
-      UI.campo({ rotulo: novo ? 'Senha inicial' : 'Nova senha (deixe em branco para manter)', nome: 'senha', tipo: 'password',
-        obrigatorio: novo, dica: 'Pelo menos 8 caracteres. A pessoa pode trocar depois, no menu dela.' })
-    ].filter(Boolean);
-    campos.forEach(function (c) { if (c.nome === 'senha') c.input.setAttribute('autocomplete', 'new-password'); });
+    var eu = app.quem();
+    var souPrincipal = !!eu.principal;
+    u = u || { papel: 'anestesista', ativo: true, permissoes: core.MODELOS_DE_PERMISSAO.anestesista.slice() };
+    var ehChefeAlvo = u.papel === 'chefe';
+    // Conta de chefe: só o principal mexe (o servidor também confere).
+    var travado = !novo && ehChefeAlvo && !souPrincipal;
+    var estado = {
+      papel: u.papel,
+      lista: ehChefeAlvo ? core.MODELOS_DE_PERMISSAO.anestesista.slice() : (u.permissoes || core.permissoesDe(u.papel)).slice(),
+      travado: travado
+    };
+    var listaSalva = ehChefeAlvo ? core.IDS_DE_PERMISSAO.slice() : estado.lista.slice();
+    var confirmando = false;
+
+    var opcoesDoPerfil = [
+      { valor: 'anestesista', rotulo: 'Modelo Anestesista' },
+      { valor: 'secretaria', rotulo: 'Modelo Secretária' }
+    ];
+    if (souPrincipal || ehChefeAlvo) opcoesDoPerfil.unshift({ valor: 'chefe', rotulo: 'Anestesista chefe (todas as permissões)' });
+
+    var fNome = UI.campo({ rotulo: 'Nome', nome: 'nome', valor: u.nome || '', obrigatorio: true, dica: 'Como vai aparecer no LOG.' });
+    var fLogin = novo ? UI.campo({ rotulo: 'Login', nome: 'login', obrigatorio: true, exemplo: 'ex.: secretaria',
+      dica: 'Letras minúsculas, números, ponto ou hífen. Não muda depois.' }) : null;
+    var fPapel = UI.campo({ rotulo: 'Acesso', nome: 'papel', tipo: 'select', vazioPermitido: false, valor: u.papel,
+      opcoes: opcoesDoPerfil, aoMudar: trocarModelo,
+      dica: souPrincipal ? 'Escolher um modelo marca as permissões dele; depois ligue ou desligue o que quiser.'
+        : 'Escolher um modelo marca as permissões dele. Só o chefe principal cria outro Anestesista chefe.' });
+    var fVinculo = UI.campo({ rotulo: 'Assina boletim como (anestesista do cadastro)', nome: 'anestesistaId', tipo: 'select', vazioPermitido: true,
+      valor: u.anestesistaId || '',
+      opcoes: app.store.estado.anestesistas.filter(function (a) { return a.ativo === 'Sim'; }).map(function (a) { return { valor: a.id, rotulo: a.nome }; }),
+      dica: 'Só quem tem "Assinar o boletim" é ligado: o boletim sai no nome e no CRM do anestesista escolhido.' });
+    var fAtivo = novo ? null : UI.campo({ rotulo: 'Situação', nome: 'ativo', tipo: 'select', vazioPermitido: false, valor: u.ativo ? 'sim' : 'nao',
+      opcoes: [{ valor: 'sim', rotulo: 'Ativo' }, { valor: 'nao', rotulo: 'Desativado (não entra mais)' }] });
+    var fSenha = UI.campo({ rotulo: novo ? 'Senha inicial' : 'Nova senha (deixe em branco para manter)', nome: 'senha', tipo: 'password',
+      obrigatorio: novo, dica: 'Pelo menos 8 caracteres. A pessoa pode trocar depois, no menu dela.' });
+    fSenha.input.setAttribute('autocomplete', 'new-password');
+    var campos = [fNome, fLogin, fPapel, fVinculo, fAtivo, fSenha].filter(Boolean);
     var f = UI.formulario(campos);
+    if (travado) campos.forEach(function (c) { c.input.disabled = true; });
+
+    var resumo = el('div', { class: 'permissoes-resumo t-pq', 'aria-live': 'polite' });
+    var avisoConfirmar = el('div', { class: 'aviso aviso-atencao', hidden: true, role: 'alert' });
+    var painel = painelDePermissoes(estado, atualizar);
+    var blocoPermissoes = el('div', null, [resumo, painel.no]);
+    var blocoChefe = el('div', { class: 'aviso aviso-info' }, [icone('escudo'), el('div', { class: 'aviso-corpo' }, [
+      el('strong', null, 'O Anestesista chefe tem todas as permissões'),
+      el('div', { class: 't-pq' }, 'E também o que não se dá a ninguém: ' + core.EXCLUSIVO_DO_CHEFE.join('; ') + '.')
+    ])]);
+
+    function papelEscolhido() { return f.dados().papel || estado.papel; }
+
+    function trocarModelo() {
+      var p = papelEscolhido();
+      if (p !== 'chefe') estado.lista = core.MODELOS_DE_PERMISSAO[p].slice();
+      painel.desenhar();
+      atualizar();
+    }
+
+    function listaFinal() { return papelEscolhido() === 'chefe' ? core.IDS_DE_PERMISSAO.slice() : estado.lista.slice(); }
+
+    function atualizar() {
+      confirmando = false;
+      avisoConfirmar.hidden = true;
+      var chefe = papelEscolhido() === 'chefe';
+      blocoPermissoes.hidden = chefe;
+      blocoChefe.hidden = !chefe;
+      var assina = chefe || estado.lista.indexOf('boletim.assinar') >= 0;
+      fVinculo.input.disabled = travado || !assina;
+      if (!assina) fVinculo.input.value = '';
+      var modelo = core.modeloDaLista(estado.lista);
+      var entram = listaFinal().filter(function (x) { return listaSalva.indexOf(x) < 0; });
+      var saem = listaSalva.filter(function (x) { return listaFinal().indexOf(x) < 0; });
+      UI.preencher(resumo, [
+        el('strong', null, estado.lista.length + ' de ' + core.PERMISSOES.length + ' permissões'),
+        ' · ', modelo ? 'igual ao modelo ' + core.PERFIS[modelo].rotulo : 'ajustado à mão',
+        novo || (!entram.length && !saem.length) ? null : el('div', { class: 't-mpq mt-1' }, [
+          entram.length ? 'Passa a ter: ' + rotulos(entram) + '. ' : '',
+          saem.length ? 'Deixa de ter: ' + rotulos(saem) + '.' : ''
+        ]),
+        assina && !fVinculo.input.value && !chefe ? el('div', { class: 't-mpq mt-1' },
+          'Tem "Assinar o boletim", mas sem vínculo com um anestesista do cadastro não consegue assinar.') : null
+      ]);
+    }
+
+    /** Permissões novas que pedem atenção (dinheiro, dado pessoal, apaga ou altera). */
+    function sensiveisQueEntram() {
+      return listaFinal().filter(function (id) {
+        var p = permissao(id);
+        return listaSalva.indexOf(id) < 0 && (p.cuidado || []).some(function (c) { return c !== 'prontuario'; });
+      });
+    }
 
     function salvar(botao) {
       var d = f.dados();
+      var sensiveis = novo ? [] : sensiveisQueEntram();
+      if (sensiveis.length && !confirmando) {
+        confirmando = true;
+        UI.preencher(avisoConfirmar, [icone('alerta'), el('div', { class: 'aviso-corpo' }, [
+          el('strong', null, 'Confirme o acesso novo'),
+          el('div', { class: 't-pq' }, (d.nome || u.nome) + ' passa a ter: ' + rotulos(sensiveis) + '. Clique em "Salvar" de novo para confirmar.')
+        ])]);
+        avisoConfirmar.hidden = false;
+        return;
+      }
       var pedido = { nome: d.nome, papel: d.papel, anestesistaId: d.anestesistaId || '' };
+      if (d.papel !== 'chefe') pedido.permissoes = estado.lista.slice();
       if (novo) { pedido.novo = true; pedido.login = d.login; }
       else { pedido.login = u.login; pedido.ativo = d.ativo === 'sim'; }
       if (d.senha) pedido.senha = d.senha;
       botao.disabled = true;
-      SERVIDOR.admin.salvarUsuario(pedido).then(function () {
+      app.contas().salvarUsuario(pedido).then(function () {
         UI.fecharModal();
         UI.ok(novo ? 'Usuário criado' : 'Usuário atualizado', novo ? 'Passe o login e a senha inicial para ' + d.nome + '.' : null);
         lista = null;
         carregar(app);
       }, function (e) {
         botao.disabled = false;
+        confirmando = false;
         var soltos = e.erros ? f.mostrarErros(e.erros) : [e.message];
         if (soltos.length) UI.erro('Não foi salvo', soltos.join(' '));
+      });
+    }
+
+    function passarPrincipal() {
+      UI.confirmar({
+        titulo: 'Passar a função de chefe principal?',
+        aviso: u.nome + ' passa a ser o único que cria ou altera outro Anestesista chefe. Você continua chefe.',
+        rotulo: 'Passar a função'
+      }, function () {
+        app.contas().transferirPrincipal(u.login).then(function () {
+          UI.ok('Função passada', u.nome + ' agora é o chefe principal.');
+          if (app.servidor) location.reload(); else { lista = null; carregar(app); }
+        }, function (e) { UI.erro('A função não foi passada', e.message); });
       });
     }
 
     var botao = el('button', { class: 'btn btn-primario', onclick: function () { salvar(botao); } }, [icone('check'), 'Salvar']);
     UI.abrirModal({
       titulo: novo ? 'Novo usuário' : u.nome,
-      sub: novo ? 'Acesso ao sistema da clínica' : 'Login ' + u.login,
-      tamanho: 'estreito',
-      corpo: campos.map(function (c, i) { return i ? el('div', { class: 'mt-3' }, c.no) : c.no; }),
-      acoes: [el('div', { class: 'espaco' }), el('button', { class: 'btn', onclick: function () { UI.fecharModal(); } }, 'Cancelar'), botao]
+      sub: novo ? 'Acesso ao sistema' : 'Login ' + u.login + ' · ' + (ehChefeAlvo && u.principal ? 'Anestesista chefe principal' : core.rotuloDoAcesso(u)),
+      tamanho: 'largo',
+      corpo: [
+        travado ? el('div', { class: 'aviso aviso-atencao' }, [icone('cadeado'), el('div', { class: 'aviso-corpo' },
+          'Só o Anestesista chefe principal altera a conta de outro chefe.')]) : null,
+        el('div', { class: 'campos-auto' }, campos.map(function (c) { return c.no; })),
+        el('h3', { class: 'permissoes-titulo' }, 'Permissões'),
+        blocoChefe,
+        blocoPermissoes,
+        avisoConfirmar
+      ],
+      acoes: [
+        !novo && ehChefeAlvo && souPrincipal && !u.principal && u.ativo
+          ? el('button', { class: 'btn', onclick: passarPrincipal }, [icone('escudo'), 'Passar a função de principal']) : null,
+        el('div', { class: 'espaco' }),
+        el('button', { class: 'btn', onclick: function () { UI.fecharModal(); } }, 'Cancelar'),
+        travado ? null : botao
+      ]
     });
+    atualizar();
   }
 
   return { render: render };
@@ -26919,6 +27459,8 @@ TELAS.dados = (function () {
     if (app.servidor) { abrirNoServidor(app); return; }
     var st = app.store;
     var e = st.estado;
+    // Demonstração com conta que só tem "Baixar os dados": baixa, mas não importa, não restaura e não apaga.
+    var chefe = app.ehChefe();
 
     var blocoProtecao = el('div', { class: 'defs' }, [def('Situação', 'verificando…')]);
     var blocoPasta = el('div');
@@ -26930,7 +27472,7 @@ TELAS.dados = (function () {
       corpo: [
         secao('Proteção dos dados', [blocoProtecao]),
 
-        GUARDA.suportaPasta() ? secao('Backup automático numa pasta', [
+        chefe && GUARDA.suportaPasta() ? secao('Backup automático numa pasta', [
           el('p', { class: 't-pq t-medio' },
             'Uma vez por dia o sistema grava uma cópia compactada de tudo numa pasta deste computador ' +
             '(pode ser uma pasta do OneDrive ou do Google Drive, para ter cópia fora da máquina) e copia ' +
@@ -26939,7 +27481,7 @@ TELAS.dados = (function () {
           blocoPasta
         ]) : null,
 
-        secao('Cópias automáticas no navegador', [
+        !chefe ? null : secao('Cópias automáticas no navegador', [
           el('p', { class: 't-pq t-medio' },
             'Uma por dia (últimos ' + GUARDA.RETENCAO.diasDiarios + ' dias), a primeira de cada mês (' +
             GUARDA.RETENCAO.mesesMensais + ' meses) e uma antes de importar ou apagar (' +
@@ -26957,21 +27499,21 @@ TELAS.dados = (function () {
               [icone('baixar'), 'Exportar backup']),
             el('button', { class: 'btn', onclick: function () { exportar(app, true); } },
               [icone('clipe'), 'Exportar com PDFs']),
-            el('button', { class: 'btn', onclick: function () { importarBackup(app); } },
-              [icone('subir'), 'Importar backup'])
+            chefe ? el('button', { class: 'btn', onclick: function () { importarBackup(app); } },
+              [icone('subir'), 'Importar backup']) : null
           ])
         ]),
 
         secaoPlanilhas(app),
 
-        secao('Recarregar dados mestres', [
+        !chefe ? null : secao('Recarregar dados mestres', [
           el('p', { class: 't-pq t-medio' },
             'Substitui apenas o cadastro de anestesistas e a escala-base, a partir do seed.json gerado por ' +
             'tools/extrair_dados.py. As cirurgias e avaliações lançadas são preservadas.'),
           el('button', { class: 'btn', onclick: function () { importarSeed(app); } }, [icone('subir'), 'Importar seed.json'])
         ]),
 
-        secao('Zona de risco', [
+        !chefe ? null : secao('Zona de risco', [
           el('div', { class: 'aviso aviso-erro' }, [
             icone('alerta'),
             el('div', { class: 'aviso-corpo' }, [
@@ -27022,7 +27564,9 @@ TELAS.dados = (function () {
 
   function abrirNoServidor(app) {
     var e = app.store.estado;
+    // Baixar (backup, planilhas, todos os dados): permissão "Baixar os dados". Restaurar, importar e apagar: só o chefe.
     var admin = SERVIDOR.ehAdmin();
+    var baixa = app.pode('dados.exportar');
     var blocoCopias = el('div', { class: 't-pq t-medio' }, 'Carregando as cópias do servidor…');
     var R = RETENCAO_COPIAS;
 
@@ -27045,7 +27589,7 @@ TELAS.dados = (function () {
           blocoCopias
         ]) : null,
 
-        admin ? secao('Baixar todos os dados', [
+        baixa ? secao('Baixar todos os dados', [
           el('p', { class: 't-pq t-medio' }, 'Um arquivo .zip com tudo: os dados (que voltam para o sistema), as planilhas, todos os ' +
             'PDFs de exame (também os removidos ainda no prazo), o LOG e a impressão digital (SHA-256) de cada arquivo, para conferir ' +
             'anos depois. O servidor guarda cópias e exames removidos por ' + Math.round(R.mesesMensais / 12) + ' anos: para guardar ' +
@@ -27054,13 +27598,13 @@ TELAS.dados = (function () {
             [icone('baixar'), 'Baixar todos os dados (.zip)'])
         ]) : null,
 
-        admin ? secao('Backup em arquivo', [
+        baixa ? secao('Backup em arquivo', [
           el('p', { class: 't-pq t-medio' }, 'Um arquivo .json com tudo; o completo leva os PDFs de exame. Guarde fora do ' +
             'servidor (pendrive, nuvem da clínica): é a proteção contra perder o computador. Tem dados de pacientes.'),
           el('div', { class: 'linha' }, [
             el('button', { class: 'btn btn-primario', onclick: function () { baixarDoServidor(false); } }, [icone('baixar'), 'Exportar backup']),
             el('button', { class: 'btn', onclick: function () { baixarDoServidor(true); } }, [icone('clipe'), 'Exportar com PDFs']),
-            el('button', { class: 'btn', onclick: function () { importarNoServidor(); } }, [icone('subir'), 'Importar backup'])
+            admin ? el('button', { class: 'btn', onclick: function () { importarNoServidor(); } }, [icone('subir'), 'Importar backup']) : null
           ])
         ]) : secao('Backup', [el('p', { class: 't-pq t-medio' },
           'O servidor faz cópias automáticas todos os dias. Exportar, importar e restaurar ficam com o administrador do sistema.')]),
@@ -27910,10 +28454,13 @@ var DEMO = (function () {
    * em scrypt e quem corta o que cada perfil recebe é o servidor.
    *
    * `cadastro`: posição, entre os anestesistas ativos do cadastro, de quem este login assina o boletim
-   * (a secretária não assina).
+   * (a secretária não assina). O chefe da demonstração é o chefe principal.
+   *
+   * Na conta do chefe, a tela Usuários funciona de verdade: ele cria contas e decide as permissões de cada
+   * uma (inclusive das três fixas), e tudo fica guardado só neste navegador (CHAVE_CONTAS).
    */
   var CONTAS = [
-    { login: 'chefe', senha: 'chefe2026', perfil: 'chefe', nome: 'Anestesista chefe (demonstração)', cadastro: 0 },
+    { login: 'chefe', senha: 'chefe2026', perfil: 'chefe', nome: 'Anestesista chefe (demonstração)', cadastro: 0, principal: true },
     { login: 'anestesista', senha: 'anestesista2026', perfil: 'anestesista', nome: 'Anestesista (demonstração)', cadastro: 1 },
     { login: 'secretaria', senha: 'secretaria2026', perfil: 'secretaria', nome: 'Secretária (demonstração)', cadastro: null }
   ];
@@ -27934,20 +28481,160 @@ var DEMO = (function () {
     } catch (e) { /* janela privada: vale só até recarregar */ }
   }
 
+  /* Contas criadas pelo chefe e ajustes nas fixas: { novas: [conta], ajustes: { login: campos } }, só neste navegador. */
+  var CHAVE_CONTAS = 'anestesia.demo.contas';
+  var contasEmMemoria = { novas: [], ajustes: {} };
+
+  function lerGuardadas() {
+    try {
+      var g = JSON.parse(localStorage.getItem(CHAVE_CONTAS) || 'null');
+      if (g && Array.isArray(g.novas) && g.ajustes && typeof g.ajustes === 'object') return g;
+    } catch (e) { /* janela privada ou dado ilegível: vale o que está em memória */ }
+    return contasEmMemoria;
+  }
+
+  function gravarGuardadas(g) {
+    contasEmMemoria = g;
+    try { localStorage.setItem(CHAVE_CONTAS, JSON.stringify(g)); } catch (e) { /* janela privada: vale até recarregar */ }
+  }
+
+  /** As três fixas (com os ajustes do chefe) e as criadas por ele. */
+  function todasAsContas() {
+    var g = lerGuardadas();
+    var fixas = CONTAS.map(function (c) { return Object.assign({}, c, g.ajustes[c.login] || {}, { fixa: true }); });
+    return fixas.concat(g.novas.map(function (c) { return Object.assign({}, c); }));
+  }
+
   function contaPorLogin(login) {
     var l = txt(login).toLowerCase();
-    return CONTAS.filter(function (c) { return c.login === l; })[0] || null;
+    return todasAsContas().filter(function (c) { return c.login === l && c.ativo !== false; })[0] || null;
+  }
+
+  function senhaConfere(conta, senha) {
+    if (!conta) return false;
+    if (conta.fixa) return conta.senha === senha;
+    return conta.senhaSha === sha256Hex('demo:' + conta.login + ':' + senha);
   }
 
   /** Quem entrou nesta aba (ou null). */
   function contaAtiva() { return contaPorLogin(lerSessao()); }
 
-  /** ID do anestesista do cadastro em nome de quem esta conta assina o boletim ('' para a secretária). */
+  /**
+   * ID do anestesista do cadastro em nome de quem esta conta assina o boletim ('' sem "Assinar o boletim").
+   * Vínculo escolhido pelo chefe vale primeiro; nas fixas, sem escolha, a posição entre os ativos do cadastro.
+   */
   function idDoAssinante(conta, anestesistas) {
-    if (!conta || conta.cadastro === null) return '';
-    var ativos = (anestesistas || []).filter(function (a) { return ehSim(a.ativo); });
+    if (!conta || !pode({ papel: conta.perfil, permissoes: conta.permissoes }, 'boletim.assinar')) return '';
+    var lista = anestesistas || [];
+    if (conta.anestesistaId !== undefined) {
+      var escolhido = lista.filter(function (a) { return txt(a.id) === txt(conta.anestesistaId); })[0];
+      return escolhido ? txt(escolhido.id) : '';
+    }
+    if (conta.cadastro === null || conta.cadastro === undefined) return '';
+    var ativos = lista.filter(function (a) { return ehSim(a.ativo); });
     var a = ativos[conta.cadastro] || ativos[0];
     return a ? txt(a.id) : '';
+  }
+
+  /* ----------------------------------------- tela Usuários na demonstração -- */
+
+  function publico(c, anestesistas) {
+    var papel = perfilCanonico(c.perfil) || 'anestesista';
+    return { login: c.login, nome: c.nome, papel: papel, ativo: c.ativo !== false, principal: papel === 'chefe' && !!c.principal,
+      anestesistaId: idDoAssinante(c, anestesistas), permissoes: permissoesDe({ papel: papel, permissoes: c.permissoes }) };
+  }
+
+  function recusa(campo, msg) {
+    var e = new Error(msg);
+    e.erros = [{ campo: campo, msg: msg }];
+    return Promise.reject(e);
+  }
+
+  /**
+   * O mesmo contrato de SERVIDOR.admin (usuarios, salvarUsuario, transferirPrincipal), com as mesmas regras do
+   * servidor da clínica (server/contas.js), aplicadas aqui no navegador.
+   */
+  function admin(app) {
+    function anestesistas() { return app.store.estado.anestesistas; }
+    function eu() { return contaAtiva(); }
+    function souPrincipal() { var c = eu(); return !!(c && c.perfil === 'chefe' && c.principal); }
+
+    return {
+      usuarios: function () {
+        return Promise.resolve(todasAsContas().map(function (c) { return publico(c, anestesistas()); }));
+      },
+
+      salvarUsuario: function (pedido) {
+        var g = lerGuardadas();
+        var todas = todasAsContas();
+        var login = txt(pedido.login).toLowerCase();
+        var alvo = pedido.novo ? null : todas.filter(function (c) { return c.login === login; })[0];
+        if (!pedido.novo && !alvo) return recusa('login', 'Usuário não encontrado.');
+        var papel = perfilCanonico(pedido.papel) || (alvo ? alvo.perfil : 'anestesista');
+        if (!/^[a-z0-9._-]{3,30}$/.test(login)) return recusa('login', 'Login: 3 a 30 letras minúsculas, números, ponto, hífen ou sublinhado.');
+        if (pedido.novo && todas.some(function (c) { return c.login === login; })) return recusa('login', 'Já existe um usuário "' + login + '".');
+        var nome = txt(pedido.nome);
+        if (nome.length < 2 || nome.length > 80) return recusa('nome', 'Nome: de 2 a 80 letras.');
+        if (pedido.senha !== undefined || pedido.novo) {
+          if (alvo && alvo.fixa) return recusa('senha', 'A senha das três contas da demonstração não muda: ela está na tela de entrada.');
+          if (String(pedido.senha || '').length < 8) return recusa('senha', 'A senha precisa de pelo menos 8 caracteres.');
+        }
+        if ((papel === 'chefe' || (alvo && alvo.perfil === 'chefe')) && !souPrincipal()) {
+          return recusa('papel', 'Só o Anestesista chefe principal cria, altera ou rebaixa outro Anestesista chefe.');
+        }
+        var ativo = pedido.ativo === undefined ? (alvo ? alvo.ativo !== false : true) : !!pedido.ativo;
+        if (alvo && alvo.principal && (papel !== 'chefe' || !ativo)) {
+          return recusa('papel', 'Este é o Anestesista chefe principal: passe a função a outro chefe antes de tirá-lo.');
+        }
+        var permissoes;
+        if (papel !== 'chefe') {
+          var v = validarPermissoes(pedido.permissoes !== undefined ? pedido.permissoes : MODELOS_DE_PERMISSAO[papel]);
+          if (!v.ok) return recusa('permissoes', v.erros.map(function (e) { return e.msg; }).join(' '));
+          permissoes = v.lista;
+        }
+        var id = txt(pedido.anestesistaId);
+        if (id) {
+          if (!pode({ papel: papel, permissoes: permissoes }, 'boletim.assinar')) {
+            return recusa('anestesistaId', 'Este usuário não assina boletim (falta a permissão "Assinar o boletim"): não precisa ser ligado a um anestesista.');
+          }
+          if (!anestesistas().some(function (a) { return txt(a.id) === id; })) return recusa('anestesistaId', 'Esse anestesista não existe no cadastro.');
+          var outro = todas.filter(function (c) { return c.login !== login && idDoAssinante(c, anestesistas()) === id; })[0];
+          if (outro) return recusa('anestesistaId', 'Esse anestesista já está ligado ao usuário "' + outro.login + '".');
+        }
+        var campos = { nome: nome, perfil: papel, ativo: ativo, anestesistaId: id };
+        if (papel !== 'chefe') { campos.permissoes = permissoes; campos.principal = false; } else campos.permissoes = undefined;
+        if (pedido.novo) {
+          campos.login = login;
+          campos.senhaSha = sha256Hex('demo:' + login + ':' + pedido.senha);
+          g.novas.push(campos);
+        } else if (alvo.fixa) {
+          g.ajustes[login] = Object.assign({}, g.ajustes[login] || {}, campos);
+        } else {
+          g.novas = g.novas.map(function (c) {
+            if (c.login !== login) return c;
+            var novo = Object.assign({}, c, campos);
+            if (pedido.senha) novo.senhaSha = sha256Hex('demo:' + login + ':' + pedido.senha);
+            return novo;
+          });
+        }
+        gravarGuardadas(g);
+        return Promise.resolve({ ok: true });
+      },
+
+      transferirPrincipal: function (login) {
+        if (!souPrincipal()) return recusa('principal', 'Só o Anestesista chefe principal passa a função.');
+        var alvo = todasAsContas().filter(function (c) { return c.login === login; })[0];
+        if (!alvo || alvo.perfil !== 'chefe' || alvo.ativo === false) return recusa('principal', 'A função de principal só passa para outro Anestesista chefe ativo.');
+        var g = lerGuardadas();
+        todasAsContas().forEach(function (c) {
+          var principal = c.login === alvo.login;
+          if (c.fixa) g.ajustes[c.login] = Object.assign({}, g.ajustes[c.login] || {}, { principal: principal });
+        });
+        g.novas = g.novas.map(function (c) { return Object.assign({}, c, { principal: c.login === alvo.login }); });
+        gravarGuardadas(g);
+        return Promise.resolve({ ok: true });
+      }
+    };
   }
 
   /** Promessa que se cumpre com a conta de quem entrou (na hora, se esta aba já tinha entrado). */
@@ -27990,7 +28677,7 @@ var DEMO = (function () {
         if (!txt(d.login)) { fLogin.erro('Informe o login.'); fLogin.input.focus(); return; }
         if (!d.senha) { fSenha.erro('Informe a senha.'); fSenha.input.focus(); return; }
         var conta = contaPorLogin(d.login);
-        if (!conta || conta.senha !== d.senha) {
+        if (!conta || !senhaConfere(conta, d.senha)) {
           UI.preencher(aviso, [icone('alerta'), el('div', { class: 'aviso-corpo' },
             'Login ou senha não conferem. Use uma das três contas de demonstração abaixo.')]);
           aviso.hidden = false;
@@ -28031,6 +28718,7 @@ var DEMO = (function () {
       contas,
       el('p', { class: 't-mpq t-suave entrada-demo-nota' },
         'As senhas estão aqui de propósito: é uma página pública, e o que você lança fica só neste navegador. ' +
+        'As contas que o chefe criar na tela Usuários também entram aqui, com o login e a senha que ele definir. ' +
         'No sistema da clínica, cada pessoa tem a sua senha e quem corta o que cada perfil vê é o servidor.')
     ]));
     document.body.appendChild(pagina);
@@ -28051,7 +28739,7 @@ var DEMO = (function () {
     var assina = contextoDeAssinatura(idDoAssinante(c, app.store.estado.anestesistas), app.store.estado.anestesistas).anestesista;
     UI.abrirModal({
       titulo: c.nome,
-      sub: 'Login ' + c.login + ' · ' + p.rotulo,
+      sub: 'Login ' + c.login + ' · ' + rotuloDoAcesso({ papel: c.perfil, permissoes: c.permissoes }) + (c.principal ? ' (principal)' : ''),
       tamanho: 'estreito',
       corpo: [
         el('p', { class: 'sem-margem t-pq t-medio' }, p.resumo),
@@ -28066,7 +28754,8 @@ var DEMO = (function () {
 
   return {
     popular: popular, limpar: limpar, MARCA: MARCA,
-    CONTAS: CONTAS, entrar: entrar, contaAtiva: contaAtiva, idDoAssinante: idDoAssinante, menuConta: menuConta, sair: sair
+    CONTAS: CONTAS, entrar: entrar, contaAtiva: contaAtiva, idDoAssinante: idDoAssinante, menuConta: menuConta, sair: sair,
+    admin: admin, todasAsContas: todasAsContas
   };
 })();
 
@@ -28116,8 +28805,8 @@ var APP = (function () {
     { chave: 'clinica',      rotulo: 'Clínica e termo',    icone: 'nota',         grupo: 'Cadastro' },
     { chave: 'integridade',  rotulo: 'Integridade',        icone: 'escudo',       grupo: 'Cadastro' },
     { chave: 'log',          rotulo: 'Auditoria',          icone: 'historico',    grupo: 'Cadastro' },
-    // Só no servidor da clínica, só para o administrador.
-    { chave: 'usuarios',     rotulo: 'Usuários',           icone: 'cadeado',      grupo: 'Cadastro', soAdminServidor: true }
+    // Só no servidor da clínica e na demonstração (onde há login), só para o Anestesista chefe.
+    { chave: 'usuarios',     rotulo: 'Usuários',           icone: 'cadeado',      grupo: 'Cadastro', soComLogin: true }
   ];
 
   var SUBTITULOS = {
@@ -28164,7 +28853,22 @@ var APP = (function () {
      * demonstração por perfil (demo_online.js).
      */
     contaDemo: null,
+    /** Quem está usando, como o core entende: a conta do servidor, a da demonstração ou o chefe (computador único). */
+    quem: function () {
+      if (app.servidor) return SERVIDOR.usuario();
+      if (app.contaDemo) {
+        var c = app.contaDemo;
+        return { login: c.login, nome: c.nome, papel: c.perfil, permissoes: c.permissoes, principal: !!c.principal,
+          anestesistaId: app.store ? DEMO.idDoAssinante(c, app.store.estado.anestesistas) : '' };
+      }
+      return 'chefe';
+    },
     perfil: function () { return app.servidor ? SERVIDOR.perfil() : (app.contaDemo ? app.contaDemo.perfil : 'chefe'); },
+    /** Tem esta permissão do catálogo (core/12b_permissoes.js)? */
+    pode: function (permissao) { return pode(app.quem(), permissao); },
+    ehChefe: function () { return app.perfil() === 'chefe'; },
+    /** Usuários e permissões (tela Usuários): os do servidor da clínica, ou os da demonstração, guardados no navegador. */
+    contas: function () { return app.servidor ? SERVIDOR.admin : DEMO.admin(app); },
     /** Tem login (servidor da clínica ou conta de demonstração): o boletim sai no nome de quem entrou. */
     temLogin: function () { return !!(app.servidor || app.contaDemo); },
     /** ID, no cadastro, do anestesista ligado a quem entrou ('' sem vínculo ou sem login). */
@@ -28172,10 +28876,11 @@ var APP = (function () {
       if (app.servidor) return SERVIDOR.usuario().anestesistaId || '';
       return app.contaDemo && app.store ? DEMO.idDoAssinante(app.contaDemo, app.store.estado.anestesistas) : '';
     },
-    podeVer: function (tela) { return perfilPodeVerTela(app.perfil(), tela); },
-    veFinanceiro: function () { return perfilVeFinanceiro(app.perfil()); },
-    ehCoordenacao: function () { return perfilEhCoordenacao(app.perfil()); },
-    podeFazer: function (operacao) { return perfilPodeExecutar(app.perfil(), operacao, []).ok; },
+    podeVer: function (tela) { return perfilPodeVerTela(app.quem(), tela); },
+    veFinanceiro: function () { return app.pode('financeiro.ver'); },
+    editaFinanceiro: function () { return app.pode('financeiro.editar'); },
+    ehCoordenacao: function () { return app.pode('qualidade.coordenar'); },
+    podeFazer: function (operacao) { return perfilPodeExecutar(app.quem(), operacao, []).ok; },
 
     filtros: {
       cirurgias:   { texto: '', status: '', anestesista: '', todosOsMeses: false },
@@ -28270,9 +28975,12 @@ var APP = (function () {
     redesenhar();
 
     ANEXOS.usarServidor(SERVIDOR.anexos);
-    ANEXOS.iniciar().then(function () { redesenhar(); }, function (e) {
-      UI.atencao('Exames indisponíveis', e && e.message);
-    });
+    // Sem "Abrir os exames do paciente" o servidor recusa a lista: nem pede.
+    if (app.pode('exames.ver')) {
+      ANEXOS.iniciar().then(function () { redesenhar(); }, function (e) {
+        UI.atencao('Exames indisponíveis', e && e.message);
+      });
+    }
     SERVIDOR.conectar(app);
     ligarAtalhos();
   }
@@ -28403,7 +29111,7 @@ var APP = (function () {
       var original = store[nome];
       store[nome] = function () {
         var args = Array.prototype.slice.call(arguments);
-        var perm = perfilPodeExecutar(app.perfil(), nome, args, contextoDeAssinatura(app.idDoAssinante(), store.estado.anestesistas));
+        var perm = perfilPodeExecutar(app.quem(), nome, args, contextoDeAssinatura(app.idDoAssinante(), store.estado.anestesistas));
         if (!perm.ok) return { ok: false, erros: [{ campo: '', msg: perm.erro }], avisos: [] };
         return original.apply(store, args);
       };
@@ -28496,10 +29204,10 @@ var APP = (function () {
       el('div', { class: 'topo-titulo' }, [nos.tituloTela, nos.subTela]),
       el('div', { class: 'topo-acoes' }, [
         nos.seletorMes,
-        el('button', {
+        app.pode('cirurgias.editar') ? el('button', {
           class: 'btn btn-primario',
           onclick: function () { TELAS.cirurgias.form(app, null); }
-        }, [icone('mais'), el('span', { class: 'rotulo-botao' }, 'Nova cirurgia')]),
+        }, [icone('mais'), el('span', { class: 'rotulo-botao' }, 'Nova cirurgia')]) : null,
         app.podeVer('dados') ? el('button', {
           class: 'btn btn-icone', title: 'Dados e backup', 'aria-label': 'Dados e backup',
           onclick: function () { TELAS.dados.abrir(app); }
@@ -28527,7 +29235,7 @@ var APP = (function () {
       icone('info'),
       el('div', { style: 'flex:1;min-width:0' }, [
         el('strong', null, 'Versão online de demonstração. '),
-        app.contaDemo ? 'Você entrou como ' + PERFIS[app.contaDemo.perfil].rotulo + '. ' : null,
+        app.contaDemo ? 'Você entrou como ' + rotuloDoAcesso(app.quem()) + '. ' : null,
         'O que você lançar aqui fica só neste navegador. As cirurgias marcadas EXEMPLO são fictícias.'
       ]),
       app.contaDemo ? el('button', {
@@ -28585,9 +29293,9 @@ var APP = (function () {
     montarNav();
   }
 
-  /** Telas que esta pessoa vê: as do perfil dela (Usuários só existe no servidor da clínica). */
+  /** Telas que esta pessoa vê: as das permissões dela (Usuários só existe onde há login). */
   function telasVisiveis() {
-    return TELAS_DEF.filter(function (t) { return (!t.soAdminServidor || app.servidor) && app.podeVer(t.chave); });
+    return TELAS_DEF.filter(function (t) { return (!t.soComLogin || app.temLogin()) && app.podeVer(t.chave); });
   }
 
   function montarNav() {
